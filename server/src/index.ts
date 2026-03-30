@@ -15,6 +15,7 @@ import quotesRouter from './routes/quotes.js'
 import promotionsRouter from './routes/promotions.js'
 import systemOpsRouter from './routes/systemOps.js'
 import aiRouter from './routes/ai.js'
+import catalogRouter from './routes/catalog.js'
 
 const app = express()
 
@@ -38,6 +39,7 @@ app.use('/api/quotes', quotesRouter)
 app.use('/api/promotions', promotionsRouter)
 app.use('/api/system', systemOpsRouter)
 app.use('/api/ai', aiRouter)
+app.use('/api/catalog', catalogRouter)
 
 // Global error handler — prevents unhandled DB/Prisma errors from crashing the process
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

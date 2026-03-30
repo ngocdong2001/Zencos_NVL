@@ -1,5 +1,7 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { FocusEvent, KeyboardEvent, MouseEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent } from 'react'
+import { DataTable } from 'primereact/datatable'
+import { Column } from 'primereact/column'
 import type { BasicRow, MaterialRow, TabId } from './types'
 
 const NEW_ID = '__new__'
@@ -20,6 +22,8 @@ type Props = {
   allVisibleSelected: boolean
   pagedMaterials: MaterialRow[]
   pagedBasics: BasicRow[]
+  classifications: BasicRow[]
+  units: BasicRow[]
   onToggleSelectAll: (checked: boolean) => void
   onToggleSelectRow: (id: string, checked: boolean) => void
   onSaveMaterial: (row: MaterialRow) => void
@@ -32,6 +36,7 @@ type Props = {
 export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   function CatalogDataGrid(
     { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics,
+      classifications, units,
       onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete,
       nextMatCode, nextBasicCode },
     ref,
@@ -40,6 +45,60 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     const [matDraft, setMatDraft] = useState<MatDraft>({ ...emptyMat })
     const [basicDraft, setBasicDraft] = useState<BasicDraft>({ ...emptyBasic })
     const firstEditRef = useRef<HTMLInputElement>(null)
+    const isMat = activeTab === 'materials'
+
+    const classificationNameByCode = useMemo(
+      () => new Map(classifications.map((item) => [item.code, item.name])),
+      [classifications],
+    )
+    const unitNameByCode = useMemo(
+      () => new Map(units.map((item) => [item.code, item.name])),
+      [units],
+    )
+
+    const materialRows = useMemo<MaterialRow[]>(() => {
+      if (!isMat) return pagedMaterials
+      const newRow: MaterialRow = editingId === NEW_ID
+        ? {
+            id: NEW_ID,
+            code: matDraft.code || nextMatCode,
+            inciName: matDraft.inciName,
+            materialName: matDraft.materialName,
+            category: matDraft.category,
+            unit: matDraft.unit,
+            status: matDraft.status || 'Active',
+          }
+        : {
+            id: NEW_ID,
+            code: '',
+            inciName: '',
+            materialName: '',
+            category: '',
+            unit: '',
+            status: '',
+          }
+      return [...pagedMaterials, newRow]
+    }, [editingId, isMat, matDraft, nextMatCode, pagedMaterials])
+
+    const basicRows = useMemo<BasicRow[]>(() => {
+      if (isMat) return pagedBasics
+      const newRow: BasicRow = editingId === NEW_ID
+        ? {
+            id: NEW_ID,
+            code: basicDraft.code || nextBasicCode,
+            name: basicDraft.name,
+            note: basicDraft.note,
+            status: basicDraft.status || 'Active',
+          }
+        : {
+            id: NEW_ID,
+            code: '',
+            name: '',
+            note: '',
+            status: '',
+          }
+      return [...pagedBasics, newRow]
+    }, [basicDraft, editingId, isMat, nextBasicCode, pagedBasics])
 
     // Cancel any edit when tab changes
     useEffect(() => {
@@ -105,204 +164,346 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       setBasicDraft({ ...emptyBasic })
     }
 
-    // ── Row blur (auto-save on focus-out) ─────────────────────────────
-
-    function handleMatBlur(e: FocusEvent<HTMLTableRowElement>, rowId: string) {
-      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
-      commitMat(rowId === NEW_ID ? null : (pagedMaterials.find((r) => r.id === rowId) ?? null))
+    function cancelMatEdit() {
+      setEditingId(null)
+      setMatDraft({ ...emptyMat })
     }
 
-    function handleBasicBlur(e: FocusEvent<HTMLTableRowElement>, rowId: string) {
-      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
-      commitBasic(rowId === NEW_ID ? null : (pagedBasics.find((r) => r.id === rowId) ?? null))
+    function cancelBasicEdit() {
+      setEditingId(null)
+      setBasicDraft({ ...emptyBasic })
     }
 
-    // ── Keyboard (Enter = commit, Escape = cancel) ────────────────────
-
-    function handleMatKbd(e: KeyboardEvent<HTMLTableRowElement>, rowId: string) {
-      if (e.key === 'Escape') { e.stopPropagation(); setEditingId(null); setMatDraft({ ...emptyMat }) }
-      if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button')) {
-        e.preventDefault()
-        commitMat(rowId === NEW_ID ? null : (pagedMaterials.find((r) => r.id === rowId) ?? null))
+    function handleMatInputKeyDown(event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelMatEdit()
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        const original = editingId && editingId !== NEW_ID
+          ? (pagedMaterials.find((row) => row.id === editingId) ?? null)
+          : null
+        commitMat(original)
       }
     }
 
-    function handleBasicKbd(e: KeyboardEvent<HTMLTableRowElement>, rowId: string) {
-      if (e.key === 'Escape') { e.stopPropagation(); setEditingId(null); setBasicDraft({ ...emptyBasic }) }
-      if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button')) {
-        e.preventDefault()
-        commitBasic(rowId === NEW_ID ? null : (pagedBasics.find((r) => r.id === rowId) ?? null))
+    function handleBasicInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelBasicEdit()
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        const original = editingId && editingId !== NEW_ID
+          ? (pagedBasics.find((row) => row.id === editingId) ?? null)
+          : null
+        commitBasic(original)
       }
     }
 
-    // ── Start editing existing row on click ───────────────────────────
-
-    function startEditMat(row: MaterialRow, e: MouseEvent) {
-      if ((e.target as HTMLElement).closest('.actions, input[type="checkbox"]')) return
+    function startEditMat(row: MaterialRow) {
       setEditingId(row.id)
       setMatDraft({ code: row.code, inciName: row.inciName, materialName: row.materialName,
         category: row.category, unit: row.unit, status: row.status })
     }
 
-    function startEditBasic(row: BasicRow, e: MouseEvent) {
-      if ((e.target as HTMLElement).closest('.actions, input[type="checkbox"]')) return
+    function startEditBasic(row: BasicRow) {
       setEditingId(row.id)
       setBasicDraft({ code: row.code, name: row.name, note: row.note, status: row.status })
     }
 
-    const isMat = activeTab === 'materials'
+    function materialSelectionBody(row: MaterialRow) {
+      if (row.id === NEW_ID) {
+        return <span className="new-row-marker">*</span>
+      }
+      return (
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(row.id)}
+          onChange={(event) => onToggleSelectRow(row.id, event.target.checked)}
+        />
+      )
+    }
 
-    // ── Render ────────────────────────────────────────────────────────
+    function basicSelectionBody(row: BasicRow) {
+      if (row.id === NEW_ID) {
+        return <span className="new-row-marker">*</span>
+      }
+      return (
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(row.id)}
+          onChange={(event) => onToggleSelectRow(row.id, event.target.checked)}
+        />
+      )
+    }
+
+    function materialCodeBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) {
+        return (
+          <button type="button" className="new-row-link" onClick={activateNewRow}>
+            Nhấp để thêm dòng mới...
+          </button>
+        )
+      }
+      if (editingId !== row.id) return row.code
+      return (
+        <input
+          ref={firstEditRef}
+          value={matDraft.code}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, code: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+        />
+      )
+    }
+
+    function materialInciBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return row.inciName
+      return (
+        <input
+          value={matDraft.inciName}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, inciName: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+          placeholder="INCI name *"
+        />
+      )
+    }
+
+    function materialNameBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return row.materialName
+      return (
+        <input
+          value={matDraft.materialName}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, materialName: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+          placeholder="Tên nguyên liệu *"
+        />
+      )
+    }
+
+    function materialCategoryBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return classificationNameByCode.get(row.category) ?? row.category
+      return (
+        <select
+          value={matDraft.category}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, category: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+        >
+          <option value="">-- Chọn --</option>
+          {classifications.map((item) => (
+            <option key={item.id} value={item.code}>{item.name}</option>
+          ))}
+        </select>
+      )
+    }
+
+    function materialUnitBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return unitNameByCode.get(row.unit) ?? row.unit
+      return (
+        <select
+          value={matDraft.unit}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, unit: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+        >
+          <option value="">-- Chọn --</option>
+          {units.map((item) => (
+            <option key={item.id} value={item.code}>{item.name}</option>
+          ))}
+        </select>
+      )
+    }
+
+    function materialStatusBody(row: MaterialRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) {
+        return <span className="status-pill">{row.status}</span>
+      }
+      return (
+        <input
+          value={matDraft.status}
+          onChange={(event) => setMatDraft((draft) => ({ ...draft, status: event.target.value }))}
+          onKeyDown={handleMatInputKeyDown}
+        />
+      )
+    }
+
+    function basicCodeBody(row: BasicRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) {
+        return (
+          <button type="button" className="new-row-link" onClick={activateNewRow}>
+            Nhấp để thêm dòng mới...
+          </button>
+        )
+      }
+      if (editingId !== row.id) return row.code
+      return (
+        <input
+          ref={firstEditRef}
+          value={basicDraft.code}
+          onChange={(event) => setBasicDraft((draft) => ({ ...draft, code: event.target.value }))}
+          onKeyDown={handleBasicInputKeyDown}
+        />
+      )
+    }
+
+    function basicNameBody(row: BasicRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return row.name
+      return (
+        <input
+          value={basicDraft.name}
+          onChange={(event) => setBasicDraft((draft) => ({ ...draft, name: event.target.value }))}
+          onKeyDown={handleBasicInputKeyDown}
+          placeholder="Tên *"
+        />
+      )
+    }
+
+    function basicNoteBody(row: BasicRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) return row.note
+      return (
+        <input
+          value={basicDraft.note}
+          onChange={(event) => setBasicDraft((draft) => ({ ...draft, note: event.target.value }))}
+          onKeyDown={handleBasicInputKeyDown}
+        />
+      )
+    }
+
+    function basicStatusBody(row: BasicRow) {
+      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
+      if (editingId !== row.id) {
+        return <span className="status-pill">{row.status}</span>
+      }
+      return (
+        <input
+          value={basicDraft.status}
+          onChange={(event) => setBasicDraft((draft) => ({ ...draft, status: event.target.value }))}
+          onKeyDown={handleBasicInputKeyDown}
+        />
+      )
+    }
+
+    function materialActionsBody(row: MaterialRow) {
+      if (editingId === row.id) {
+        return (
+          <div className="actions">
+            <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={cancelMatEdit}>✕</button>
+            <button
+              type="button"
+              className="icon-btn save-btn"
+              title="Lưu (Enter)"
+              onClick={() => commitMat(row.id === NEW_ID ? null : row)}
+            >
+              ✔
+            </button>
+          </div>
+        )
+      }
+
+      if (row.id === NEW_ID) {
+        return (
+          <div className="actions">
+            <button type="button" className="icon-btn" title="Thêm mới" onClick={activateNewRow}>✚</button>
+          </div>
+        )
+      }
+
+      return (
+        <div className="actions">
+          <button type="button" className="icon-btn" title="Sửa" onClick={() => startEditMat(row)}>✎</button>
+          <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(row.id)}>🗑</button>
+        </div>
+      )
+    }
+
+    function basicActionsBody(row: BasicRow) {
+      if (editingId === row.id) {
+        return (
+          <div className="actions">
+            <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={cancelBasicEdit}>✕</button>
+            <button
+              type="button"
+              className="icon-btn save-btn"
+              title="Lưu (Enter)"
+              onClick={() => commitBasic(row.id === NEW_ID ? null : row)}
+            >
+              ✔
+            </button>
+          </div>
+        )
+      }
+
+      if (row.id === NEW_ID) {
+        return (
+          <div className="actions">
+            <button type="button" className="icon-btn" title="Thêm mới" onClick={activateNewRow}>✚</button>
+          </div>
+        )
+      }
+
+      return (
+        <div className="actions">
+          <button type="button" className="icon-btn" title="Sửa" onClick={() => startEditBasic(row)}>✎</button>
+          <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(row.id)}>🗑</button>
+        </div>
+      )
+    }
+
     return (
       <section className="data-grid-wrap">
         {isMat ? (
-          <table className="catalog-table">
-            <thead>
-              <tr>
-                <th><input type="checkbox" checked={allVisibleSelected} onChange={(e) => onToggleSelectAll(e.target.checked)} /></th>
-                <th>MÃ NVL</th>
-                <th>INCI NAME</th>
-                <th>Tên Nguyên liệu</th>
-                <th>Phân loại</th>
-                <th>Đơn vị</th>
-                <th>Trạng thái</th>
-                <th className="actions">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedMaterials.map((row, index) =>
-                editingId === row.id ? (
-                  // ── Editing existing material row
-                  <tr key={row.id} className="editing-row"
-                    onBlur={(e) => handleMatBlur(e, row.id)}
-                    onKeyDown={(e) => handleMatKbd(e, row.id)}
-                  >
-                    <td><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => onToggleSelectRow(row.id, e.target.checked)} /></td>
-                    <td><input ref={firstEditRef} value={matDraft.code} onChange={(e) => setMatDraft((d) => ({ ...d, code: e.target.value }))} /></td>
-                    <td><input value={matDraft.inciName} onChange={(e) => setMatDraft((d) => ({ ...d, inciName: e.target.value }))} placeholder="INCI name *" /></td>
-                    <td><input value={matDraft.materialName} onChange={(e) => setMatDraft((d) => ({ ...d, materialName: e.target.value }))} placeholder="Tên NVL *" /></td>
-                    <td><input value={matDraft.category} onChange={(e) => setMatDraft((d) => ({ ...d, category: e.target.value }))} placeholder="Phân loại *" /></td>
-                    <td><input value={matDraft.unit} onChange={(e) => setMatDraft((d) => ({ ...d, unit: e.target.value }))} placeholder="Đơn vị *" /></td>
-                    <td><input value={matDraft.status} onChange={(e) => setMatDraft((d) => ({ ...d, status: e.target.value }))} /></td>
-                    <td className="actions">
-                      <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={() => { setEditingId(null); setMatDraft({ ...emptyMat }) }}>✕</button>
-                      <button type="button" className="icon-btn save-btn" title="Lưu (Enter)" onClick={() => commitMat(row)}>✔</button>
-                    </td>
-                  </tr>
-                ) : (
-                  // ── Display material row (click to edit)
-                  <tr key={row.id} className={`data-row${index % 2 === 1 ? ' is-alt' : ''}`} onClick={(e) => startEditMat(row, e)}>
-                    <td><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => onToggleSelectRow(row.id, e.target.checked)} /></td>
-                    <td>{row.code}</td>
-                    <td>{row.inciName}</td>
-                    <td>{row.materialName}</td>
-                    <td>{row.category}</td>
-                    <td>{row.unit}</td>
-                    <td><span className="status-pill">{row.status}</span></td>
-                    <td className="actions">
-                      <button type="button" className="icon-btn" onClick={() => onDelete(row.id)}>🗑</button>
-                    </td>
-                  </tr>
-                ),
-              )}
-
-              {/* ── Access-style new row ── */}
-              {editingId === NEW_ID ? (
-                <tr className="editing-row new-row"
-                  onBlur={(e) => handleMatBlur(e, NEW_ID)}
-                  onKeyDown={(e) => handleMatKbd(e, NEW_ID)}
-                >
-                  <td className="new-row-marker">✎</td>
-                  <td><input ref={firstEditRef} value={matDraft.code} onChange={(e) => setMatDraft((d) => ({ ...d, code: e.target.value }))} placeholder="Mã NVL..." /></td>
-                  <td><input value={matDraft.inciName} onChange={(e) => setMatDraft((d) => ({ ...d, inciName: e.target.value }))} placeholder="INCI name *" /></td>
-                  <td><input value={matDraft.materialName} onChange={(e) => setMatDraft((d) => ({ ...d, materialName: e.target.value }))} placeholder="Tên nguyên liệu *" /></td>
-                  <td><input value={matDraft.category} onChange={(e) => setMatDraft((d) => ({ ...d, category: e.target.value }))} placeholder="Phân loại *" /></td>
-                  <td><input value={matDraft.unit} onChange={(e) => setMatDraft((d) => ({ ...d, unit: e.target.value }))} placeholder="Đơn vị *" /></td>
-                  <td><input value={matDraft.status} onChange={(e) => setMatDraft((d) => ({ ...d, status: e.target.value }))} placeholder="Active" /></td>
-                  <td className="actions">
-                    <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={() => { setEditingId(null); setMatDraft({ ...emptyMat }) }}>✕</button>
-                    <button type="button" className="icon-btn save-btn" title="Lưu (Enter)" onClick={() => commitMat(null)}>✔</button>
-                  </td>
-                </tr>
-              ) : (
-                <tr className="new-row" tabIndex={0} onClick={activateNewRow} onFocus={activateNewRow}>
-                  <td className="new-row-marker">*</td>
-                  <td colSpan={6} className="new-row-hint">Nhấp để thêm dòng mới...</td>
-                  <td className="actions" />
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <>
+            <DataTable
+              value={materialRows}
+              dataKey="id"
+              stripedRows
+              showGridlines
+              className="catalog-table prime-catalog-table"
+              rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
+            >
+              <Column
+                header={<input type="checkbox" checked={allVisibleSelected} onChange={(event) => onToggleSelectAll(event.target.checked)} />}
+                body={materialSelectionBody}
+                style={{ width: '42px' }}
+              />
+              <Column field="code" header="MÃ NVL" body={materialCodeBody} sortable />
+              <Column field="inciName" header="INCI NAME" body={materialInciBody} sortable />
+              <Column field="materialName" header="Tên Nguyên liệu" body={materialNameBody} sortable />
+              <Column field="category" header="Phân loại" body={materialCategoryBody} sortable />
+              <Column field="unit" header="Đơn vị" body={materialUnitBody} sortable />
+              <Column field="status" header="Trạng thái" body={materialStatusBody} sortable />
+              <Column header="Thao tác" body={materialActionsBody} style={{ width: '120px' }} />
+            </DataTable>
+          </>
         ) : (
-          <table className="catalog-table basic-table">
-            <thead>
-              <tr>
-                <th><input type="checkbox" checked={allVisibleSelected} onChange={(e) => onToggleSelectAll(e.target.checked)} /></th>
-                <th>Mã</th>
-                <th>Tên</th>
-                <th>Ghi chú</th>
-                <th>Trạng thái</th>
-                <th className="actions">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedBasics.map((row, index) =>
-                editingId === row.id ? (
-                  // ── Editing existing basic row
-                  <tr key={row.id} className="editing-row"
-                    onBlur={(e) => handleBasicBlur(e, row.id)}
-                    onKeyDown={(e) => handleBasicKbd(e, row.id)}
-                  >
-                    <td><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => onToggleSelectRow(row.id, e.target.checked)} /></td>
-                    <td><input ref={firstEditRef} value={basicDraft.code} onChange={(e) => setBasicDraft((d) => ({ ...d, code: e.target.value }))} /></td>
-                    <td><input value={basicDraft.name} onChange={(e) => setBasicDraft((d) => ({ ...d, name: e.target.value }))} placeholder="Tên *" /></td>
-                    <td><input value={basicDraft.note} onChange={(e) => setBasicDraft((d) => ({ ...d, note: e.target.value }))} /></td>
-                    <td><input value={basicDraft.status} onChange={(e) => setBasicDraft((d) => ({ ...d, status: e.target.value }))} /></td>
-                    <td className="actions">
-                      <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={() => { setEditingId(null); setBasicDraft({ ...emptyBasic }) }}>✕</button>
-                      <button type="button" className="icon-btn save-btn" title="Lưu (Enter)" onClick={() => commitBasic(row)}>✔</button>
-                    </td>
-                  </tr>
-                ) : (
-                  // ── Display basic row (click to edit)
-                  <tr key={row.id} className={`data-row${index % 2 === 1 ? ' is-alt' : ''}`} onClick={(e) => startEditBasic(row, e)}>
-                    <td><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => onToggleSelectRow(row.id, e.target.checked)} /></td>
-                    <td>{row.code}</td>
-                    <td>{row.name}</td>
-                    <td>{row.note}</td>
-                    <td><span className="status-pill">{row.status}</span></td>
-                    <td className="actions">
-                      <button type="button" className="icon-btn" onClick={() => onDelete(row.id)}>🗑</button>
-                    </td>
-                  </tr>
-                ),
-              )}
-
-              {/* ── Access-style new row ── */}
-              {editingId === NEW_ID ? (
-                <tr className="editing-row new-row"
-                  onBlur={(e) => handleBasicBlur(e, NEW_ID)}
-                  onKeyDown={(e) => handleBasicKbd(e, NEW_ID)}
-                >
-                  <td className="new-row-marker">✎</td>
-                  <td><input ref={firstEditRef} value={basicDraft.code} onChange={(e) => setBasicDraft((d) => ({ ...d, code: e.target.value }))} placeholder="Mã..." /></td>
-                  <td><input value={basicDraft.name} onChange={(e) => setBasicDraft((d) => ({ ...d, name: e.target.value }))} placeholder="Tên *" /></td>
-                  <td><input value={basicDraft.note} onChange={(e) => setBasicDraft((d) => ({ ...d, note: e.target.value }))} /></td>
-                  <td><input value={basicDraft.status} onChange={(e) => setBasicDraft((d) => ({ ...d, status: e.target.value }))} placeholder="Active" /></td>
-                  <td className="actions">
-                    <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={() => { setEditingId(null); setBasicDraft({ ...emptyBasic }) }}>✕</button>
-                    <button type="button" className="icon-btn save-btn" title="Lưu (Enter)" onClick={() => commitBasic(null)}>✔</button>
-                  </td>
-                </tr>
-              ) : (
-                <tr className="new-row" tabIndex={0} onClick={activateNewRow} onFocus={activateNewRow}>
-                  <td className="new-row-marker">*</td>
-                  <td colSpan={4} className="new-row-hint">Nhấp để thêm dòng mới...</td>
-                  <td className="actions" />
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <>
+            <DataTable
+              value={basicRows}
+              dataKey="id"
+              stripedRows
+              showGridlines
+              className="catalog-table prime-catalog-table basic-table"
+              rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
+            >
+              <Column
+                header={<input type="checkbox" checked={allVisibleSelected} onChange={(event) => onToggleSelectAll(event.target.checked)} />}
+                body={basicSelectionBody}
+                style={{ width: '42px' }}
+              />
+              <Column field="code" header="Mã" body={basicCodeBody} sortable />
+              <Column field="name" header="Tên" body={basicNameBody} sortable />
+              <Column field="note" header="Ghi chú" body={basicNoteBody} sortable />
+              <Column field="status" header="Trạng thái" body={basicStatusBody} sortable />
+              <Column header="Thao tác" body={basicActionsBody} style={{ width: '120px' }} />
+            </DataTable>
+          </>
         )}
       </section>
     )

@@ -393,6 +393,88 @@ input {
   overflow: auto;
 }
 
+.prime-catalog-table .p-datatable-wrapper {
+  overflow: auto;
+}
+
+.prime-catalog-table .p-datatable-table {
+  min-width: 980px;
+  table-layout: fixed;
+}
+
+.prime-catalog-table .p-datatable-thead > tr > th {
+  font-weight: 600;
+  background: rgba(243, 244, 246, 0.5);
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  padding: 14px 10px;
+  white-space: nowrap;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td {
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  padding: 10px;
+  vertical-align: middle;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td:first-child,
+.prime-catalog-table .p-datatable-thead > tr > th:first-child {
+  width: 42px;
+  padding-left: 16px;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td:not(:last-child) {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr:hover {
+  background: rgba(82, 105, 224, 0.04);
+}
+
+.prime-catalog-table input,
+.prime-catalog-table select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  padding: 0 8px;
+  outline: none;
+  font-size: 14px;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.prime-catalog-table input:focus,
+.prime-catalog-table select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
+}
+
+.new-row-cta-wrap {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.prime-catalog-table .new-row-link {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.prime-catalog-table .new-row-link:hover {
+  color: var(--primary);
+}
+
 .catalog-table {
   width: 100%;
   min-width: 980px;

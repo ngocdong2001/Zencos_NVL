@@ -1,0 +1,356 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductType {
+  raw_material
+  packaging
+}
+
+enum ProductDocType {
+  MSDS
+  Spec
+  Other
+}
+
+enum BatchStatus {
+  available
+  quarantine
+  rejected
+  expired
+}
+
+enum BatchDocType {
+  Invoice
+  COA
+  Other
+}
+
+enum ExportOrderStatus {
+  pending
+  fulfilled
+  cancelled
+}
+
+enum InventoryTransactionType {
+  import
+  export
+  adjustment
+}
+
+enum PurchaseRequestStatus {
+  draft
+  submitted
+  approved
+  ordered
+  received
+  cancelled
+}
+
+model User {
+  id           BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  email        String           @unique @db.VarChar(191)
+  passwordHash String           @map("password_hash") @db.VarChar(255)
+  fullName     String           @map("full_name") @db.VarChar(191)
+  role         String           @default("warehouse_staff") @db.VarChar(50)
+  isActive     Boolean          @default(true) @map("is_active")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  productDocuments ProductDocument[]
+  batchDocuments   BatchDocument[]
+  exportOrders     ExportOrder[]
+  inventoryTransactions InventoryTransaction[]
+  requestedPurchaseRequests PurchaseRequest[] @relation("PurchaseRequestRequestedBy")
+  approvedPurchaseRequests  PurchaseRequest[] @relation("PurchaseRequestApprovedBy")
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Product {
+  id             BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  code           String           @unique @db.VarChar(100)
+  name           String           @db.VarChar(255)
+  inciName       String?          @map("inci_name") @db.VarChar(255)
+  productType    ProductType      @map("product_type")
+  hasExpiry      Boolean          @default(true) @map("has_expiry")
+  useFefo        Boolean          @default(true) @map("use_fefo")
+  baseUnit       String           @default("GR") @map("base_unit") @db.VarChar(20)
+  minStockLevel  Decimal          @default(0) @map("min_stock_level") @db.Decimal(15, 4)
+  notes          String?          @db.Text
+  deletedAt      DateTime?        @map("deleted_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  productUnits   ProductUnit[]
+  productDocuments ProductDocument[]
+  batches        Batch[]
+  exportOrderItems ExportOrderItem[]
+  purchaseRequestItems PurchaseRequestItem[]
+
+  @@map("products")
+}
+
+model ProductUnit {
+  id               BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  productId        BigInt    @map("product_id") @db.UnsignedBigInt
+  unitName         String    @map("unit_name") @db.VarChar(100)
+  conversionToBase Decimal   @map("conversion_to_base") @db.Decimal(15, 4)
+  isPurchaseUnit   Boolean   @default(false) @map("is_purchase_unit")
+  isDefaultDisplay Boolean   @default(false) @map("is_default_display")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, unitName])
+  @@map("product_units")
+}
+
+model ProductDocument {
+  id           BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  productId    BigInt         @map("product_id") @db.UnsignedBigInt
+  docType      ProductDocType @map("doc_type")
+  filePath     String         @map("file_path") @db.VarChar(500)
+  originalName String         @map("original_name") @db.VarChar(255)
+  fileSize     BigInt?        @map("file_size") @db.UnsignedBigInt
+  uploadedBy   BigInt         @map("uploaded_by") @db.UnsignedBigInt
+  validUntil   DateTime?      @map("valid_until") @db.Date
+  notes        String?        @db.Text
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  uploader     User           @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@map("product_documents")
+}
+
+model Supplier {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  code        String   @unique @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  contactInfo String?  @map("contact_info") @db.VarChar(255)
+  address     String?  @db.VarChar(255)
+  notes       String?  @db.Text
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  batches     Batch[]
+  purchaseRequests PurchaseRequest[]
+
+  @@map("suppliers")
+}
+
+model Customer {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name      String    @db.VarChar(255)
+  phone     String?   @db.VarChar(50)
+  email     String?   @db.VarChar(191)
+  address   String?   @db.VarChar(255)
+  notes     String?   @db.Text
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  exportOrders ExportOrder[]
+
+  @@map("customers")
+}
+
+model Batch {
+  id               BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  productId        BigInt      @map("product_id") @db.UnsignedBigInt
+  supplierId       BigInt?     @map("supplier_id") @db.UnsignedBigInt
+  lotNo            String      @map("lot_no") @db.VarChar(100)
+  invoiceNumber    String?     @map("invoice_number") @db.VarChar(100)
+  invoiceDate      DateTime?   @map("invoice_date") @db.Date
+  unitPricePerKg   Decimal     @default(0) @map("unit_price_per_kg") @db.Decimal(15, 2)
+  receivedQtyBase  Decimal     @map("received_qty_base") @db.Decimal(15, 4)
+  purchaseUnit     String?     @map("purchase_unit") @db.VarChar(50)
+  purchaseQty      Decimal?    @map("purchase_qty") @db.Decimal(15, 4)
+  manufactureDate  DateTime?   @map("manufacture_date") @db.Date
+  expiryDate       DateTime?   @map("expiry_date") @db.Date
+  status           BatchStatus @default(available)
+  notes            String?     @db.Text
+  deletedAt        DateTime?   @map("deleted_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+  product          Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplier         Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  batchDocuments   BatchDocument[]
+  exportOrderItems ExportOrderItem[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([productId, status, expiryDate])
+  @@map("batches")
+}
+
+model BatchDocument {
+  id           BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  batchId       BigInt      @map("batch_id") @db.UnsignedBigInt
+  docType       BatchDocType @map("doc_type")
+  filePath      String      @map("file_path") @db.VarChar(500)
+  originalName  String      @map("original_name") @db.VarChar(255)
+  mimeType      String      @map("mime_type") @db.VarChar(100)
+  fileSize      BigInt      @map("file_size") @db.UnsignedBigInt
+  uploadedBy    BigInt      @map("uploaded_by") @db.UnsignedBigInt
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  batch         Batch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  uploader      User        @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@map("batch_documents")
+}
+
+model ExportOrder {
+  id          BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  customerId  BigInt?           @map("customer_id") @db.UnsignedBigInt
+  orderRef    String?           @map("order_ref") @db.VarChar(100)
+  exportedAt  DateTime?         @map("exported_at")
+  createdBy   BigInt            @map("created_by") @db.UnsignedBigInt
+  status      ExportOrderStatus @default(pending)
+  notes       String?           @db.Text
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  customer    Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  creator     User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  items       ExportOrderItem[]
+  purchaseRequests PurchaseRequest[]
+
+  @@map("export_orders")
+}
+
+model ExportOrderItem {
+  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  exportOrderId     BigInt            @map("export_order_id") @db.UnsignedBigInt
+  batchId           BigInt?           @map("batch_id") @db.UnsignedBigInt
+  productId         BigInt            @map("product_id") @db.UnsignedBigInt
+  quantityBase      Decimal           @map("quantity_base") @db.Decimal(15, 4)
+  unitUsed          String            @map("unit_used") @db.VarChar(50)
+  quantityDisplay   Decimal           @map("quantity_display") @db.Decimal(15, 4)
+  unitPriceSnapshot Decimal           @default(0) @map("unit_price_snapshot") @db.Decimal(15, 2)
+  status            ExportOrderStatus @default(pending)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  exportOrder       ExportOrder       @relation(fields: [exportOrderId], references: [id], onDelete: Cascade)
+  batch             Batch?            @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  inventoryTransactions InventoryTransaction[]
+  purchaseRequestItems PurchaseRequestItem[]
+
+  @@map("export_order_items")
+}
+
+model InventoryTransaction {
+  id                BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  batchId            BigInt                  @map("batch_id") @db.UnsignedBigInt
+  userId             BigInt                  @map("user_id") @db.UnsignedBigInt
+  exportOrderItemId  BigInt?                 @map("export_order_item_id") @db.UnsignedBigInt
+  type               InventoryTransactionType
+  quantityBase       Decimal                 @map("quantity_base") @db.Decimal(15, 4)
+  notes              String?                 @db.Text
+  transactionDate    DateTime                @map("transaction_date")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  batch              Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  exportOrderItem    ExportOrderItem?        @relation(fields: [exportOrderItemId], references: [id], onDelete: SetNull)
+
+  @@map("inventory_transactions")
+}
+
+model PurchaseRequest {
+  id            BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  exportOrderId BigInt?              @map("export_order_id") @db.UnsignedBigInt
+  requestRef    String               @unique @map("request_ref") @db.VarChar(100)
+  requestedBy   BigInt               @map("requested_by") @db.UnsignedBigInt
+  approvedBy    BigInt?              @map("approved_by") @db.UnsignedBigInt
+  supplierId    BigInt?              @map("supplier_id") @db.UnsignedBigInt
+  status        PurchaseRequestStatus @default(draft)
+  expectedDate  DateTime?            @map("expected_date") @db.Date
+  notes         String?              @db.Text
+  submittedAt   DateTime?            @map("submitted_at")
+  approvedAt    DateTime?            @map("approved_at")
+  orderedAt     DateTime?            @map("ordered_at")
+  receivedAt    DateTime?            @map("received_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+  exportOrder   ExportOrder?         @relation(fields: [exportOrderId], references: [id], onDelete: SetNull)
+  requester     User                 @relation("PurchaseRequestRequestedBy", fields: [requestedBy], references: [id], onDelete: Restrict)
+  approver      User?                @relation("PurchaseRequestApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  supplier      Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items         PurchaseRequestItem[]
+
+  @@index([status])
+  @@index([exportOrderId])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestItem {
+  id                 BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  purchaseRequestId   BigInt           @map("purchase_request_id") @db.UnsignedBigInt
+  productId           BigInt           @map("product_id") @db.UnsignedBigInt
+  exportOrderItemId   BigInt?          @map("export_order_item_id") @db.UnsignedBigInt
+  quantityNeededBase  Decimal          @map("quantity_needed_base") @db.Decimal(15, 4)
+  unitDisplay         String           @map("unit_display") @db.VarChar(50)
+  quantityDisplay     Decimal          @map("quantity_display") @db.Decimal(15, 4)
+  notes               String?          @db.Text
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  purchaseRequest     PurchaseRequest  @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  product             Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  exportOrderItem     ExportOrderItem? @relation(fields: [exportOrderItemId], references: [id], onDelete: SetNull)
+
+  @@map("purchase_request_items")
+}
+
+model Notification {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  userId    BigInt    @map("user_id") @db.UnsignedBigInt
+  type      String    @db.VarChar(100)
+  data      Json
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model CatalogClassification {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  code      String    @unique @db.VarChar(100)
+  name      String    @db.VarChar(255)
+  notes     String?   @db.Text
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("catalog_classifications")
+}
+
+model CatalogUnit {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  code      String    @unique @db.VarChar(100)
+  name      String    @db.VarChar(255)
+  notes     String?   @db.Text
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("catalog_units")
+}
+
+model CatalogLocation {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  code      String    @unique @db.VarChar(100)
+  name      String    @db.VarChar(255)
+  notes     String?   @db.Text
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("catalog_locations")
+}

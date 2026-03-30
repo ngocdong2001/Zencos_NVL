@@ -7,11 +7,20 @@ import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
 import { CatalogToolbar } from '../components/catalog/CatalogToolbar'
 import {
   initialBasicRows,
-  initialMaterialRows,
   tabItems,
 } from '../components/catalog/data'
 import type { BasicRow, BasicTabId, MaterialRow, TabId } from '../components/catalog/types'
 import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
+import {
+  createBasic,
+  createMaterial,
+  deleteBasic,
+  deleteMaterial,
+  fetchBasics,
+  fetchMaterials,
+  updateBasic,
+  updateMaterial,
+} from '../lib/catalogApi'
 
 type OutletContext = { search: string }
 
@@ -22,11 +31,63 @@ export function CatalogPage() {
   const [onlyActive, setOnlyActive] = useState(false)
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [materials, setMaterials] = useState<MaterialRow[]>(initialMaterialRows)
+  const [materials, setMaterials] = useState<MaterialRow[]>([])
   const [catalogs, setCatalogs] = useState(initialBasicRows)
+  const [loading, setLoading] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<CatalogDataGridHandle>(null)
   const pageSize = 5
+
+  const isNumericId = (id: string) => /^\d+$/.test(id)
+
+  const refreshMaterials = async () => {
+    const rows = await fetchMaterials()
+    setMaterials(rows)
+  }
+
+  const refreshBasicTab = async (tab: BasicTabId) => {
+    const rows = await fetchBasics(tab)
+    setCatalogs((prev) => ({ ...prev, [tab]: rows }))
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadCatalog = async () => {
+      try {
+        setLoading(true)
+        const [materialsData, suppliersData, customersData, classificationsData, unitsData, locationsData] =
+          await Promise.all([
+            fetchMaterials(),
+            fetchBasics('suppliers'),
+            fetchBasics('customers'),
+            fetchBasics('classifications'),
+            fetchBasics('units'),
+            fetchBasics('locations'),
+          ])
+
+        if (cancelled) return
+        setMaterials(materialsData)
+        setCatalogs((prev) => ({
+          ...prev,
+          suppliers: suppliersData,
+          customers: customersData,
+          classifications: classificationsData,
+          units: unitsData,
+          locations: locationsData,
+        }))
+      } catch (error) {
+        console.error('Không tải được dữ liệu catalog:', error)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadCatalog()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     setPage(1)
@@ -93,31 +154,73 @@ export function CatalogPage() {
 
   // ── Save handlers (upsert: insert if new id, update if existing) ─────
   const handleSaveMaterial = (row: MaterialRow) => {
-    setMaterials((prev) => {
-      const exists = prev.some((r) => r.id === row.id)
-      return exists ? prev.map((r) => (r.id === row.id ? row : r)) : [...prev, row]
-    })
+    const payload = {
+      code: row.code,
+      name: row.materialName,
+      inciName: row.inciName,
+      productType: row.category === 'packaging' ? 'packaging' : 'raw_material',
+      baseUnit: row.unit,
+      minStockLevel: 0,
+      hasExpiry: row.category !== 'packaging',
+      useFefo: row.category !== 'packaging',
+      notes: '',
+    } as const
+
+    void (async () => {
+      try {
+        if (isNumericId(row.id)) {
+          await updateMaterial(row.id, payload)
+        } else {
+          await createMaterial(payload)
+        }
+        await refreshMaterials()
+      } catch (error) {
+        console.error('Lưu nguyên liệu thất bại:', error)
+      }
+    })()
   }
 
   const handleSaveBasic = (row: BasicRow) => {
     if (activeTab === 'materials') return
     const tab = activeTab as BasicTabId
-    setCatalogs((prev) => {
-      const exists = prev[tab].some((r) => r.id === row.id)
-      return {
-        ...prev,
-        [tab]: exists ? prev[tab].map((r) => (r.id === row.id ? row : r)) : [...prev[tab], row],
+
+    void (async () => {
+      try {
+        if (isNumericId(row.id)) {
+          await updateBasic(tab, row.id, { code: row.code, name: row.name, note: row.note })
+        } else {
+          await createBasic(tab, { code: row.code, name: row.name, note: row.note })
+        }
+        await refreshBasicTab(tab)
+      } catch (error) {
+        console.error('Lưu danh mục thất bại:', error)
       }
-    })
+    })()
   }
 
   const deleteRow = (id: string) => {
     if (activeTab === 'materials') {
-      setMaterials((prev) => prev.filter((r) => r.id !== id))
+      void (async () => {
+        try {
+          if (isNumericId(id)) await deleteMaterial(id)
+          await refreshMaterials()
+          setSelectedIds((prev) => prev.filter((s) => s !== id))
+        } catch (error) {
+          console.error('Xóa nguyên liệu thất bại:', error)
+        }
+      })()
     } else {
-      setCatalogs((prev) => ({ ...prev, [activeTab]: prev[activeTab].filter((r) => r.id !== id) }))
+      const tab = activeTab as BasicTabId
+      void (async () => {
+        try {
+          if (isNumericId(id)) await deleteBasic(tab, id)
+          await refreshBasicTab(tab)
+          setSelectedIds((prev) => prev.filter((s) => s !== id))
+        } catch (error) {
+          console.error('Xóa danh mục thất bại:', error)
+        }
+      })()
     }
-    setSelectedIds((prev) => prev.filter((s) => s !== id))
   }
 
   const exportCurrent = () => {
@@ -210,6 +313,7 @@ export function CatalogPage() {
         onToggleOnlyActive={() => setOnlyActive((prev) => !prev)}
         onImportCsv={importCsv}
       />
+      {loading ? <p style={{ margin: '8px 0 12px', opacity: 0.7 }}>Đang tải dữ liệu catalog...</p> : null}
       <CatalogDataGrid
         ref={gridRef}
         activeTab={activeTab}
@@ -227,6 +331,8 @@ export function CatalogPage() {
         onToggleSelectRow={(id, checked) =>
           setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
         }
+        classifications={catalogs.classifications}
+        units={catalogs.units}
         onSaveMaterial={handleSaveMaterial}
         onSaveBasic={handleSaveBasic}
         onDelete={deleteRow}
