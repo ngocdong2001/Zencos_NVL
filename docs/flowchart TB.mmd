@@ -1,0 +1,107 @@
+flowchart TB
+
+  START([Start]) --> S1
+
+  subgraph SALE[Sale]
+    S1[1. Tiep nhan yeu cau]
+    S2{Du thong tin bat buoc?}
+    S1 --> S2
+    S2 -- No --> S1
+  end
+
+  subgraph RD[RnD]
+    R1[2. Tao cong thuc]
+    R2{Du COA MSDS TDS IFRA?}
+    R3{Nguyen lieu moi ngoai danh muc?}
+    R4[3. Phat hanh du lieu ky thuat]
+    R5{Version da approved?}
+    R1 --> R2
+    R2 -- No --> R1
+    R2 -- Yes --> R3
+    R3 -- No --> R4
+    R4 --> R5
+    R5 -- No --> R1
+  end
+
+  subgraph CEO[CEO]
+    C1[CEO duyet ngoai le]
+  end
+
+  subgraph PLANNING_PURCHASING[Ke hoach + Mua hang]
+    P1[4. Lap ke hoach SX]
+    P2{Thieu nguyen lieu?}
+    P3[5. Tao PO]
+  end
+
+  subgraph WAREHOUSE[Kho]
+    K1[6. Nhap kho LOT]
+    K2[11. Cap phat LOT]
+    K3[17. Nhap kho thanh pham]
+    K4[18. Giao hang]
+  end
+
+  subgraph QC_QA[QC + QA]
+    Q1[7. QC dau vao]
+    Q2{QC dau vao dat?}
+    Q3[8. QA duyet LOT]
+    Q4{LOT dat?}
+    Q5[13. IPC]
+    Q6{IPC dat?}
+    Q7[15. QC thanh pham]
+    Q8{QC thanh pham dat?}
+    Q9[16. QA duyet thanh pham]
+    Q10{QA duyet dat?}
+  end
+
+  subgraph PRODUCTION[San xuat]
+    X1[9. Tao lenh SX]
+    X2{Du cong thuc + LOT dat?}
+    X3[10. Phat hanh batch record]
+    X4[12. San xuat]
+    X5[14. Dong goi]
+    X6[19. Dong ho so lo]
+    X7{Ho so lo day du?}
+  end
+
+  subgraph ACCOUNTING_TRACE[Ke toan + Truy xuat]
+    A1{Hoa don FULL?}
+    T1[20. Truy xuat CAPA Thu hoi]
+  end
+
+  END([End])
+
+  S2 -- Yes --> R1
+
+  R3 -- Yes --> C1 --> R4
+  R5 -- Yes --> P1
+
+  P1 --> P2
+  P2 -- Yes --> P3 --> K1
+  P2 -- No --> K1
+
+  K1 --> Q1 --> Q2
+  Q2 -- No --> P3
+  Q2 -- Yes --> Q3 --> Q4
+
+  Q4 -- Hold --> Q3
+  Q4 -- Reject --> P3
+  Q4 -- Approve --> X1
+
+  X1 --> X2
+  X2 -- No --> P1
+  X2 -- Yes --> X3 --> K2 --> A1
+
+  A1 -- No --> C1
+  A1 -- Yes --> X4 --> Q5 --> Q6
+
+  Q6 -- No --> X4
+  Q6 -- Yes --> X5 --> Q7 --> Q8
+
+  Q8 -- No --> X5
+  Q8 -- Yes --> Q9 --> Q10
+
+  Q10 -- No --> X5
+  Q10 -- Yes --> K3 --> K4 --> X6 --> X7
+
+  X7 -- No --> X6
+  X7 -- Yes --> T1 --> END

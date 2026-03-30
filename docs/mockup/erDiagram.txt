@@ -1,0 +1,392 @@
+erDiagram
+  %% Master / Users & Roles
+  USERS {
+    int id PK
+    string email
+    string full_name
+    string status
+    datetime created_at
+  }
+  ROLES {
+    int id PK
+    string code
+    string name
+  }
+  USER_ROLES {
+    int id PK
+    int user_id FK
+    int role_id FK
+  }
+
+  %% Products & R&D
+  PRODUCTS {
+    int id PK
+    string product_code
+    string product_name
+    int category_id FK
+  }
+  PRODUCT_SPECS {
+    int id PK
+    int product_id FK
+    string spec_name
+    float min_value
+    float max_value
+    string unit
+  }
+  FORMULATIONS {
+    int id PK
+    string formula_code
+    int product_id FK
+    string version
+    string status
+  }
+  FORMULA_ITEMS {
+    int id PK
+    int formula_id FK
+    int material_id FK
+    float percentage
+    int sequence
+  }
+  FORMULA_PROCESS {
+    int id PK
+    int formula_id FK
+    int step_no
+    string description
+  }
+
+  %% Materials, Suppliers, Units, Classifications
+  MATERIALS {
+    int id PK
+    string material_code
+    string material_name
+    int uom_id FK
+    int classification_id FK
+    bool requires_coa
+  }
+  MATERIAL_CLASSIFICATIONS {
+    int id PK
+    string code
+    string name
+  }
+  SUPPLIERS {
+    int id PK
+    string supplier_code
+    string supplier_name
+    string contact_info
+  }
+  UNITS {
+    int id PK
+    string code
+    string name
+  }
+
+  %% Warehouses / Bins
+  WAREHOUSES {
+    int id PK
+    string name
+    string site
+  }
+  BINS {
+    int id PK
+    int warehouse_id FK
+    string code
+    string description
+  }
+
+  %% Files & Documents
+  FILES {
+    int id PK
+    string file_key
+    string file_name
+    string file_type
+    datetime uploaded_at
+  }
+  MATERIAL_DOCUMENTS {
+    int id PK
+    int lot_id FK
+    int file_id FK
+    string doc_type
+    date issue_date
+    date valid_to
+  }
+
+  %% Inventory & Lots
+  MATERIAL_LOTS {
+    int id PK
+    string lot_internal
+    int material_id FK
+    int supplier_id FK
+    date mfg_date
+    date exp_date
+    float qty_received
+    float qty_available
+    string qc_status
+  }
+  INVENTORY_TRANSACTIONS {
+    int id PK
+    int material_id FK
+    int lot_id FK
+    string transaction_type
+    float qty
+    datetime created_at
+  }
+
+  %% Invoices mapping
+  INVOICES {
+    int id PK
+    string invoice_no
+    int supplier_id FK
+    date invoice_date
+    float total_amount
+  }
+  INVOICE_ITEMS {
+    int id PK
+    int invoice_id FK
+    int material_id FK
+    float qty
+    float unit_price
+  }
+  INVOICE_LOT_MAPPING {
+    int id PK
+    int invoice_item_id FK
+    int lot_id FK
+    float qty_linked
+  }
+  INVOICE_STATUS_TRACKING {
+    int id PK
+    int lot_id FK
+    string status
+    string note
+  }
+
+  %% Production / Work Orders / Batches
+  PRODUCTION_ORDERS {
+    int id PK
+    string mo_code
+    int product_id FK
+    int formula_id FK
+    float planned_qty
+    date plan_date
+    string status
+  }
+  WORK_ORDERS {
+    int id PK
+    int production_order_id FK
+    string wo_code
+    float qty
+    date scheduled_date
+  }
+  BATCHES {
+    int id PK
+    string batch_code
+    int production_order_id FK
+    int product_id FK
+    datetime start_time
+    datetime end_time
+    string status
+  }
+
+  %% Batch records and child tables
+  BATCH_RECORDS {
+    int id PK
+    int batch_id FK
+    int production_order_id FK
+    int product_id FK
+    string status
+    datetime created_at
+    bool is_deleted
+  }
+  BATCH_RECORD_STEPS {
+    int id PK
+    int batch_record_id FK
+    int step_no
+    string step_name
+    datetime start_time
+    datetime end_time
+    int operator_id FK
+    boolean control_point
+    string result
+  }
+  BATCH_RECORD_MATERIALS {
+    int id PK
+    int batch_record_id FK
+    int material_id FK
+    int lot_id FK
+    float planned_qty
+    float issued_qty
+    float used_qty
+  }
+  BATCH_RECORD_QC_RESULTS {
+    int id PK
+    int batch_record_id FK
+    int qc_result_id FK
+    string test_name
+    string conclusion
+  }
+  BATCH_RECORD_ATTACHMENTS {
+    int id PK
+    int batch_record_id FK
+    int file_id FK
+    string file_name
+  }
+  BATCH_RECORD_SIGNATURES {
+    int id PK
+    int batch_record_id FK
+    int user_id FK
+    string role
+    datetime signed_at
+  }
+
+
+  %% QC / QA
+  QC_TESTS {
+    int id PK
+    string code
+    string name
+    string unit
+    string method_reference
+  }
+  QC_RESULTS {
+    int id PK
+    int lot_id FK
+    int batch_id FK
+    int test_id FK
+    string result_value
+    string conclusion
+    datetime tested_at
+  }
+  QA_APPROVALS {
+    int id PK
+    string ref_type
+    int ref_id
+    string status
+    int approved_by FK
+    datetime approved_at
+  }
+
+  %% Finished goods & inventory
+  FINISHED_GOODS {
+    int id PK
+    int batch_id FK
+    int product_id FK
+    float qty_produced
+    float qty_approved
+    string status
+  }
+  FG_INVENTORY {
+    int id PK
+    int product_id FK
+    int batch_id FK
+    float qty_available
+  }
+
+  %% Batch material issues and usage
+  BATCH_MATERIAL_ISSUES {
+    int id PK
+    int batch_id FK
+    int material_id FK
+    int lot_id FK
+    float qty_planned
+    float qty_issued
+  }
+  BATCH_ACTUAL_USAGE {
+    int id PK
+    int batch_id FK
+    int material_id FK
+    int lot_id FK
+    float qty_used
+    float waste_qty
+  }
+
+  %% CAPA, Customers, Labels, Lookups
+  CAPA_REASONS {
+    int id PK
+    string code
+    string name
+  }
+  CUSTOMERS {
+    int id PK
+    string customer_code
+    string customer_name
+    string contact_info
+  }
+  LABEL_TEMPLATES {
+    int id PK
+    string code
+    string name
+    int file_id FK
+  }
+  LOOKUP_TABLES {
+    int id PK
+    string category
+    string code
+    string name
+  }
+
+  %% Audit logs
+  AUDIT_LOGS {
+    int id PK
+    string object_type
+    int object_id
+    string action
+    int changed_by FK
+    datetime changed_at
+    string changes_json
+  }
+
+%% Relationships (core)
+  USERS ||--o{ USER_ROLES : has
+  ROLES ||--o{ USER_ROLES : has
+
+  USERS ||--o{ BATCH_RECORD_SIGNATURES : signs
+  USERS ||--o{ QA_APPROVALS : approves
+
+  PRODUCTS ||--o{ PRODUCT_SPECS : has
+  PRODUCTS ||--o{ PRODUCTION_ORDERS : used_in
+  PRODUCTS ||--o{ BATCHES : produces
+  PRODUCTS ||--o{ FINISHED_GOODS : reference
+
+  FORMULATIONS ||--o{ FORMULA_ITEMS : items
+  FORMULATIONS ||--o{ FORMULA_PROCESS : steps
+  FORMULA_ITEMS }o--|| MATERIALS : uses
+
+  MATERIALS ||--o{ MATERIAL_LOTS : lots
+  MATERIALS ||--o{ BATCH_RECORD_MATERIALS : used_in
+  MATERIALS }o--|| UNITS : uom
+
+  SUPPLIERS ||--o{ MATERIAL_LOTS : supplies
+  MATERIAL_LOTS ||--o{ MATERIAL_DOCUMENTS : documents
+  FILES ||--o{ MATERIAL_DOCUMENTS : file_for
+  FILES ||--o{ BATCH_RECORD_ATTACHMENTS : stores
+
+  MATERIAL_LOTS ||--o{ INVENTORY_TRANSACTIONS : transactions
+  INVENTORY_TRANSACTIONS }o--|| MATERIALS : for
+
+  INVOICES ||--o{ INVOICE_ITEMS : items
+  INVOICE_ITEMS ||--o{ INVOICE_LOT_MAPPING : lot_links
+  INVOICE_LOT_MAPPING }o--|| MATERIAL_LOTS : maps_to
+
+  PRODUCTION_ORDERS ||--o{ WORK_ORDERS : creates
+  PRODUCTION_ORDERS ||--o{ BATCHES : creates
+  WORK_ORDERS ||--o{ BATCHES : drives
+
+  BATCHES ||--o{ BATCH_RECORDS : has
+  BATCH_RECORDS ||--o{ BATCH_RECORD_STEPS : steps
+  BATCH_RECORDS ||--o{ BATCH_RECORD_MATERIALS : materials
+  BATCH_RECORDS ||--o{ BATCH_RECORD_QC_RESULTS : qc_results
+  BATCH_RECORDS ||--o{ BATCH_RECORD_ATTACHMENTS : attachments
+  BATCH_RECORDS ||--o{ BATCH_RECORD_SIGNATURES : signatures
+
+  QC_TESTS ||--o{ QC_RESULTS : used_in
+  QC_RESULTS ||--o{ BATCH_RECORD_QC_RESULTS : linked_to
+
+  BATCHES ||--o{ BATCH_MATERIAL_ISSUES : issues
+  BATCHES ||--o{ BATCH_ACTUAL_USAGE : actual_usage
+
+  FINISHED_GOODS ||--o{ FG_INVENTORY : inventory_record
+
+  AUDIT_LOGS }o--|| USERS : changed_by
+  AUDIT_LOGS }o--|| BATCH_RECORDS : on_record
+
+  LOOKUP_TABLES ||--o{ PRODUCTS : categories
+  LOOKUP_TABLES ||--o{ MATERIALS : classifications

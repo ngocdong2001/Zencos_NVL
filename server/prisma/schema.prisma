@@ -1,0 +1,614 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String              @id @default(cuid())
+  email           String              @unique
+  passwordHash    String
+  fullName        String
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  deletedAt       DateTime?
+  roles           UserRole[]
+  loginAttempts   LoginAttempt[]
+  resetTokens     PasswordResetToken[]
+  auditLogs       AuditLog[]
+  posShifts       PosShift[]
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  code        String           @unique
+  name        String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id        String           @id @default(cuid())
+  code      String           @unique
+  name      String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  roles     RolePermission[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  email      String
+  success    Boolean
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id          String            @id @default(cuid())
+  code        String            @unique
+  name        String
+  phone       String?
+  email       String?
+  note        String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+  addresses   CustomerAddress[]
+}
+
+model CustomerAddress {
+  id          String    @id @default(cuid())
+  customerId  String
+  label       String
+  line1       String
+  city        String?
+  district    String?
+  ward        String?
+  postalCode  String?
+  isDefault   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  customer    Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  phone       String?
+  email       String?
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model Brand {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model TaxRate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  rate      Decimal  @db.Decimal(5, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model Currency {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  symbol    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model Warehouse {
+  id             String             @id @default(cuid())
+  code           String             @unique
+  name           String
+  address        String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  deletedAt      DateTime?
+  warehouseStock WarehouseProduct[]
+  adjustments    Adjustment[]
+  stockCounts    StockCount[]
+  sales          Sale[]
+  purchases      Purchase[]
+  posShifts      PosShift[]
+  transfersFrom  Transfer[] @relation("TransferFrom")
+  transfersTo    Transfer[] @relation("TransferTo")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  resource   String
+  resourceId String?
+  detail     String?  @db.Text
+  createdAt  DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────
+// E03 – Products & Inventory
+// ─────────────────────────────────────────────
+
+model Product {
+  id           String           @id @default(cuid())
+  code         String           @unique
+  name         String
+  description  String?          @db.Text
+  categoryId   String?
+  brandId      String?
+  unitId       String?
+  taxRateId    String?
+  costPrice    Decimal          @default(0) @db.Decimal(15, 4)
+  sellPrice    Decimal          @default(0) @db.Decimal(15, 4)
+  alertQty     Decimal          @default(0) @db.Decimal(15, 4)
+  isActive     Boolean          @default(true)
+  imageUrl     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+  variants         ProductVariant[]
+  warehouseStock   WarehouseProduct[]
+  adjustmentItems  AdjustmentItem[]
+  stockCountItems  StockCountItem[]
+  saleItems        SaleItem[]
+  purchaseItems    PurchaseItem[]
+  transferItems    TransferItem[]
+  quoteItems       QuoteItem[]
+}
+
+model ProductVariant {
+  id         String   @id @default(cuid())
+  productId  String
+  sku        String   @unique
+  name       String
+  costPrice  Decimal  @default(0) @db.Decimal(15, 4)
+  sellPrice  Decimal  @default(0) @db.Decimal(15, 4)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model WarehouseProduct {
+  warehouseId String
+  productId   String
+  qty         Decimal @default(0) @db.Decimal(15, 4)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  product     Product   @relation(fields: [productId], references: [id])
+
+  @@id([warehouseId, productId])
+}
+
+model Adjustment {
+  id          String           @id @default(cuid())
+  reference   String           @unique
+  warehouseId String
+  note        String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  warehouse   Warehouse        @relation(fields: [warehouseId], references: [id])
+  items       AdjustmentItem[]
+}
+
+model AdjustmentItem {
+  id           String     @id @default(cuid())
+  adjustmentId String
+  productId    String
+  type         String     // addition | subtraction
+  qty          Decimal    @db.Decimal(15, 4)
+  adjustment   Adjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+}
+
+model StockCount {
+  id          String           @id @default(cuid())
+  reference   String           @unique
+  warehouseId String
+  note        String?
+  status      String           @default("draft") // draft | confirmed
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  warehouse   Warehouse        @relation(fields: [warehouseId], references: [id])
+  items       StockCountItem[]
+}
+
+model StockCountItem {
+  id           String     @id @default(cuid())
+  stockCountId String
+  productId    String
+  expected     Decimal    @db.Decimal(15, 4)
+  actual       Decimal    @db.Decimal(15, 4)
+  stockCount   StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// E04 – Sales
+// ─────────────────────────────────────────────
+
+model Sale {
+  id              String       @id @default(cuid())
+  reference       String       @unique
+  customerId      String?
+  warehouseId     String
+  status          String       @default("pending") // pending | confirmed | delivered | returned | cancelled
+  paymentStatus   String       @default("unpaid")  // unpaid | partial | paid
+  discount        Decimal      @default(0) @db.Decimal(15, 4)
+  tax             Decimal      @default(0) @db.Decimal(15, 4)
+  shipping        Decimal      @default(0) @db.Decimal(15, 4)
+  grandTotal      Decimal      @default(0) @db.Decimal(15, 4)
+  paid            Decimal      @default(0) @db.Decimal(15, 4)
+  posShiftId      String?
+  note            String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+  posShift        PosShift?    @relation(fields: [posShiftId], references: [id])
+  warehouse       Warehouse    @relation(fields: [warehouseId], references: [id])
+  items           SaleItem[]
+  payments        SalePayment[]
+  deliveries      Delivery[]
+  returns         SaleReturn[]
+  promotionUsages PromotionUsage[]
+}
+
+model SaleItem {
+  id         String  @id @default(cuid())
+  saleId     String
+  productId  String
+  qty        Decimal @db.Decimal(15, 4)
+  unitPrice  Decimal @db.Decimal(15, 4)
+  discount   Decimal @default(0) @db.Decimal(15, 4)
+  tax        Decimal @default(0) @db.Decimal(15, 4)
+  subtotal   Decimal @db.Decimal(15, 4)
+  sale       Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [productId], references: [id])
+}
+
+model SalePayment {
+  id        String   @id @default(cuid())
+  saleId    String
+  amount    Decimal  @db.Decimal(15, 4)
+  method    String   // cash | bank | card | other
+  note      String?
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+}
+
+model Delivery {
+  id        String   @id @default(cuid())
+  saleId    String
+  note      String?
+  status    String   @default("pending") // pending | delivered
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+}
+
+model SaleReturn {
+  id        String           @id @default(cuid())
+  reference String           @unique
+  saleId    String
+  note      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  sale      Sale             @relation(fields: [saleId], references: [id])
+  items     SaleReturnItem[]
+}
+
+model SaleReturnItem {
+  id           String     @id @default(cuid())
+  saleReturnId String
+  productId    String
+  qty          Decimal    @db.Decimal(15, 4)
+  unitPrice    Decimal    @db.Decimal(15, 4)
+  saleReturn   SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// E05 – Purchases
+// ─────────────────────────────────────────────
+
+model Purchase {
+  id            String            @id @default(cuid())
+  reference     String            @unique
+  supplierId    String?
+  warehouseId   String
+  status        String            @default("pending") // pending | received | returned | cancelled
+  paymentStatus String            @default("unpaid")  // unpaid | partial | paid
+  discount      Decimal           @default(0) @db.Decimal(15, 4)
+  tax           Decimal           @default(0) @db.Decimal(15, 4)
+  shipping      Decimal           @default(0) @db.Decimal(15, 4)
+  grandTotal    Decimal           @default(0) @db.Decimal(15, 4)
+  paid          Decimal           @default(0) @db.Decimal(15, 4)
+  note          String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+  warehouse     Warehouse         @relation(fields: [warehouseId], references: [id])
+  items         PurchaseItem[]
+  payments      PurchasePayment[]
+  expenses      Expense[]
+  returns       PurchaseReturn[]
+}
+
+model PurchaseItem {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  productId   String
+  qty         Decimal  @db.Decimal(15, 4)
+  unitCost    Decimal  @db.Decimal(15, 4)
+  discount    Decimal  @default(0) @db.Decimal(15, 4)
+  tax         Decimal  @default(0) @db.Decimal(15, 4)
+  subtotal    Decimal  @db.Decimal(15, 4)
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+model PurchasePayment {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  amount      Decimal  @db.Decimal(15, 4)
+  method      String   // cash | bank | card | other
+  note        String?
+  paidAt      DateTime @default(now())
+  createdAt   DateTime @default(now())
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  description String
+  amount      Decimal  @db.Decimal(15, 4)
+  createdAt   DateTime @default(now())
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+}
+
+model PurchaseReturn {
+  id          String               @id @default(cuid())
+  reference   String               @unique
+  purchaseId  String
+  note        String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  purchase    Purchase             @relation(fields: [purchaseId], references: [id])
+  items       PurchaseReturnItem[]
+}
+
+model PurchaseReturnItem {
+  id               String         @id @default(cuid())
+  purchaseReturnId String
+  productId        String
+  qty              Decimal        @db.Decimal(15, 4)
+  unitCost         Decimal        @db.Decimal(15, 4)
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────
+// E07 – POS
+// ─────────────────────────────────────────────
+
+model PosShift {
+  id           String     @id @default(cuid())
+  userId       String
+  warehouseId  String
+  status       String     @default("open") // open | closed
+  openedAt     DateTime   @default(now())
+  closedAt     DateTime?
+  openingCash  Decimal    @default(0) @db.Decimal(15, 4)
+  closingCash  Decimal?   @db.Decimal(15, 4)
+  note         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User       @relation(fields: [userId], references: [id])
+  warehouse    Warehouse  @relation(fields: [warehouseId], references: [id])
+  bills        PosBill[]
+  sales        Sale[]
+}
+
+model PosBill {
+  id         String    @id @default(cuid())
+  shiftId    String
+  items      String    @db.Text    // JSON: [{productId,qty,unitPrice}]
+  customerId String?
+  note       String?
+  status     String    @default("held") // held | resumed | completed | cancelled
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  shift      PosShift  @relation(fields: [shiftId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// E08 – Transfers / Quotes / Promotions
+// ─────────────────────────────────────────────
+
+model Transfer {
+  id               String         @id @default(cuid())
+  reference        String         @unique
+  fromWarehouseId  String
+  toWarehouseId    String
+  status           String         @default("draft") // draft | confirmed | cancelled
+  note             String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  fromWarehouse    Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse      Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  items            TransferItem[]
+}
+
+model TransferItem {
+  id          String   @id @default(cuid())
+  transferId  String
+  productId   String
+  qty         Decimal  @db.Decimal(15, 4)
+  transfer    Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  reference    String      @unique
+  customerId   String?
+  status       String      @default("draft") // draft | sent | accepted | rejected | expired
+  discount     Decimal     @default(0) @db.Decimal(15, 4)
+  tax          Decimal     @default(0) @db.Decimal(15, 4)
+  shipping     Decimal     @default(0) @db.Decimal(15, 4)
+  grandTotal   Decimal     @default(0) @db.Decimal(15, 4)
+  note         String?
+  validUntil   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+  items        QuoteItem[]
+}
+
+model QuoteItem {
+  id         String  @id @default(cuid())
+  quoteId    String
+  productId  String
+  qty        Decimal @db.Decimal(15, 4)
+  unitPrice  Decimal @db.Decimal(15, 4)
+  discount   Decimal @default(0) @db.Decimal(15, 4)
+  tax        Decimal @default(0) @db.Decimal(15, 4)
+  subtotal   Decimal @db.Decimal(15, 4)
+  quote      Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [productId], references: [id])
+}
+
+model Promotion {
+  id             String           @id @default(cuid())
+  code           String           @unique
+  name           String
+  type           String           // percent | fixed | buy_x_get_y
+  value          Decimal          @db.Decimal(15, 4)
+  minOrderValue  Decimal          @default(0) @db.Decimal(15, 4)
+  buyQty         Int?             // for buy_x_get_y
+  getQty         Int?             // for buy_x_get_y
+  maxUses        Int?
+  usedCount      Int              @default(0)
+  isActive       Boolean          @default(true)
+  startAt        DateTime?
+  endAt          DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  usages         PromotionUsage[]
+}
+
+model PromotionUsage {
+  id          String    @id @default(cuid())
+  promotionId String
+  saleId      String
+  discount    Decimal   @db.Decimal(15, 4)
+  createdAt   DateTime  @default(now())
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+  sale        Sale      @relation(fields: [saleId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// E09 – System Ops
+// ─────────────────────────────────────────────
+
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model PrintTemplate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  type      String   // sale | purchase | quote | delivery
+  body      String   @db.LongText
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ImportLog {
+  id         String   @id @default(cuid())
+  type       String   // products | customers | suppliers
+  fileName   String
+  status     String   @default("pending") // pending | processing | done | error
+  totalRows  Int      @default(0)
+  imported   Int      @default(0)
+  failed     Int      @default(0)
+  errorLog   String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
