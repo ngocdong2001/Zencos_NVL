@@ -216,9 +216,33 @@ input {
 
 .catalog-main {
   padding: 24px 32px 20px;
-  overflow: auto;
+  overflow: hidden;
   display: grid;
   gap: 14px;
+}
+
+.catalog-page-shell {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+}
+
+.catalog-page-top,
+.catalog-page-bottom {
+  flex: 0 0 auto;
+}
+
+.catalog-page-table {
+  min-height: 0;
+  display: flex;
+}
+
+.catalog-page-table .data-grid-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .title-bar {

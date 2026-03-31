@@ -27,6 +27,38 @@ function toStatusLabel(deletedAt: unknown) {
   return deletedAt ? 'Inactive' : 'Active'
 }
 
+function isDuplicateCodeError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return error.message.includes('Code: `1062`') && error.message.includes('products.products_code_key')
+}
+
+function getNextNumberFromCodes(codes: string[], prefix: string): number {
+  const used = new Set<number>()
+
+  for (const code of codes) {
+    const normalized = code.trim().toUpperCase()
+    if (!normalized.startsWith(`${prefix}-`)) continue
+    const suffix = normalized.slice(prefix.length + 1)
+    const n = Number.parseInt(suffix, 10)
+    if (Number.isFinite(n) && n > 0) used.add(n)
+  }
+
+  let next = 1
+  while (used.has(next)) next += 1
+  return next
+}
+
+async function getNextMaterialCode(): Promise<string> {
+  const rows = await prisma.$queryRaw<Array<{ code: string | null }>>(Prisma.sql`
+    SELECT code
+    FROM products
+    WHERE code LIKE 'NVL-%'
+  `)
+
+  const next = getNextNumberFromCodes(rows.map((row) => String(row.code ?? '')), 'NVL')
+  return `NVL-${String(next).padStart(3, '0')}`
+}
+
 const materialSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
@@ -84,6 +116,11 @@ router.get('/materials', async (req, res) => {
   return res.json(normalizeForJson(data))
 })
 
+router.get('/materials/next-code', async (_req, res) => {
+  const nextCode = await getNextMaterialCode()
+  return res.json({ nextCode })
+})
+
 router.post('/materials', async (req, res) => {
   const parsed = materialSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -91,12 +128,30 @@ router.post('/materials', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO products
-      (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, min_stock_level, notes, created_at, updated_at)
-    VALUES
-      (${data.code}, ${data.name}, ${data.inciName}, ${data.productType}, ${data.hasExpiry}, ${data.useFefo}, ${data.baseUnit}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
-  `)
+  const codeToInsert = data.code
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO products
+        (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, min_stock_level, notes, created_at, updated_at)
+      VALUES
+        (${codeToInsert}, ${data.name}, ${data.inciName}, ${data.productType}, ${data.hasExpiry}, ${data.useFefo}, ${data.baseUnit}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (!isDuplicateCodeError(error)) throw error
+
+    const isGeneratedNvlCode = /^NVL-\d+$/i.test(codeToInsert)
+    if (!isGeneratedNvlCode) {
+      return res.status(409).json({ message: 'Code already exists', code: codeToInsert })
+    }
+
+    const suggestedCode = await getNextMaterialCode()
+    return res.status(409).json({
+      message: 'Code already exists',
+      code: codeToInsert,
+      suggestedCode,
+    })
+  }
 
   const created = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT id, code, name, inci_name, product_type, base_unit, deleted_at

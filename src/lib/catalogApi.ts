@@ -25,6 +25,11 @@ export async function fetchMaterials(q?: string): Promise<MaterialRow[]> {
   return http<MaterialRow[]>(`/api/catalog/materials${query}`)
 }
 
+export async function fetchNextMaterialCode(): Promise<string> {
+  const response = await http<{ nextCode: string }>('/api/catalog/materials/next-code')
+  return response.nextCode
+}
+
 export async function createMaterial(payload: {
   code: string
   name: string

@@ -18,11 +18,54 @@ import {
   deleteMaterial,
   fetchBasics,
   fetchMaterials,
+  fetchNextMaterialCode,
   updateBasic,
   updateMaterial,
 } from '../lib/catalogApi'
 
 type OutletContext = { search: string }
+
+type ParsedApiError = {
+  message: string
+  suggestedCode?: string
+}
+
+function parseApiError(error: unknown): ParsedApiError {
+  if (!(error instanceof Error)) {
+    return { message: 'Lưu nguyên liệu thất bại' }
+  }
+
+  const raw = error.message?.trim() ?? ''
+  if (!raw.startsWith('{')) {
+    return { message: raw || 'Lưu nguyên liệu thất bại' }
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { message?: string; suggestedCode?: string }
+    return {
+      message: parsed.message || 'Lưu nguyên liệu thất bại',
+      suggestedCode: parsed.suggestedCode,
+    }
+  } catch {
+    return { message: raw }
+  }
+}
+
+function getNextCode(codes: string[], prefix: string, pad = 3): string {
+  const used = new Set<number>()
+
+  for (const raw of codes) {
+    const code = raw.trim().toUpperCase()
+    if (!code.startsWith(`${prefix}-`)) continue
+    const suffix = code.slice(prefix.length + 1)
+    const n = Number.parseInt(suffix, 10)
+    if (Number.isFinite(n) && n > 0) used.add(n)
+  }
+
+  let next = 1
+  while (used.has(next)) next += 1
+  return `${prefix}-${String(next).padStart(pad, '0')}`
+}
 
 export function CatalogPage() {
   const { search } = useOutletContext<OutletContext>()
@@ -33,6 +76,7 @@ export function CatalogPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
   const [catalogs, setCatalogs] = useState(initialBasicRows)
+  const [nextMatCode, setNextMatCode] = useState('NVL-001')
   const [loading, setLoading] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<CatalogDataGridHandle>(null)
@@ -41,8 +85,9 @@ export function CatalogPage() {
   const isNumericId = (id: string) => /^\d+$/.test(id)
 
   const refreshMaterials = async () => {
-    const rows = await fetchMaterials()
+    const [rows, nextCode] = await Promise.all([fetchMaterials(), fetchNextMaterialCode()])
     setMaterials(rows)
+    setNextMatCode(nextCode)
   }
 
   const refreshBasicTab = async (tab: BasicTabId) => {
@@ -56,9 +101,10 @@ export function CatalogPage() {
     const loadCatalog = async () => {
       try {
         setLoading(true)
-        const [materialsData, suppliersData, customersData, classificationsData, unitsData, locationsData] =
+        const [materialsData, nextMaterialCode, suppliersData, customersData, classificationsData, unitsData, locationsData] =
           await Promise.all([
             fetchMaterials(),
+            fetchNextMaterialCode(),
             fetchBasics('suppliers'),
             fetchBasics('customers'),
             fetchBasics('classifications'),
@@ -68,6 +114,7 @@ export function CatalogPage() {
 
         if (cancelled) return
         setMaterials(materialsData)
+        setNextMatCode(nextMaterialCode)
         setCatalogs((prev) => ({
           ...prev,
           suppliers: suppliersData,
@@ -145,15 +192,21 @@ export function CatalogPage() {
       .sort((a, b) => a - b)
   }, [totalPages])
 
-  // Suggested codes for new rows
-  const nextMatCode = `NVL-${String(materials.length + 1).padStart(3, '0')}`
-  const nextBasicCode =
-    activeTab !== 'materials'
-      ? `${activeTab.toUpperCase().slice(0, 3)}-${catalogs[activeTab as BasicTabId].length + 1}`
-      : ''
+  const nextBasicCode = useMemo(() => {
+    if (activeTab === 'materials') return ''
+    const tab = activeTab as BasicTabId
+    const prefixMap: Record<BasicTabId, string> = {
+      classifications: 'CLA',
+      suppliers: 'SUP',
+      customers: 'CUS',
+      locations: 'LOC',
+      units: 'UNI',
+    }
+    return getNextCode(catalogs[tab].map((row) => row.code), prefixMap[tab], 3)
+  }, [activeTab, catalogs])
 
   // ── Save handlers (upsert: insert if new id, update if existing) ─────
-  const handleSaveMaterial = (row: MaterialRow) => {
+  const handleSaveMaterial = async (row: MaterialRow): Promise<boolean> => {
     const payload = {
       code: row.code,
       name: row.materialName,
@@ -166,36 +219,42 @@ export function CatalogPage() {
       notes: '',
     } as const
 
-    void (async () => {
-      try {
-        if (isNumericId(row.id)) {
-          await updateMaterial(row.id, payload)
-        } else {
-          await createMaterial(payload)
-        }
-        await refreshMaterials()
-      } catch (error) {
-        console.error('Lưu nguyên liệu thất bại:', error)
+    try {
+      if (isNumericId(row.id)) {
+        await updateMaterial(row.id, payload)
+      } else {
+        await createMaterial(payload)
       }
-    })()
+      await refreshMaterials()
+      return true
+    } catch (error) {
+      console.error('Lưu nguyên liệu thất bại:', error)
+      const parsed = parseApiError(error)
+      if (parsed.suggestedCode) {
+        setNextMatCode(parsed.suggestedCode)
+      }
+      const hint = parsed.suggestedCode ? `\nMã gợi ý: ${parsed.suggestedCode}` : ''
+      window.alert(`${parsed.message}${hint}`)
+      return false
+    }
   }
 
-  const handleSaveBasic = (row: BasicRow) => {
-    if (activeTab === 'materials') return
+  const handleSaveBasic = async (row: BasicRow): Promise<boolean> => {
+    if (activeTab === 'materials') return false
     const tab = activeTab as BasicTabId
 
-    void (async () => {
-      try {
-        if (isNumericId(row.id)) {
-          await updateBasic(tab, row.id, { code: row.code, name: row.name, note: row.note })
-        } else {
-          await createBasic(tab, { code: row.code, name: row.name, note: row.note })
-        }
-        await refreshBasicTab(tab)
-      } catch (error) {
-        console.error('Lưu danh mục thất bại:', error)
+    try {
+      if (isNumericId(row.id)) {
+        await updateBasic(tab, row.id, { code: row.code, name: row.name, note: row.note })
+      } else {
+        await createBasic(tab, { code: row.code, name: row.name, note: row.note })
       }
-    })()
+      await refreshBasicTab(tab)
+      return true
+    } catch (error) {
+      console.error('Lưu danh mục thất bại:', error)
+      return false
+    }
   }
 
   const deleteRow = (id: string) => {
@@ -298,55 +357,63 @@ export function CatalogPage() {
   }
 
   return (
-    <>
-      <CatalogToolbar
-        activeTab={activeTab}
-        tabItems={tabItems}
-        selectedCount={selectedCount}
-        importInputRef={importInputRef}
-        onExport={exportCurrent}
-        onFocusQuickAdd={() => {
-          gridRef.current?.focusNewRow()
-        }}
-        onDownloadTemplate={downloadTemplate}
-        onTabChange={setActiveTab}
-        onToggleOnlyActive={() => setOnlyActive((prev) => !prev)}
-        onImportCsv={importCsv}
-      />
-      {loading ? <p style={{ margin: '8px 0 12px', opacity: 0.7 }}>Đang tải dữ liệu catalog...</p> : null}
-      <CatalogDataGrid
-        ref={gridRef}
-        activeTab={activeTab}
-        selectedIds={selectedIds}
-        allVisibleSelected={allVisibleSelected}
-        pagedMaterials={pagedMaterials}
-        pagedBasics={pagedBasics}
-        onToggleSelectAll={(checked) => {
-          if (checked) {
-            setSelectedIds((prev) => [...new Set([...prev, ...visibleIds])])
-          } else {
-            setSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
+    <section className="catalog-page-shell">
+      <div className="catalog-page-top">
+        <CatalogToolbar
+          activeTab={activeTab}
+          tabItems={tabItems}
+          selectedCount={selectedCount}
+          importInputRef={importInputRef}
+          onExport={exportCurrent}
+          onFocusQuickAdd={() => {
+            gridRef.current?.focusNewRow()
+          }}
+          onDownloadTemplate={downloadTemplate}
+          onTabChange={setActiveTab}
+          onToggleOnlyActive={() => setOnlyActive((prev) => !prev)}
+          onImportCsv={importCsv}
+        />
+        {loading ? <p style={{ margin: '8px 0 12px', opacity: 0.7 }}>Đang tải dữ liệu catalog...</p> : null}
+      </div>
+
+      <div className="catalog-page-table">
+        <CatalogDataGrid
+          ref={gridRef}
+          activeTab={activeTab}
+          selectedIds={selectedIds}
+          allVisibleSelected={allVisibleSelected}
+          pagedMaterials={pagedMaterials}
+          pagedBasics={pagedBasics}
+          onToggleSelectAll={(checked) => {
+            if (checked) {
+              setSelectedIds((prev) => [...new Set([...prev, ...visibleIds])])
+            } else {
+              setSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
+            }
+          }}
+          onToggleSelectRow={(id, checked) =>
+            setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
           }
-        }}
-        onToggleSelectRow={(id, checked) =>
-          setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
-        }
-        units={catalogs.units}
-        onSaveMaterial={handleSaveMaterial}
-        onSaveBasic={handleSaveBasic}
-        onDelete={deleteRow}
-        nextMatCode={nextMatCode}
-        nextBasicCode={nextBasicCode}
-      />
-      <CatalogGridFooter
-        currentRangeStart={currentRangeStart}
-        currentRangeEnd={currentRangeEnd}
-        totalRows={totalRows}
-        safePage={safePage}
-        totalPages={totalPages}
-        pageButtons={pageButtons}
-        onPageChange={setPage}
-      />
-    </>
+          units={catalogs.units}
+          onSaveMaterial={handleSaveMaterial}
+          onSaveBasic={handleSaveBasic}
+          onDelete={deleteRow}
+          nextMatCode={nextMatCode}
+          nextBasicCode={nextBasicCode}
+        />
+      </div>
+
+      <div className="catalog-page-bottom">
+        <CatalogGridFooter
+          currentRangeStart={currentRangeStart}
+          currentRangeEnd={currentRangeEnd}
+          totalRows={totalRows}
+          safePage={safePage}
+          totalPages={totalPages}
+          pageButtons={pageButtons}
+          onPageChange={setPage}
+        />
+      </div>
+    </section>
   )
 }
