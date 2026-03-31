@@ -41,9 +41,9 @@ function parseApiError(error: unknown): ParsedApiError {
   }
 
   try {
-    const parsed = JSON.parse(raw) as { message?: string; suggestedCode?: string }
+    const parsed = JSON.parse(raw) as { message?: string; error?: string; suggestedCode?: string }
     return {
-      message: parsed.message || 'Lưu nguyên liệu thất bại',
+      message: parsed.message || parsed.error || 'Lưu nguyên liệu thất bại',
       suggestedCode: parsed.suggestedCode,
     }
   } catch {
