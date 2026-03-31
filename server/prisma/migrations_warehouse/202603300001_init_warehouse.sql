@@ -14,12 +14,32 @@ CREATE TABLE `users` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `product_classifications` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `code` VARCHAR(100) NOT NULL,
+    `name` VARCHAR(255) NOT NULL,
+    `notes` TEXT NULL,
+    `deleted_at` DATETIME(3) NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL,
+
+    UNIQUE INDEX `product_classifications_code_key`(`code`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- SeedData
+INSERT INTO `product_classifications` (`code`, `name`, `notes`, `created_at`, `updated_at`)
+VALUES
+    ('raw_material', 'Nguyen vat lieu', NULL, NOW(3), NOW(3)),
+    ('packaging', 'Bao bi', NULL, NOW(3), NOW(3));
+
+-- CreateTable
 CREATE TABLE `products` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `code` VARCHAR(100) NOT NULL,
     `name` VARCHAR(255) NOT NULL,
     `inci_name` VARCHAR(255) NULL,
-    `product_type` ENUM('raw_material', 'packaging') NOT NULL,
+    `product_type` BIGINT UNSIGNED NOT NULL,
     `has_expiry` BOOLEAN NOT NULL DEFAULT true,
     `use_fefo` BOOLEAN NOT NULL DEFAULT true,
     `base_unit` VARCHAR(20) NOT NULL DEFAULT 'GR',
@@ -238,7 +258,7 @@ CREATE TABLE `notifications` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `catalog_classifications` (
+CREATE TABLE `inventory_locations` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `code` VARCHAR(100) NOT NULL,
     `name` VARCHAR(255) NOT NULL,
@@ -247,35 +267,7 @@ CREATE TABLE `catalog_classifications` (
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 
-    UNIQUE INDEX `catalog_classifications_code_key`(`code`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `catalog_units` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `code` VARCHAR(100) NOT NULL,
-    `name` VARCHAR(255) NOT NULL,
-    `notes` TEXT NULL,
-    `deleted_at` DATETIME(3) NULL,
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updated_at` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `catalog_units_code_key`(`code`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
-CREATE TABLE `catalog_locations` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `code` VARCHAR(100) NOT NULL,
-    `name` VARCHAR(255) NOT NULL,
-    `notes` TEXT NULL,
-    `deleted_at` DATETIME(3) NULL,
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updated_at` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `catalog_locations_code_key`(`code`),
+    UNIQUE INDEX `inventory_locations_code_key`(`code`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -287,6 +279,9 @@ ALTER TABLE `product_documents` ADD CONSTRAINT `product_documents_product_id_fke
 
 -- AddForeignKey
 ALTER TABLE `product_documents` ADD CONSTRAINT `product_documents_uploaded_by_fkey` FOREIGN KEY (`uploaded_by`) REFERENCES `users`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `products` ADD CONSTRAINT `products_product_type_fkey` FOREIGN KEY (`product_type`) REFERENCES `product_classifications`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `batches` ADD CONSTRAINT `batches_product_id_fkey` FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -480,6 +480,32 @@ input {
   box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
 }
 
+.prime-catalog-table .p-dropdown {
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.prime-catalog-table .p-dropdown .p-dropdown-label {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.prime-catalog-table .p-dropdown .p-dropdown-trigger {
+  width: 28px;
+}
+
+.prime-catalog-table .p-dropdown:not(.p-disabled).p-focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
+}
+
 .new-row-cta-wrap {
   padding: 10px 12px;
   border-top: 1px solid var(--line);
@@ -728,6 +754,26 @@ input {
 .ellipsis {
   padding: 0 6px;
   color: var(--text-muted);
+}
+
+.page-size-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.page-size-select {
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .catalog-footer {

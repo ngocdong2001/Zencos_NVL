@@ -1,159 +1,98 @@
-import { Router } from 'express'
+import { Router, Request, Response } from 'express'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
+import { InventoryTransactionType, BatchStatus, Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../middleware/auth.js'
 
 const router = Router()
 
 // ──────────────────────────────────────────────────────────────────────
-// WAREHOUSE STOCK
+// BATCH STOCK — available quantities per product/lot
 // ──────────────────────────────────────────────────────────────────────
-router.get('/stock', requireAuth, requirePermission('inventory.read'), async (req, res) => {
-  const { warehouseId, productId } = req.query as Record<string, string>
-  const where: Record<string, unknown> = {}
-  if (warehouseId) where.warehouseId = warehouseId
-  if (productId) where.productId = productId
+router.get('/stock', requireAuth, requirePermission('inventory.read'), async (req: Request, res: Response) => {
+  const { productId, status } = req.query as Record<string, string>
+  const where: Prisma.BatchWhereInput = { deletedAt: null }
+  if (productId) where.productId = BigInt(productId)
+  if (status) where.status = status as BatchStatus
 
-  const stock = await prisma.warehouseProduct.findMany({
+  const batches = await prisma.batch.findMany({
     where,
-    include: { product: true, warehouse: true },
+    include: {
+      product: { select: { id: true, code: true, name: true } },
+      supplier: { select: { id: true, code: true, name: true } },
+    },
+    orderBy: [{ productId: 'asc' }, { expiryDate: 'asc' }],
   })
-  res.json(stock)
+  res.json(batches)
 })
 
 // ──────────────────────────────────────────────────────────────────────
-// ADJUSTMENTS
+// INVENTORY TRANSACTIONS
 // ──────────────────────────────────────────────────────────────────────
-router.get('/adjustments', requireAuth, requirePermission('inventory.read'), async (req, res) => {
-  const { page = '1', limit = '20' } = req.query as Record<string, string>
+router.get('/transactions', requireAuth, requirePermission('inventory.read'), async (req: Request, res: Response) => {
+  const { batchId, type, page = '1', limit = '20' } = req.query as Record<string, string>
   const skip = (Number(page) - 1) * Number(limit)
+  const where: Prisma.InventoryTransactionWhereInput = {}
+  if (batchId) where.batchId = BigInt(batchId)
+  if (type) where.type = type as InventoryTransactionType
+
   const [data, total] = await Promise.all([
-    prisma.adjustment.findMany({
-      skip, take: Number(limit), orderBy: { createdAt: 'desc' },
-      include: { items: { include: { product: true } }, warehouse: true },
+    prisma.inventoryTransaction.findMany({
+      where, skip, take: Number(limit), orderBy: { transactionDate: 'desc' },
+      include: {
+        batch: { include: { product: { select: { id: true, code: true, name: true } } } },
+        user: { select: { id: true, fullName: true } },
+      },
     }),
-    prisma.adjustment.count(),
+    prisma.inventoryTransaction.count({ where }),
   ])
   res.json({ data, total, page: Number(page), limit: Number(limit) })
 })
 
-router.get('/adjustments/:id', requireAuth, requirePermission('inventory.read'), async (req, res) => {
-  const adj = await prisma.adjustment.findUnique({
-    where: { id: req.params.id },
-    include: { items: { include: { product: true } }, warehouse: true },
-  })
-  if (!adj) { res.status(404).json({ error: 'Adjustment not found' }); return }
-  res.json(adj)
+const transactionSchema = z.object({
+  batchId: z.string(),
+  type: z.nativeEnum(InventoryTransactionType),
+  quantityBase: z.number().refine((n) => n !== 0, { message: 'quantityBase must be non-zero' }),
+  notes: z.string().optional(),
+  transactionDate: z.string().optional(),
 })
 
-const adjustmentItemSchema = z.object({
-  productId: z.string(),
-  type: z.enum(['addition', 'subtraction']),
-  qty: z.number().positive(),
-})
-
-const adjustmentSchema = z.object({
-  reference: z.string().min(1),
-  warehouseId: z.string(),
-  note: z.string().optional(),
-  items: z.array(adjustmentItemSchema).min(1),
-})
-
-router.post('/adjustments', requireAuth, requirePermission('inventory.write'), async (req, res) => {
-  const parsed = adjustmentSchema.safeParse(req.body)
+router.post('/transactions', requireAuth, requirePermission('inventory.write'), async (req: AuthenticatedRequest, res: Response) => {
+  const parsed = transactionSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
-  const { items, ...header } = parsed.data
 
-  const adj = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const created = await tx.adjustment.create({
-      data: { ...header, items: { create: items } },
-      include: { items: true },
-    })
+  const batch = await prisma.batch.findUnique({ where: { id: BigInt(parsed.data.batchId) } })
+  if (!batch) { res.status(404).json({ error: 'Batch not found' }); return }
 
-    // update warehouse stock
-    for (const item of items) {
-      const sign = item.type === 'addition' ? 1 : -1
-      await tx.warehouseProduct.upsert({
-        where: { warehouseId_productId: { warehouseId: header.warehouseId, productId: item.productId } },
-        update: { qty: { increment: sign * item.qty } },
-        create: { warehouseId: header.warehouseId, productId: item.productId, qty: sign * item.qty },
-      })
-    }
-    return created
+  const tx = await prisma.inventoryTransaction.create({
+    data: {
+      batchId: BigInt(parsed.data.batchId),
+      userId: BigInt(req.auth!.sub),
+      type: parsed.data.type,
+      quantityBase: parsed.data.quantityBase,
+      notes: parsed.data.notes,
+      transactionDate: parsed.data.transactionDate ? new Date(parsed.data.transactionDate) : new Date(),
+    },
   })
-  res.status(201).json(adj)
+  res.status(201).json(tx)
 })
 
 // ──────────────────────────────────────────────────────────────────────
-// STOCK COUNTS
+// LEGACY ALIASES — superseded endpoints
 // ──────────────────────────────────────────────────────────────────────
-router.get('/stock-counts', requireAuth, requirePermission('inventory.read'), async (req, res) => {
-  const { page = '1', limit = '20' } = req.query as Record<string, string>
-  const skip = (Number(page) - 1) * Number(limit)
-  const [data, total] = await Promise.all([
-    prisma.stockCount.findMany({
-      skip, take: Number(limit), orderBy: { createdAt: 'desc' },
-      include: { warehouse: true },
-    }),
-    prisma.stockCount.count(),
-  ])
-  res.json({ data, total, page: Number(page), limit: Number(limit) })
-})
-
-router.get('/stock-counts/:id', requireAuth, requirePermission('inventory.read'), async (req, res) => {
-  const sc = await prisma.stockCount.findUnique({
-    where: { id: req.params.id },
-    include: { items: { include: { product: true } }, warehouse: true },
+const superseded = (_req: Request, res: Response): void => {
+  res.status(501).json({
+    error: 'This endpoint has been superseded.',
+    hint: 'Use GET /api/inventory/transactions?type=adjustment and POST /api/inventory/transactions instead.',
   })
-  if (!sc) { res.status(404).json({ error: 'Stock count not found' }); return }
-  res.json(sc)
-})
+}
 
-const stockCountItemSchema = z.object({
-  productId: z.string(),
-  expected: z.number().min(0),
-  actual: z.number().min(0),
-})
-
-const stockCountSchema = z.object({
-  reference: z.string().min(1),
-  warehouseId: z.string(),
-  note: z.string().optional(),
-  items: z.array(stockCountItemSchema).min(1),
-})
-
-router.post('/stock-counts', requireAuth, requirePermission('inventory.write'), async (req, res) => {
-  const parsed = stockCountSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
-  const { items, ...header } = parsed.data
-
-  const sc = await prisma.stockCount.create({
-    data: { ...header, status: 'draft', items: { create: items } },
-    include: { items: true },
-  })
-  res.status(201).json(sc)
-})
-
-router.post('/stock-counts/:id/confirm', requireAuth, requirePermission('inventory.write'), async (req, res) => {
-  const sc = await prisma.stockCount.findUnique({
-    where: { id: req.params.id },
-    include: { items: true },
-  })
-  if (!sc) { res.status(404).json({ error: 'Stock count not found' }); return }
-  if (sc.status === 'confirmed') { res.status(409).json({ error: 'Already confirmed' }); return }
-
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    for (const item of sc.items) {
-      await tx.warehouseProduct.upsert({
-        where: { warehouseId_productId: { warehouseId: sc.warehouseId, productId: item.productId } },
-        update: { qty: item.actual },
-        create: { warehouseId: sc.warehouseId, productId: item.productId, qty: item.actual },
-      })
-    }
-    await tx.stockCount.update({ where: { id: sc.id }, data: { status: 'confirmed' } })
-  })
-  res.json({ message: 'Stock count confirmed' })
-})
+router.get('/adjustments', requireAuth, requirePermission('inventory.read'), superseded)
+router.get('/adjustments/:id', requireAuth, requirePermission('inventory.read'), superseded)
+router.post('/adjustments', requireAuth, requirePermission('inventory.write'), superseded)
+router.get('/stock-counts', requireAuth, requirePermission('inventory.read'), superseded)
+router.get('/stock-counts/:id', requireAuth, requirePermission('inventory.read'), superseded)
+router.post('/stock-counts', requireAuth, requirePermission('inventory.write'), superseded)
+router.post('/stock-counts/:id/confirm', requireAuth, requirePermission('inventory.write'), superseded)
 
 export default router

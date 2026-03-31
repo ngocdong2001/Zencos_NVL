@@ -7,11 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ProductType {
-  raw_material
-  packaging
-}
-
 enum ProductDocType {
   MSDS
   Spec
@@ -77,34 +72,42 @@ model Product {
   code           String           @unique @db.VarChar(100)
   name           String           @db.VarChar(255)
   inciName       String?          @map("inci_name") @db.VarChar(255)
-  productType    ProductType      @map("product_type")
+  productType    BigInt           @map("product_type") @db.UnsignedBigInt
   hasExpiry      Boolean          @default(true) @map("has_expiry")
   useFefo        Boolean          @default(true) @map("use_fefo")
-  baseUnit       String           @default("GR") @map("base_unit") @db.VarChar(20)
+  baseUnit       BigInt           @map("base_unit") @db.UnsignedBigInt
   minStockLevel  Decimal          @default(0) @map("min_stock_level") @db.Decimal(15, 4)
   notes          String?          @db.Text
   deletedAt      DateTime?        @map("deleted_at")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
-  productUnits   ProductUnit[]
+  productUnits   ProductUnit[]    @relation("ProductUnitsByProduct")
+  baseUnitRef    ProductUnit      @relation("ProductBaseUnit", fields: [baseUnit], references: [id], onDelete: Restrict)
   productDocuments ProductDocument[]
   batches        Batch[]
   exportOrderItems ExportOrderItem[]
   purchaseRequestItems PurchaseRequestItem[]
+  productClassification ProductClassification @relation(fields: [productType], references: [id], onDelete: Restrict)
 
   @@map("products")
 }
 
 model ProductUnit {
-  id               BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  productId        BigInt    @map("product_id") @db.UnsignedBigInt
-  unitName         String    @map("unit_name") @db.VarChar(100)
-  conversionToBase Decimal   @map("conversion_to_base") @db.Decimal(15, 4)
-  isPurchaseUnit   Boolean   @default(false) @map("is_purchase_unit")
-  isDefaultDisplay Boolean   @default(false) @map("is_default_display")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id               BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  productId        BigInt?      @map("product_id") @db.UnsignedBigInt
+  parentUnitId     BigInt?      @map("parent_unit_id") @db.UnsignedBigInt
+  unitCodeName     String?      @map("unit_code_name") @db.VarChar(100)
+  unitName         String       @map("unit_name") @db.VarChar(100)
+  unitMemo         String?      @map("unit_memo") @db.VarChar(255)
+  conversionToBase Decimal      @map("conversion_to_base") @db.Decimal(15, 4)
+  isPurchaseUnit   Boolean      @default(false) @map("is_purchase_unit")
+  isDefaultDisplay Boolean      @default(false) @map("is_default_display")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  product          Product?     @relation("ProductUnitsByProduct", fields: [productId], references: [id], onDelete: Cascade)
+  parentUnit       ProductUnit? @relation("ProductUnitHierarchy", fields: [parentUnitId], references: [id])
+  childUnits       ProductUnit[] @relation("ProductUnitHierarchy")
+  productsAsBaseUnit Product[]  @relation("ProductBaseUnit")
 
   @@unique([productId, unitName])
   @@map("product_units")
@@ -319,7 +322,7 @@ model Notification {
   @@map("notifications")
 }
 
-model CatalogClassification {
+model ProductClassification {
   id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
   code      String    @unique @db.VarChar(100)
   name      String    @db.VarChar(255)
@@ -327,20 +330,9 @@ model CatalogClassification {
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
+  products  Product[]
 
-  @@map("catalog_classifications")
-}
-
-model CatalogUnit {
-  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  code      String    @unique @db.VarChar(100)
-  name      String    @db.VarChar(255)
-  notes     String?   @db.Text
-  deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-
-  @@map("catalog_units")
+  @@map("product_classifications")
 }
 
 model CatalogLocation {
@@ -352,5 +344,5 @@ model CatalogLocation {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  @@map("catalog_locations")
+  @@map("inventory_locations")
 }

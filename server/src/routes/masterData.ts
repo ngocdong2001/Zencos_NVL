@@ -1,5 +1,6 @@
-import { Router } from 'express'
+import { Router, Request, Response } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 
@@ -7,221 +8,126 @@ const router = Router()
 
 router.use(requireAuth)
 
+// ──────────────────────────────────────────────────────────────────────
+// CUSTOMERS
+// ──────────────────────────────────────────────────────────────────────
 const customerSchema = z.object({
-  code: z.string().min(1),
   name: z.string().min(1),
   phone: z.string().optional(),
   email: z.string().email().optional(),
-  note: z.string().optional(),
+  address: z.string().optional(),
+  notes: z.string().optional(),
 })
 
-router.get('/customers', requirePermission('customers.read'), async (req, res) => {
+router.get('/customers', requirePermission('customers.read'), async (req: Request, res: Response) => {
   const q = (req.query.q as string | undefined)?.trim()
-  const customers = await prisma.customer.findMany({
-    where: {
-      deletedAt: null,
-      ...(q
-        ? {
-            OR: [
-              { name: { contains: q } },
-              { code: { contains: q } },
-              { phone: { contains: q } },
-            ],
-          }
-        : {}),
-    },
-    include: { addresses: { where: { deletedAt: null } } },
-    orderBy: { createdAt: 'desc' },
-  })
-  return res.json(customers)
+  const where: Prisma.CustomerWhereInput = { deletedAt: null }
+  if (q) {
+    where.OR = [
+      { name: { contains: q } },
+      { phone: { contains: q } },
+      { email: { contains: q } },
+    ]
+  }
+  const customers = await prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } })
+  res.json(customers)
 })
 
-router.post('/customers', requirePermission('customers.write'), async (req, res) => {
+router.post('/customers', requirePermission('customers.write'), async (req: Request, res: Response) => {
   const parsed = customerSchema.safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
+  if (!parsed.success) { res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() }); return }
   const created = await prisma.customer.create({ data: parsed.data })
-  return res.status(201).json(created)
+  res.status(201).json(created)
 })
 
-router.put('/customers/:id', requirePermission('customers.write'), async (req, res) => {
+router.put('/customers/:id', requirePermission('customers.write'), async (req: Request, res: Response) => {
   const parsed = customerSchema.partial().safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
-  const updated = await prisma.customer.update({
-    where: { id: req.params.id },
-    data: parsed.data,
-  })
-  return res.json(updated)
+  if (!parsed.success) { res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() }); return }
+  const updated = await prisma.customer.update({ where: { id: BigInt(req.params.id) }, data: parsed.data })
+  res.json(updated)
 })
 
-router.delete('/customers/:id', requirePermission('customers.write'), async (req, res) => {
+router.delete('/customers/:id', requirePermission('customers.write'), async (req: Request, res: Response) => {
   const updated = await prisma.customer.update({
-    where: { id: req.params.id },
+    where: { id: BigInt(req.params.id) },
     data: { deletedAt: new Date() },
   })
-  return res.json({ id: updated.id, deletedAt: updated.deletedAt })
+  res.json({ id: updated.id.toString(), deletedAt: updated.deletedAt })
 })
 
+// ──────────────────────────────────────────────────────────────────────
+// SUPPLIERS
+// ──────────────────────────────────────────────────────────────────────
 const supplierSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  note: z.string().optional(),
+  contactInfo: z.string().optional(),
+  address: z.string().optional(),
+  notes: z.string().optional(),
 })
 
-router.get('/suppliers', requirePermission('suppliers.read'), async (_req, res) => {
+router.get('/suppliers', requirePermission('suppliers.read'), async (_req: Request, res: Response) => {
   const suppliers = await prisma.supplier.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } })
-  return res.json(suppliers)
+  res.json(suppliers)
 })
 
-router.post('/suppliers', requirePermission('suppliers.write'), async (req, res) => {
+router.post('/suppliers', requirePermission('suppliers.write'), async (req: Request, res: Response) => {
   const parsed = supplierSchema.safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
+  if (!parsed.success) { res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() }); return }
   const created = await prisma.supplier.create({ data: parsed.data })
-  return res.status(201).json(created)
+  res.status(201).json(created)
 })
 
-router.put('/suppliers/:id', requirePermission('suppliers.write'), async (req, res) => {
+router.put('/suppliers/:id', requirePermission('suppliers.write'), async (req: Request, res: Response) => {
   const parsed = supplierSchema.partial().safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
-  const updated = await prisma.supplier.update({ where: { id: req.params.id }, data: parsed.data })
-  return res.json(updated)
+  if (!parsed.success) { res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() }); return }
+  const updated = await prisma.supplier.update({ where: { id: BigInt(req.params.id) }, data: parsed.data })
+  res.json(updated)
 })
 
-router.delete('/suppliers/:id', requirePermission('suppliers.write'), async (req, res) => {
-  const updated = await prisma.supplier.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
-  return res.json({ id: updated.id, deletedAt: updated.deletedAt })
+router.delete('/suppliers/:id', requirePermission('suppliers.write'), async (req: Request, res: Response) => {
+  const updated = await prisma.supplier.update({
+    where: { id: BigInt(req.params.id) },
+    data: { deletedAt: new Date() },
+  })
+  res.json({ id: updated.id.toString(), deletedAt: updated.deletedAt })
 })
 
-function registerSimpleCatalogRoutes(path: string, readPermission: string, writePermission: string) {
-  const schema = z.object({ code: z.string().min(1), name: z.string().min(1) })
-
-  router.get(`/${path}`, requirePermission(readPermission), async (_req, res) => {
-    const model = getCatalogModel(path)
-    const rows = await model.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } })
-    return res.json(rows)
-  })
-
-  router.post(`/${path}`, requirePermission(writePermission), async (req, res) => {
-    const parsed = schema.safeParse(req.body)
-    if (!parsed.success) {
-      return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-    }
-    const model = getCatalogModel(path)
-    const row = await model.create({ data: parsed.data })
-    return res.status(201).json(row)
-  })
-
-  router.put(`/${path}/:id`, requirePermission(writePermission), async (req, res) => {
-    const parsed = schema.partial().safeParse(req.body)
-    if (!parsed.success) {
-      return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-    }
-    const model = getCatalogModel(path)
-    const row = await model.update({ where: { id: req.params.id }, data: parsed.data })
-    return res.json(row)
-  })
-
-  router.delete(`/${path}/:id`, requirePermission(writePermission), async (req, res) => {
-    const model = getCatalogModel(path)
-    const row = await model.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
-    return res.json({ id: row.id, deletedAt: row.deletedAt })
-  })
+// ──────────────────────────────────────────────────────────────────────
+// NOT IMPLEMENTED — models not in warehouse schema
+// ──────────────────────────────────────────────────────────────────────
+const notImplemented = (_req: Request, res: Response): void => {
+  res.status(501).json({ error: 'This data domain is not modelled in the current warehouse schema.' })
 }
 
-router.get('/tax-rates', requirePermission('settings.read'), async (_req, res) => {
-  const rows = await prisma.taxRate.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } })
-  return res.json(rows)
-})
+router.get('/tax-rates', requirePermission('settings.read'), notImplemented)
+router.post('/tax-rates', requirePermission('settings.write'), notImplemented)
+router.put('/tax-rates/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/tax-rates/:id', requirePermission('settings.write'), notImplemented)
 
-router.post('/tax-rates', requirePermission('settings.write'), async (req, res) => {
-  const parsed = z
-    .object({ code: z.string().min(1), name: z.string().min(1), rate: z.number().nonnegative() })
-    .safeParse(req.body)
+router.get('/currencies', requirePermission('settings.read'), notImplemented)
+router.post('/currencies', requirePermission('settings.write'), notImplemented)
+router.put('/currencies/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/currencies/:id', requirePermission('settings.write'), notImplemented)
 
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
+router.get('/categories', requirePermission('settings.read'), notImplemented)
+router.post('/categories', requirePermission('settings.write'), notImplemented)
+router.put('/categories/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/categories/:id', requirePermission('settings.write'), notImplemented)
 
-  const row = await prisma.taxRate.create({ data: parsed.data })
-  return res.status(201).json(row)
-})
+router.get('/brands', requirePermission('settings.read'), notImplemented)
+router.post('/brands', requirePermission('settings.write'), notImplemented)
+router.put('/brands/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/brands/:id', requirePermission('settings.write'), notImplemented)
 
-router.put('/tax-rates/:id', requirePermission('settings.write'), async (req, res) => {
-  const parsed = z.object({ code: z.string().min(1).optional(), name: z.string().min(1).optional(), rate: z.number().nonnegative().optional() }).safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
+router.get('/warehouses', requirePermission('settings.read'), notImplemented)
+router.post('/warehouses', requirePermission('settings.write'), notImplemented)
+router.put('/warehouses/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/warehouses/:id', requirePermission('settings.write'), notImplemented)
 
-  const row = await prisma.taxRate.update({ where: { id: req.params.id }, data: parsed.data })
-  return res.json(row)
-})
-
-router.delete('/tax-rates/:id', requirePermission('settings.write'), async (req, res) => {
-  const row = await prisma.taxRate.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
-  return res.json({ id: row.id, deletedAt: row.deletedAt })
-})
-
-router.get('/currencies', requirePermission('settings.read'), async (_req, res) => {
-  const rows = await prisma.currency.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'desc' } })
-  return res.json(rows)
-})
-
-router.post('/currencies', requirePermission('settings.write'), async (req, res) => {
-  const parsed = z.object({ code: z.string().min(1), name: z.string().min(1), symbol: z.string().min(1) }).safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
-  const row = await prisma.currency.create({ data: parsed.data })
-  return res.status(201).json(row)
-})
-
-router.put('/currencies/:id', requirePermission('settings.write'), async (req, res) => {
-  const parsed = z.object({ code: z.string().min(1).optional(), name: z.string().min(1).optional(), symbol: z.string().min(1).optional() }).safeParse(req.body)
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
-  }
-
-  const row = await prisma.currency.update({ where: { id: req.params.id }, data: parsed.data })
-  return res.json(row)
-})
-
-router.delete('/currencies/:id', requirePermission('settings.write'), async (req, res) => {
-  const row = await prisma.currency.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
-  return res.json({ id: row.id, deletedAt: row.deletedAt })
-})
-
-registerSimpleCatalogRoutes('categories', 'settings.read', 'settings.write')
-registerSimpleCatalogRoutes('brands', 'settings.read', 'settings.write')
-registerSimpleCatalogRoutes('units', 'settings.read', 'settings.write')
-registerSimpleCatalogRoutes('warehouses', 'settings.read', 'settings.write')
-
-function getCatalogModel(path: string): any {
-  switch (path) {
-    case 'categories':
-      return prisma.category
-    case 'brands':
-      return prisma.brand
-    case 'units':
-      return prisma.unit
-    case 'warehouses':
-      return prisma.warehouse
-    default:
-      throw new Error(`Unsupported catalog path: ${path}`)
-  }
-}
+router.get('/units', requirePermission('settings.read'), notImplemented)
+router.post('/units', requirePermission('settings.write'), notImplemented)
+router.put('/units/:id', requirePermission('settings.write'), notImplemented)
+router.delete('/units/:id', requirePermission('settings.write'), notImplemented)
 
 export default router

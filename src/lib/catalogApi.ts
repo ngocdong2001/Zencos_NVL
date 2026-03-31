@@ -34,7 +34,7 @@ export async function createMaterial(payload: {
   code: string
   name: string
   inciName: string
-  productType: 'raw_material' | 'packaging'
+  productType: string | number
   baseUnit: string
   minStockLevel: number
   hasExpiry: boolean
@@ -51,7 +51,7 @@ export async function updateMaterial(id: string, payload: Partial<{
   code: string
   name: string
   inciName: string
-  productType: 'raw_material' | 'packaging'
+  productType: string | number
   baseUnit: string
   minStockLevel: number
   hasExpiry: boolean
@@ -79,7 +79,19 @@ export async function fetchBasics(tab: BasicTabId): Promise<BasicRow[]> {
   return http<BasicRow[]>(pathMap[tab])
 }
 
-export async function createBasic(tab: BasicTabId, payload: { code: string; name: string; note: string }) {
+export async function createBasic(tab: BasicTabId, payload: {
+  code: string
+  name: string
+  note: string
+  contactInfo?: string
+  phone?: string
+  email?: string
+  address?: string
+  parentUnitId?: string
+  conversionToBase?: number
+  isPurchaseUnit?: boolean
+  isDefaultDisplay?: boolean
+}) {
   if (tab === 'locations') {
     return http('/api/catalog/locations', {
       method: 'POST',
@@ -97,28 +109,60 @@ export async function createBasic(tab: BasicTabId, payload: { code: string; name
   if (tab === 'units') {
     return http('/api/catalog/units', {
       method: 'POST',
-      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note }),
+      body: JSON.stringify({
+        code: payload.code,
+        name: payload.name,
+        note: payload.note,
+        parentUnitId: payload.parentUnitId?.trim() ? Number(payload.parentUnitId) : null,
+        conversionToBase: payload.conversionToBase ?? 1,
+        isPurchaseUnit: payload.isPurchaseUnit ?? false,
+        isDefaultDisplay: payload.isDefaultDisplay ?? false,
+      }),
     })
   }
 
   if (tab === 'suppliers') {
     return http('/api/catalog/suppliers', {
       method: 'POST',
-      body: JSON.stringify({ code: payload.code, name: payload.name, notes: payload.note }),
+      body: JSON.stringify({
+        code: payload.code,
+        name: payload.name,
+        notes: payload.note,
+        contactInfo: payload.contactInfo,
+        address: payload.address,
+      }),
     })
   }
 
   if (tab === 'customers') {
     return http('/api/catalog/customers', {
       method: 'POST',
-      body: JSON.stringify({ name: payload.name, notes: payload.note }),
+      body: JSON.stringify({
+        name: payload.name,
+        notes: payload.note,
+        phone: payload.phone,
+        email: payload.email,
+        address: payload.address,
+      }),
     })
   }
 
   return Promise.resolve(null)
 }
 
-export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<{ code: string; name: string; note: string }>) {
+export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<{
+  code: string
+  name: string
+  note: string
+  contactInfo: string
+  phone: string
+  email: string
+  address: string
+  parentUnitId: string
+  conversionToBase: number
+  isPurchaseUnit: boolean
+  isDefaultDisplay: boolean
+}>) {
   if (tab === 'locations') {
     return http(`/api/catalog/locations/${id}`, {
       method: 'PUT',
@@ -136,21 +180,41 @@ export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<
   if (tab === 'units') {
     return http(`/api/catalog/units/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note }),
+      body: JSON.stringify({
+        code: payload.code,
+        name: payload.name,
+        note: payload.note,
+        parentUnitId: payload.parentUnitId?.trim() ? Number(payload.parentUnitId) : payload.parentUnitId === '' ? null : undefined,
+        conversionToBase: payload.conversionToBase,
+        isPurchaseUnit: payload.isPurchaseUnit,
+        isDefaultDisplay: payload.isDefaultDisplay,
+      }),
     })
   }
 
   if (tab === 'suppliers') {
     return http(`/api/catalog/suppliers/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ code: payload.code, name: payload.name, notes: payload.note }),
+      body: JSON.stringify({
+        code: payload.code,
+        name: payload.name,
+        notes: payload.note,
+        contactInfo: payload.contactInfo,
+        address: payload.address,
+      }),
     })
   }
 
   if (tab === 'customers') {
     return http(`/api/catalog/customers/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name: payload.name, notes: payload.note }),
+      body: JSON.stringify({
+        name: payload.name,
+        notes: payload.note,
+        phone: payload.phone,
+        email: payload.email,
+        address: payload.address,
+      }),
     })
   }
 

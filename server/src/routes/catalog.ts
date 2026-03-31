@@ -63,13 +63,79 @@ const materialSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
   inciName: z.string().optional().default(''),
-  productType: z.enum(['raw_material', 'packaging']).default('raw_material'),
-  baseUnit: z.string().min(1).default('GR'),
+  productType: z.union([z.string().min(1), z.coerce.number().int().positive()]).default('raw_material'),
+  baseUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]),
   minStockLevel: z.coerce.number().nonnegative().default(0),
   hasExpiry: z.boolean().default(true),
   useFefo: z.boolean().default(true),
   notes: z.string().optional().nullable(),
 })
+
+const productUnitCatalogSchema = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  note: z.string().optional().nullable(),
+  parentUnitId: z.coerce.number().int().positive().optional().nullable(),
+  conversionToBase: z.coerce.number().positive().optional().default(1),
+  isPurchaseUnit: z.boolean().optional().default(false),
+  isDefaultDisplay: z.boolean().optional().default(false),
+})
+
+async function resolveBaseUnitId(baseUnit: string | number): Promise<number> {
+  const byId =
+    typeof baseUnit === 'number'
+      ? await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+          SELECT id
+          FROM product_units
+          WHERE id = ${baseUnit}
+          LIMIT 1
+        `)
+      : []
+
+  if (byId[0]) return Number(byId[0].id)
+
+  if (typeof baseUnit !== 'string') {
+    throw new Error('INVALID_BASE_UNIT')
+  }
+
+  const normalized = baseUnit.trim()
+  if (!normalized) throw new Error('INVALID_BASE_UNIT')
+
+  const byCodeOrName = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id
+    FROM product_units
+    WHERE unit_code_name = ${normalized} OR unit_name = ${normalized}
+    ORDER BY is_default_display DESC, id ASC
+    LIMIT 1
+  `)
+
+  if (byCodeOrName[0]) return Number(byCodeOrName[0].id)
+
+  throw new Error('INVALID_BASE_UNIT')
+}
+
+async function resolveProductTypeId(productType: string | number): Promise<number> {
+  const classification =
+    typeof productType === 'number'
+      ? await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+          SELECT id
+          FROM product_classifications
+          WHERE id = ${productType} AND deleted_at IS NULL
+          LIMIT 1
+        `)
+      : await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+          SELECT id
+          FROM product_classifications
+          WHERE code = ${productType} AND deleted_at IS NULL
+          LIMIT 1
+        `)
+
+  if (!classification[0]) {
+    throw new Error('INVALID_PRODUCT_TYPE')
+  }
+
+  return Number(classification[0].id)
+}
 
 const supplierSchema = z.object({
   code: z.string().min(1),
@@ -96,11 +162,23 @@ const basicCatalogSchema = z.object({
 router.get('/materials', async (req, res) => {
   const q = (req.query.q as string | undefined)?.trim() ?? ''
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, inci_name, product_type, base_unit, deleted_at
-    FROM products
-    WHERE deleted_at IS NULL
-      AND (${q} = '' OR code LIKE ${`%${q}%`} OR name LIKE ${`%${q}%`} OR inci_name LIKE ${`%${q}%`})
-    ORDER BY created_at DESC
+    SELECT
+      p.id,
+      p.code,
+      p.name,
+      p.inci_name,
+      p.product_type,
+      pc.code AS product_type_code,
+      p.base_unit,
+      pu.unit_code_name,
+      pu.unit_name,
+      p.deleted_at
+    FROM products p
+    LEFT JOIN product_classifications pc ON pc.id = p.product_type
+    LEFT JOIN product_units pu ON pu.id = p.base_unit
+    WHERE p.deleted_at IS NULL
+      AND (${q} = '' OR p.code LIKE ${`%${q}%`} OR p.name LIKE ${`%${q}%`} OR p.inci_name LIKE ${`%${q}%`})
+    ORDER BY p.created_at DESC
   `)
 
   const data = rows.map((row) => ({
@@ -108,8 +186,8 @@ router.get('/materials', async (req, res) => {
     code: String(row.code ?? ''),
     inciName: String(row.inci_name ?? ''),
     materialName: String(row.name ?? ''),
-    category: String(row.product_type ?? ''),
-    unit: String(row.base_unit ?? ''),
+    category: String(row.product_type_code ?? row.product_type ?? ''),
+    unit: String(row.unit_code_name ?? row.unit_name ?? row.base_unit ?? ''),
     status: toStatusLabel(row.deleted_at),
   }))
 
@@ -129,13 +207,28 @@ router.post('/materials', async (req, res) => {
 
   const data = parsed.data
   const codeToInsert = data.code
+  let productTypeId: number
+  let baseUnitId: number
+
+  try {
+    productTypeId = await resolveProductTypeId(data.productType)
+    baseUnitId = await resolveBaseUnitId(data.baseUnit)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_PRODUCT_TYPE') {
+      return res.status(400).json({ message: 'Invalid productType' })
+    }
+    if (error instanceof Error && error.message === 'INVALID_BASE_UNIT') {
+      return res.status(400).json({ message: 'Invalid baseUnit' })
+    }
+    throw error
+  }
 
   try {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO products
         (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, min_stock_level, notes, created_at, updated_at)
       VALUES
-        (${codeToInsert}, ${data.name}, ${data.inciName}, ${data.productType}, ${data.hasExpiry}, ${data.useFefo}, ${data.baseUnit}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
+        (${codeToInsert}, ${data.name}, ${data.inciName}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (!isDuplicateCodeError(error)) throw error
@@ -154,9 +247,21 @@ router.post('/materials', async (req, res) => {
   }
 
   const created = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, inci_name, product_type, base_unit, deleted_at
-    FROM products
-    WHERE id = LAST_INSERT_ID()
+    SELECT
+      p.id,
+      p.code,
+      p.name,
+      p.inci_name,
+      p.product_type,
+      pc.code AS product_type_code,
+      p.base_unit,
+      pu.unit_code_name,
+      pu.unit_name,
+      p.deleted_at
+    FROM products p
+    LEFT JOIN product_classifications pc ON pc.id = p.product_type
+    LEFT JOIN product_units pu ON pu.id = p.base_unit
+    WHERE p.id = LAST_INSERT_ID()
   `)
 
   return res.status(201).json(normalizeForJson(created[0] ?? null))
@@ -174,16 +279,40 @@ router.put('/materials/:id', async (req, res) => {
   }
 
   const data = parsed.data
+  let productTypeId: number | null = null
+  let baseUnitId: number | null = null
+  if (data.productType !== undefined) {
+    try {
+      productTypeId = await resolveProductTypeId(data.productType)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_PRODUCT_TYPE') {
+        return res.status(400).json({ message: 'Invalid productType' })
+      }
+      throw error
+    }
+  }
+
+  if (data.baseUnit !== undefined) {
+    try {
+      baseUnitId = await resolveBaseUnitId(data.baseUnit)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_BASE_UNIT') {
+        return res.status(400).json({ message: 'Invalid baseUnit' })
+      }
+      throw error
+    }
+  }
+
   await prisma.$executeRaw(Prisma.sql`
     UPDATE products
     SET
       code = COALESCE(${data.code ?? null}, code),
       name = COALESCE(${data.name ?? null}, name),
       inci_name = COALESCE(${data.inciName ?? null}, inci_name),
-      product_type = COALESCE(${data.productType ?? null}, product_type),
+      product_type = COALESCE(${productTypeId}, product_type),
       has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
       use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
-      base_unit = COALESCE(${data.baseUnit ?? null}, base_unit),
+      base_unit = COALESCE(${baseUnitId}, base_unit),
       min_stock_level = COALESCE(${data.minStockLevel ?? null}, min_stock_level),
       notes = COALESCE(${data.notes ?? null}, notes),
       updated_at = NOW(3)
@@ -191,9 +320,21 @@ router.put('/materials/:id', async (req, res) => {
   `)
 
   const updated = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, inci_name, product_type, base_unit, deleted_at
-    FROM products
-    WHERE id = ${id}
+    SELECT
+      p.id,
+      p.code,
+      p.name,
+      p.inci_name,
+      p.product_type,
+      pc.code AS product_type_code,
+      p.base_unit,
+      pu.unit_code_name,
+      pu.unit_name,
+      p.deleted_at
+    FROM products p
+    LEFT JOIN product_classifications pc ON pc.id = p.product_type
+    LEFT JOIN product_units pu ON pu.id = p.base_unit
+    WHERE p.id = ${id}
   `)
 
   if (!updated[0]) return res.status(404).json({ message: 'Material not found' })
@@ -217,7 +358,7 @@ router.delete('/materials/:id', async (req, res) => {
 
 router.get('/suppliers', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, notes, deleted_at
+    SELECT id, code, name, contact_info, address, notes, deleted_at
     FROM suppliers
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
@@ -227,6 +368,8 @@ router.get('/suppliers', async (_req, res) => {
     id: String(row.id),
     code: String(row.code ?? ''),
     name: String(row.name ?? ''),
+    contactInfo: String(row.contact_info ?? ''),
+    address: String(row.address ?? ''),
     note: String(row.notes ?? ''),
     status: toStatusLabel(row.deleted_at),
   }))
@@ -295,7 +438,7 @@ router.delete('/suppliers/:id', async (req, res) => {
 
 router.get('/customers', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, name, notes, deleted_at
+    SELECT id, name, phone, email, address, notes, deleted_at
     FROM customers
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
@@ -305,6 +448,9 @@ router.get('/customers', async (_req, res) => {
     id: String(row.id),
     code: `CUS-${String(row.id)}`,
     name: String(row.name ?? ''),
+    phone: String(row.phone ?? ''),
+    email: String(row.email ?? ''),
+    address: String(row.address ?? ''),
     note: String(row.notes ?? ''),
     status: toStatusLabel(row.deleted_at),
   }))
@@ -374,7 +520,7 @@ router.delete('/customers/:id', async (req, res) => {
 router.get('/classifications', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT id, code, name, notes, deleted_at
-    FROM catalog_classifications
+    FROM product_classifications
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
   `)
@@ -398,7 +544,7 @@ router.post('/classifications', async (req, res) => {
 
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO catalog_classifications
+    INSERT INTO product_classifications
       (code, name, notes, created_at, updated_at)
     VALUES
       (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
@@ -420,7 +566,7 @@ router.put('/classifications/:id', async (req, res) => {
 
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_classifications
+    UPDATE product_classifications
     SET
       code = COALESCE(${data.code ?? null}, code),
       name = COALESCE(${data.name ?? null}, name),
@@ -439,7 +585,7 @@ router.delete('/classifications/:id', async (req, res) => {
   }
 
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_classifications
+    UPDATE product_classifications
     SET deleted_at = NOW(3), updated_at = NOW(3)
     WHERE id = ${id} AND deleted_at IS NULL
   `)
@@ -449,42 +595,46 @@ router.delete('/classifications/:id', async (req, res) => {
 
 router.get('/units', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, notes, deleted_at
-    FROM catalog_units
-    WHERE deleted_at IS NULL
+    SELECT id, parent_unit_id, unit_code_name, unit_name, unit_memo, conversion_to_base, is_purchase_unit, is_default_display
+    FROM product_units
+    WHERE product_id IS NULL
     ORDER BY created_at DESC
   `)
 
   const data = rows.map((row) => ({
     id: String(row.id),
-    code: String(row.code ?? ''),
-    name: String(row.name ?? ''),
-    note: String(row.notes ?? ''),
-    status: toStatusLabel(row.deleted_at),
+    code: String(row.unit_code_name ?? row.unit_name ?? ''),
+    name: String(row.unit_name ?? ''),
+    note: String(row.unit_memo ?? ''),
+    parentUnitId: row.parent_unit_id == null ? '' : String(row.parent_unit_id),
+    conversionToBase: Number(row.conversion_to_base ?? 1),
+    isPurchaseUnit: Boolean(row.is_purchase_unit),
+    isDefaultDisplay: Boolean(row.is_default_display),
+    status: 'Active',
   }))
 
   return res.json(normalizeForJson(data))
 })
 
 router.post('/units', async (req, res) => {
-  const parsed = basicCatalogSchema.safeParse(req.body)
+  const parsed = productUnitCatalogSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
   }
 
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO catalog_units
-      (code, name, notes, created_at, updated_at)
+    INSERT INTO product_units
+      (product_id, parent_unit_id, unit_code_name, unit_name, unit_memo, conversion_to_base, is_purchase_unit, is_default_display, created_at, updated_at)
     VALUES
-      (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+      (NULL, ${data.parentUnitId ?? null}, ${data.code}, ${data.name}, ${data.note ?? null}, ${data.conversionToBase}, ${data.isPurchaseUnit}, ${data.isDefaultDisplay}, NOW(3), NOW(3))
   `)
 
   return res.status(201).json({ ok: true })
 })
 
 router.put('/units/:id', async (req, res) => {
-  const parsed = basicCatalogSchema.partial().safeParse(req.body)
+  const parsed = productUnitCatalogSchema.partial().safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
   }
@@ -495,14 +645,22 @@ router.put('/units/:id', async (req, res) => {
   }
 
   const data = parsed.data
+  const hasParentUnitId = Object.prototype.hasOwnProperty.call(data, 'parentUnitId')
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_units
+    UPDATE product_units
     SET
-      code = COALESCE(${data.code ?? null}, code),
-      name = COALESCE(${data.name ?? null}, name),
-      notes = COALESCE(${data.note ?? null}, notes),
+      parent_unit_id = CASE
+        WHEN ${hasParentUnitId} THEN ${data.parentUnitId ?? null}
+        ELSE parent_unit_id
+      END,
+      unit_code_name = COALESCE(${data.code ?? null}, unit_code_name),
+      unit_name = COALESCE(${data.name ?? null}, unit_name),
+      unit_memo = COALESCE(${data.note ?? null}, unit_memo),
+      conversion_to_base = COALESCE(${data.conversionToBase ?? null}, conversion_to_base),
+      is_purchase_unit = COALESCE(${data.isPurchaseUnit ?? null}, is_purchase_unit),
+      is_default_display = COALESCE(${data.isDefaultDisplay ?? null}, is_default_display),
       updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
+    WHERE id = ${id} AND product_id IS NULL
   `)
 
   return res.json({ ok: true })
@@ -515,9 +673,8 @@ router.delete('/units/:id', async (req, res) => {
   }
 
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_units
-    SET deleted_at = NOW(3), updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
+    DELETE FROM product_units
+    WHERE id = ${id} AND product_id IS NULL
   `)
 
   return res.status(204).send()
@@ -526,7 +683,7 @@ router.delete('/units/:id', async (req, res) => {
 router.get('/locations', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT id, code, name, notes, deleted_at
-    FROM catalog_locations
+    FROM inventory_locations
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
   `)
@@ -550,7 +707,7 @@ router.post('/locations', async (req, res) => {
 
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO catalog_locations
+    INSERT INTO inventory_locations
       (code, name, notes, created_at, updated_at)
     VALUES
       (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
@@ -572,7 +729,7 @@ router.put('/locations/:id', async (req, res) => {
 
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_locations
+    UPDATE inventory_locations
     SET
       code = COALESCE(${data.code ?? null}, code),
       name = COALESCE(${data.name ?? null}, name),
@@ -591,7 +748,7 @@ router.delete('/locations/:id', async (req, res) => {
   }
 
   await prisma.$executeRaw(Prisma.sql`
-    UPDATE catalog_locations
+    UPDATE inventory_locations
     SET deleted_at = NOW(3), updated_at = NOW(3)
     WHERE id = ${id} AND deleted_at IS NULL
   `)

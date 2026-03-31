@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import { InputText } from 'primereact/inputtext'
@@ -7,12 +8,6 @@ import type { ColumnEvent } from 'primereact/column'
 import type { BasicRow, MaterialRow, TabId } from './types'
 
 const NEW_ID = '__new__'
-
-const materialTypeOptions = [
-  { value: 'raw_material', label: 'Nguyên liệu' },
-  { value: 'packaging', label: 'Bao bì' },
-]
-const materialTypeLabelByValue = new Map(materialTypeOptions.map((item) => [item.value, item.label]))
 
 export interface CatalogDataGridHandle {
   focusNewRow: () => void
@@ -24,6 +19,7 @@ type Props = {
   allVisibleSelected: boolean
   pagedMaterials: MaterialRow[]
   pagedBasics: BasicRow[]
+  classifications: BasicRow[]
   units: BasicRow[]
   onToggleSelectAll: (checked: boolean) => void
   onToggleSelectRow: (id: string, checked: boolean) => void
@@ -37,6 +33,7 @@ type Props = {
 export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   function CatalogDataGrid(
     { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics,
+      classifications,
       units,
       onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete,
       nextMatCode, nextBasicCode },
@@ -53,6 +50,48 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       () => new Map(units.map((item) => [item.code, item.name])),
       [units],
     )
+
+    const unitById = useMemo(
+      () => new Map(units.map((item) => [item.id, item])),
+      [units],
+    )
+
+    const unitParentOptions = useMemo(
+      () => [
+        { value: '', label: '-- Không có --' },
+        ...units.map((item) => ({
+          value: item.id,
+          label: `${item.code} - ${item.name}`,
+        })),
+      ],
+      [units],
+    )
+
+    const classificationOptions = useMemo(
+      () => classifications.map((item) => ({ value: item.id, label: item.name, code: item.code })),
+      [classifications],
+    )
+
+    const classificationById = useMemo(
+      () => new Map(classifications.map((item) => [item.id, item])),
+      [classifications],
+    )
+
+    const classificationByCode = useMemo(
+      () => new Map(classifications.map((item) => [item.code.toLowerCase(), item])),
+      [classifications],
+    )
+
+    function resolveCategoryLabel(categoryValue: string) {
+      if (!categoryValue) return ''
+      const byId = classificationById.get(categoryValue)
+      if (byId) return byId.name
+
+      const byCode = classificationByCode.get(categoryValue.toLowerCase())
+      if (byCode) return byCode.name
+
+      return categoryValue
+    }
 
     const materialRows = useMemo<MaterialRow[]>(() => {
       const newRow: MaterialRow = {
@@ -72,7 +111,15 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         id: NEW_ID,
         code: pendingNewBasic.code ?? '',
         name: pendingNewBasic.name ?? '',
+        contactInfo: pendingNewBasic.contactInfo ?? '',
+        phone: pendingNewBasic.phone ?? '',
+        email: pendingNewBasic.email ?? '',
+        address: pendingNewBasic.address ?? '',
         note: pendingNewBasic.note ?? '',
+        parentUnitId: pendingNewBasic.parentUnitId ?? '',
+        conversionToBase: pendingNewBasic.conversionToBase ?? 1,
+        isPurchaseUnit: pendingNewBasic.isPurchaseUnit ?? false,
+        isDefaultDisplay: pendingNewBasic.isDefaultDisplay ?? false,
         status: pendingNewBasic.status ?? '',
       }
       return [...pagedBasics, newRow]
@@ -144,16 +191,39 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         event.preventDefault()
         return
       }
-      rowData[field] = newValue // mutate để DataTable cập nhật display ngay
+      if (activeTab === 'units' && field === 'conversionToBase') {
+        const n = Number(newValue)
+        if (!Number.isFinite(n) || n <= 0) {
+          event.preventDefault()
+          return
+        }
+        updatedRow.conversionToBase = n
+      }
+      if (activeTab === 'units' && field === 'parentUnitId') {
+        const parentId = (newValue ?? '').toString().trim()
+        if (parentId === rowData.id) {
+          event.preventDefault()
+          return
+        }
+        updatedRow.parentUnitId = parentId
+        rowData[field] = parentId // mutate để DataTable cập nhật display ngay
+      } else {
+        rowData[field] = newValue // mutate để DataTable cập nhật display ngay
+      }
       void onSaveBasic(updatedRow)
+    }
+
+    function getParentUnitOptions(excludeUnitId?: string) {
+      if (!excludeUnitId) return unitParentOptions
+      return unitParentOptions.filter((item) => item.value !== excludeUnitId)
     }
 
     function setNewMaterialField(field: keyof MaterialRow, value: string) {
       setPendingNewMat((prev) => ({ ...prev, [field]: value }))
     }
 
-    function setNewBasicField(field: keyof BasicRow, value: string) {
-      setPendingNewBasic((prev) => ({ ...prev, [field]: value }))
+    function setNewBasicField(field: keyof BasicRow, value: string | number | boolean) {
+      setPendingNewBasic((prev) => ({ ...prev, [field]: value as never }))
     }
 
     const canSaveNewMaterial = Boolean(
@@ -163,7 +233,10 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       && pendingNewMat.unit?.trim(),
     )
 
-    const canSaveNewBasic = Boolean(pendingNewBasic.name?.trim())
+    const canSaveNewBasic = Boolean(
+      pendingNewBasic.name?.trim()
+      && (activeTab !== 'units' || ((pendingNewBasic.conversionToBase ?? 1) > 0)),
+    )
 
     async function saveNewMaterialRow() {
       if (!canSaveNewMaterial || savingNewRow) return
@@ -195,7 +268,15 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           id: `${activeTab}-${Date.now()}`,
           code: pendingNewBasic.code?.trim() || nextBasicCode,
           name: pendingNewBasic.name!.trim(),
+          contactInfo: pendingNewBasic.contactInfo?.trim() || '',
+          phone: pendingNewBasic.phone?.trim() || '',
+          email: pendingNewBasic.email?.trim() || '',
+          address: pendingNewBasic.address?.trim() || '',
           note: pendingNewBasic.note?.trim() || '',
+          parentUnitId: pendingNewBasic.parentUnitId?.toString().trim() || '',
+          conversionToBase: Number(pendingNewBasic.conversionToBase ?? 1),
+          isPurchaseUnit: Boolean(pendingNewBasic.isPurchaseUnit),
+          isDefaultDisplay: Boolean(pendingNewBasic.isDefaultDisplay),
           status: pendingNewBasic.status?.trim() || 'Active',
         }
         const saved = await onSaveBasic(candidate)
@@ -255,7 +336,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         <Dropdown
           value={options.value || ''}
           onChange={(e) => options.editorCallback?.(e.value)}
-          options={materialTypeOptions}
+          options={classificationOptions}
           optionLabel="label"
           optionValue="value"
           placeholder="-- Chọn --"
@@ -337,14 +418,14 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             value={pendingNewMat.category ?? ''}
             onChange={(e) => setNewMaterialField('category', e.value)}
             onKeyDown={handleNewRowKeyDown}
-            options={materialTypeOptions}
+            options={classificationOptions}
             optionLabel="label"
             optionValue="value"
             placeholder="-- Chọn --"
           />
         )
       }
-      return materialTypeLabelByValue.get(rowData.category) ?? rowData.category
+      return resolveCategoryLabel(rowData.category)
     }
 
     function materialUnitBody(rowData: MaterialRow) {
@@ -440,6 +521,83 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       )
     }
 
+    function basicContactInfoEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="Liên hệ"
+        />
+      )
+    }
+
+    function basicPhoneEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="Số điện thoại"
+        />
+      )
+    }
+
+    function basicEmailEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="Email"
+        />
+      )
+    }
+
+    function basicAddressEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="Địa chỉ"
+        />
+      )
+    }
+
+    function basicParentUnitIdEditor(options: any) {
+      const excludeUnitId = options?.rowData?.id && options.rowData.id !== NEW_ID
+        ? options.rowData.id
+        : undefined
+      return (
+        <Dropdown
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.value ?? '')}
+          options={getParentUnitOptions(excludeUnitId)}
+          optionLabel="label"
+          optionValue="value"
+          placeholder="-- Chọn --"
+        />
+      )
+    }
+
+    function basicConversionEditor(options: any) {
+      return (
+        <InputText
+          value={String(options.value ?? 1)}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="1"
+        />
+      )
+    }
+
+    function basicBoolEditor(options: any) {
+      const checked = Boolean(options.value)
+      return (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => options.editorCallback?.(e.target.checked)}
+        />
+      )
+    }
+
     // ── Basic Body Templates ──────────────────────────────────────────
 
     function basicCodeBody(rowData: BasicRow) {
@@ -484,6 +642,62 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       return rowData.note
     }
 
+    function basicContactInfoBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewBasic.contactInfo ?? ''}
+            onChange={(e) => setNewBasicField('contactInfo', e.target.value)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Liên hệ"
+          />
+        )
+      }
+      return rowData.contactInfo || ''
+    }
+
+    function basicPhoneBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewBasic.phone ?? ''}
+            onChange={(e) => setNewBasicField('phone', e.target.value)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Số điện thoại"
+          />
+        )
+      }
+      return rowData.phone || ''
+    }
+
+    function basicEmailBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewBasic.email ?? ''}
+            onChange={(e) => setNewBasicField('email', e.target.value)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Email"
+          />
+        )
+      }
+      return rowData.email || ''
+    }
+
+    function basicAddressBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewBasic.address ?? ''}
+            onChange={(e) => setNewBasicField('address', e.target.value)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Địa chỉ"
+          />
+        )
+      }
+      return rowData.address || ''
+    }
+
     function basicStatusBody(rowData: BasicRow) {
       if (rowData.id === NEW_ID) {
         return (
@@ -495,6 +709,55 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         )
       }
       return <span className="status-pill">{rowData.status}</span>
+    }
+
+    function basicParentUnitIdBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <Dropdown
+            value={pendingNewBasic.parentUnitId ?? ''}
+            onChange={(e) => setNewBasicField('parentUnitId', e.value ?? '')}
+            onKeyDown={handleNewRowKeyDown}
+            options={getParentUnitOptions()}
+            optionLabel="label"
+            optionValue="value"
+            placeholder="-- Chọn --"
+          />
+        )
+      }
+      const parentUnit = rowData.parentUnitId ? unitById.get(rowData.parentUnitId) : undefined
+      if (parentUnit) {
+        return `${parentUnit.code} - ${parentUnit.name}`
+      }
+      return rowData.parentUnitId || ''
+    }
+
+    function basicConversionBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={String(pendingNewBasic.conversionToBase ?? 1)}
+            onChange={(e) => setNewBasicField('conversionToBase', Number(e.target.value) || 0)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="1"
+          />
+        )
+      }
+      return String(rowData.conversionToBase ?? 1)
+    }
+
+    function basicBoolBody(rowData: BasicRow, field: 'isPurchaseUnit' | 'isDefaultDisplay') {
+      if (rowData.id === NEW_ID) {
+        const checked = Boolean(pendingNewBasic[field])
+        return (
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setNewBasicField(field, e.target.checked)}
+          />
+        )
+      }
+      return rowData[field] ? 'Yes' : 'No'
     }
 
     function basicDeleteButton(rowData: BasicRow) {
@@ -592,7 +855,15 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
               <Column field="code" header="Mã" body={basicCodeBody} editor={(options) => basicCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
               <Column field="name" header="Tên" body={basicNameBody} editor={(options) => basicNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
+              {activeTab === 'suppliers' ? <Column field="contactInfo" header="Liên hệ" body={basicContactInfoBody} editor={(options) => basicContactInfoEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'customers' ? <Column field="phone" header="SĐT" body={basicPhoneBody} editor={(options) => basicPhoneEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'customers' ? <Column field="email" header="Email" body={basicEmailBody} editor={(options) => basicEmailEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {(activeTab === 'suppliers' || activeTab === 'customers') ? <Column field="address" header="Địa chỉ" body={basicAddressBody} editor={(options) => basicAddressEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               <Column field="note" header="Ghi chú" body={basicNoteBody} editor={(options) => basicNoteEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
+              {activeTab === 'units' ? <Column field="parentUnitId" header="Parent Unit ID" body={basicParentUnitIdBody} editor={(options) => basicParentUnitIdEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="conversionToBase" header="Quy đổi" body={basicConversionBody} editor={(options) => basicConversionEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="isPurchaseUnit" header="ĐV mua" body={(row) => basicBoolBody(row, 'isPurchaseUnit')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="isDefaultDisplay" header="Mặc định" body={(row) => basicBoolBody(row, 'isDefaultDisplay')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               <Column field="status" header="Trạng thái" body={basicStatusBody} editor={(options) => basicStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
               <Column header="Xử lý" body={basicDeleteButton} style={{ width: '88px' }} />
             </DataTable>

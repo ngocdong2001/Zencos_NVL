@@ -1,208 +1,149 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
+import { PurchaseRequestStatus, Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, type AuthenticatedRequest } from '../middleware/auth.js'
 
 const router = Router()
 
 // ──────────────────────────────────────────────────────────────────────
-// LIST / GET
+// LIST / GET  (Purchase Requests = warehouse procurement workflow)
 // ──────────────────────────────────────────────────────────────────────
-router.get('/', requireAuth, requirePermission('purchases.read'), async (req, res) => {
-  const { supplierId, status, paymentStatus, page = '1', limit = '20' } = req.query as Record<string, string>
+router.get('/', requireAuth, requirePermission('purchases.read'), async (req: AuthenticatedRequest, res) => {
+  const { supplierId, status, page = '1', limit = '20' } = req.query as Record<string, string>
   const skip = (Number(page) - 1) * Number(limit)
-  const where: Record<string, unknown> = { deletedAt: null }
-  if (supplierId) where.supplierId = supplierId
-  if (status) where.status = status
-  if (paymentStatus) where.paymentStatus = paymentStatus
+  const where: Prisma.PurchaseRequestWhereInput = {}
+  if (supplierId) where.supplierId = BigInt(supplierId)
+  if (status) where.status = status as PurchaseRequestStatus
 
   const [data, total] = await Promise.all([
-    prisma.purchase.findMany({
+    prisma.purchaseRequest.findMany({
       where, skip, take: Number(limit), orderBy: { createdAt: 'desc' },
-      include: { items: { include: { product: true } }, payments: true, expenses: true },
+      include: {
+        supplier: { select: { id: true, code: true, name: true } },
+        requester: { select: { id: true, fullName: true } },
+        items: { include: { product: { select: { id: true, code: true, name: true } } } },
+      },
     }),
-    prisma.purchase.count({ where }),
+    prisma.purchaseRequest.count({ where }),
   ])
   res.json({ data, total, page: Number(page), limit: Number(limit) })
 })
 
-router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req, res) => {
-  const purchase = await prisma.purchase.findFirst({
-    where: { id: req.params.id, deletedAt: null },
+router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: BigInt(req.params.id) },
     include: {
+      supplier: true,
+      requester: { select: { id: true, fullName: true } },
+      approver: { select: { id: true, fullName: true } },
       items: { include: { product: true } },
-      payments: true,
-      expenses: true,
-      returns: { include: { items: true } },
     },
   })
-  if (!purchase) { res.status(404).json({ error: 'Purchase not found' }); return }
-  res.json(purchase)
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  res.json(pr)
 })
 
 // ──────────────────────────────────────────────────────────────────────
-// CREATE
+// CREATE (draft)
 // ──────────────────────────────────────────────────────────────────────
-const purchaseItemSchema = z.object({
+const prItemSchema = z.object({
   productId: z.string(),
-  qty: z.number().positive(),
-  unitCost: z.number().min(0),
-  discount: z.number().min(0).default(0),
-  tax: z.number().min(0).default(0),
+  quantityNeededBase: z.number().positive(),
+  unitDisplay: z.string(),
+  quantityDisplay: z.number().positive(),
+  notes: z.string().optional(),
 })
 
-const purchaseSchema = z.object({
-  reference: z.string().min(1),
+const createPRSchema = z.object({
+  requestRef: z.string().min(1),
   supplierId: z.string().optional(),
-  warehouseId: z.string(),
-  discount: z.number().min(0).default(0),
-  tax: z.number().min(0).default(0),
-  shipping: z.number().min(0).default(0),
-  note: z.string().optional(),
-  items: z.array(purchaseItemSchema).min(1),
+  expectedDate: z.string().optional(),
+  notes: z.string().optional(),
+  items: z.array(prItemSchema).min(1),
 })
 
-router.post('/', requireAuth, requirePermission('purchases.write'), async (req, res) => {
-  const parsed = purchaseSchema.safeParse(req.body)
+router.post('/', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const parsed = createPRSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
   const { items, ...header } = parsed.data
+  const requestedBy = BigInt(req.auth!.sub)
 
-  const purchaseItems = items.map((i) => ({
-    ...i,
-    subtotal: i.qty * i.unitCost - i.discount + i.tax,
-  }))
-  const itemsTotal = purchaseItems.reduce((s, i) => s + i.subtotal, 0)
-  const grandTotal = itemsTotal - header.discount + header.tax + header.shipping
-
-  const purchase = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const created = await tx.purchase.create({
-      data: { ...header, grandTotal, items: { create: purchaseItems } },
-      include: { items: true },
-    })
-
-    // increase stock on receipt
-    for (const item of items) {
-      await tx.warehouseProduct.upsert({
-        where: { warehouseId_productId: { warehouseId: header.warehouseId, productId: item.productId } },
-        update: { qty: { increment: item.qty } },
-        create: { warehouseId: header.warehouseId, productId: item.productId, qty: item.qty },
-      })
-    }
-    await tx.purchase.update({ where: { id: created.id }, data: { status: 'received' } })
-    return created
-  })
-  res.status(201).json(purchase)
-})
-
-// ──────────────────────────────────────────────────────────────────────
-// PAYMENTS
-// ──────────────────────────────────────────────────────────────────────
-const paymentSchema = z.object({
-  amount: z.number().positive(),
-  method: z.enum(['cash', 'bank', 'card', 'other']),
-  note: z.string().optional(),
-  paidAt: z.string().optional(),
-})
-
-router.post('/:id/payments', requireAuth, requirePermission('purchases.write'), async (req, res) => {
-  const purchase = await prisma.purchase.findFirst({ where: { id: req.params.id, deletedAt: null } })
-  if (!purchase) { res.status(404).json({ error: 'Purchase not found' }); return }
-
-  const parsed = paymentSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
-
-  const payment = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const p = await tx.purchasePayment.create({
-      data: {
-        purchaseId: purchase.id,
-        amount: parsed.data.amount,
-        method: parsed.data.method,
-        note: parsed.data.note,
-        paidAt: parsed.data.paidAt ? new Date(parsed.data.paidAt) : new Date(),
+  const pr = await prisma.purchaseRequest.create({
+    data: {
+      requestRef: header.requestRef,
+      requestedBy,
+      supplierId: header.supplierId ? BigInt(header.supplierId) : undefined,
+      expectedDate: header.expectedDate ? new Date(header.expectedDate) : undefined,
+      notes: header.notes,
+      items: {
+        create: items.map((i) => ({
+          productId: BigInt(i.productId),
+          quantityNeededBase: i.quantityNeededBase,
+          unitDisplay: i.unitDisplay,
+          quantityDisplay: i.quantityDisplay,
+          notes: i.notes,
+        })),
       },
-    })
-    const newPaid = Number(purchase.paid) + parsed.data.amount
-    const paymentStatus =
-      newPaid >= Number(purchase.grandTotal) ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid'
-    await tx.purchase.update({ where: { id: purchase.id }, data: { paid: newPaid, paymentStatus } })
-    return p
+    },
+    include: { items: true },
   })
-  res.status(201).json(payment)
+  res.status(201).json(pr)
 })
 
 // ──────────────────────────────────────────────────────────────────────
-// EXPENSES
+// WORKFLOW TRANSITIONS
 // ──────────────────────────────────────────────────────────────────────
-router.post('/:id/expenses', requireAuth, requirePermission('purchases.write'), async (req, res) => {
-  const purchase = await prisma.purchase.findFirst({ where: { id: req.params.id, deletedAt: null } })
-  if (!purchase) { res.status(404).json({ error: 'Purchase not found' }); return }
-
-  const schema = z.object({ description: z.string().min(1), amount: z.number().positive() })
-  const parsed = schema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
-
-  const expense = await prisma.expense.create({
-    data: { purchaseId: purchase.id, ...parsed.data },
+router.patch('/:id/submit', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  if (pr.status !== PurchaseRequestStatus.draft) {
+    res.status(409).json({ error: 'Can only submit a draft request' }); return
+  }
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { status: PurchaseRequestStatus.submitted, submittedAt: new Date() },
   })
-  res.status(201).json(expense)
+  res.json(updated)
 })
 
-// ──────────────────────────────────────────────────────────────────────
-// RETURNS
-// ──────────────────────────────────────────────────────────────────────
-const returnItemSchema = z.object({
-  productId: z.string(),
-  qty: z.number().positive(),
-  unitCost: z.number().min(0),
-})
-
-const purchaseReturnSchema = z.object({
-  reference: z.string().min(1),
-  note: z.string().optional(),
-  items: z.array(returnItemSchema).min(1),
-})
-
-router.post('/:id/returns', requireAuth, requirePermission('purchases.write'), async (req, res) => {
-  const purchase = await prisma.purchase.findFirst({ where: { id: req.params.id, deletedAt: null } })
-  if (!purchase) { res.status(404).json({ error: 'Purchase not found' }); return }
-
-  const parsed = purchaseReturnSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
-
-  const ret = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const created = await tx.purchaseReturn.create({
-      data: {
-        reference: parsed.data.reference,
-        purchaseId: purchase.id,
-        note: parsed.data.note,
-        items: { create: parsed.data.items },
-      },
-      include: { items: true },
-    })
-
-    // reduce stock on return to supplier
-    for (const item of parsed.data.items) {
-      await tx.warehouseProduct.upsert({
-        where: { warehouseId_productId: { warehouseId: purchase.warehouseId, productId: item.productId } },
-        update: { qty: { decrement: item.qty } },
-        create: { warehouseId: purchase.warehouseId, productId: item.productId, qty: -item.qty },
-      })
-    }
-    await tx.purchase.update({ where: { id: purchase.id }, data: { status: 'returned' } })
-    return created
+router.patch('/:id/approve', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  if (pr.status !== PurchaseRequestStatus.submitted) {
+    res.status(409).json({ error: 'Can only approve a submitted request' }); return
+  }
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { status: PurchaseRequestStatus.approved, approvedBy: BigInt(req.auth!.sub), approvedAt: new Date() },
   })
-  res.status(201).json(ret)
+  res.json(updated)
 })
 
-// ── Cancel ────────────────────────────────────────────────────────────
-router.patch('/:id/cancel', requireAuth, requirePermission('purchases.write'), async (req, res) => {
-  const purchase = await prisma.purchase.findFirst({ where: { id: req.params.id, deletedAt: null } })
-  if (!purchase) { res.status(404).json({ error: 'Purchase not found' }); return }
-  if (purchase.status === 'cancelled') { res.status(409).json({ error: 'Already cancelled' }); return }
+router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  if (pr.status !== PurchaseRequestStatus.approved && pr.status !== PurchaseRequestStatus.ordered) {
+    res.status(409).json({ error: 'Request must be approved or ordered before marking received' }); return
+  }
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { status: PurchaseRequestStatus.received, receivedAt: new Date() },
+  })
+  res.json(updated)
+})
 
-  await prisma.purchase.update({ where: { id: purchase.id }, data: { status: 'cancelled' } })
-  res.json({ message: 'Purchase cancelled' })
+router.patch('/:id/cancel', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  if (pr.status === PurchaseRequestStatus.received || pr.status === PurchaseRequestStatus.cancelled) {
+    res.status(409).json({ error: `Cannot cancel a ${pr.status} request` }); return
+  }
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { status: PurchaseRequestStatus.cancelled },
+  })
+  res.json(updated)
 })
 
 export default router

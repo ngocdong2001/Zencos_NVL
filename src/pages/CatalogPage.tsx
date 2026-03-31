@@ -78,9 +78,9 @@ export function CatalogPage() {
   const [catalogs, setCatalogs] = useState(initialBasicRows)
   const [nextMatCode, setNextMatCode] = useState('NVL-001')
   const [loading, setLoading] = useState(false)
+  const [pageSize, setPageSize] = useState(10)
   const importInputRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<CatalogDataGridHandle>(null)
-  const pageSize = 5
 
   const isNumericId = (id: string) => /^\d+$/.test(id)
 
@@ -139,7 +139,7 @@ export function CatalogPage() {
   useEffect(() => {
     setPage(1)
     setSelectedIds([])
-  }, [activeTab, search, onlyActive])
+  }, [activeTab, search, onlyActive, pageSize])
 
   const filteredMaterials = useMemo(() => {
     const q = search.trim()
@@ -155,7 +155,7 @@ export function CatalogPage() {
     if (activeTab === 'materials') return []
     const q = search.trim()
     return catalogs[activeTab].filter((row) => {
-      const searchable = [row.code, row.name, row.note, row.status].join(' ')
+      const searchable = [row.code, row.name, row.contactInfo, row.phone, row.email, row.address, row.note, row.status].join(' ')
       const passesSearch = !q || containsInsensitive(searchable, q)
       const passesStatus = !onlyActive || row.status.toLocaleLowerCase() === 'active'
       return passesSearch && passesStatus
@@ -187,10 +187,15 @@ export function CatalogPage() {
   const currentRangeEnd = Math.min(totalRows, safePage * pageSize)
 
   const pageButtons = useMemo(() => {
-    return [1, 2, 3, totalPages]
-      .filter((v, i, self) => self.indexOf(v) === i)
-      .sort((a, b) => a - b)
-  }, [totalPages])
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1)
+    }
+    const pages = new Set([1, totalPages])
+    for (let i = Math.max(1, safePage - 2); i <= Math.min(totalPages, safePage + 2); i++) {
+      pages.add(i)
+    }
+    return [...pages].sort((a, b) => a - b)
+  }, [totalPages, safePage])
 
   const nextBasicCode = useMemo(() => {
     if (activeTab === 'materials') return ''
@@ -205,17 +210,35 @@ export function CatalogPage() {
     return getNextCode(catalogs[tab].map((row) => row.code), prefixMap[tab], 3)
   }, [activeTab, catalogs])
 
+  const classificationById = useMemo(
+    () => new Map(catalogs.classifications.map((item) => [item.id, item])),
+    [catalogs.classifications],
+  )
+
+  const classificationByCodeLookup = useMemo(
+    () => new Map(catalogs.classifications.map((item) => [item.code.toLowerCase(), item])),
+    [catalogs.classifications],
+  )
+
   // ── Save handlers (upsert: insert if new id, update if existing) ─────
   const handleSaveMaterial = async (row: MaterialRow): Promise<boolean> => {
+    const rawCategory = row.category.trim()
+    const classificationByNumericId = isNumericId(rawCategory) ? classificationById.get(rawCategory) : undefined
+    const classificationByCode = classificationByCodeLookup.get(rawCategory.toLowerCase())
+    const selectedClassification = classificationByNumericId ?? classificationByCode
+    const resolvedProductType = classificationByNumericId ? Number(rawCategory) : (selectedClassification?.id ? Number(selectedClassification.id) : rawCategory)
+    const selectedCode = (selectedClassification?.code ?? rawCategory).toLowerCase()
+    const isPackaging = selectedCode === 'packaging'
+
     const payload = {
       code: row.code,
       name: row.materialName,
       inciName: row.inciName,
-      productType: row.category === 'packaging' ? 'packaging' : 'raw_material',
+      productType: resolvedProductType,
       baseUnit: row.unit,
       minStockLevel: 0,
-      hasExpiry: row.category !== 'packaging',
-      useFefo: row.category !== 'packaging',
+      hasExpiry: !isPackaging,
+      useFefo: !isPackaging,
       notes: '',
     } as const
 
@@ -245,9 +268,33 @@ export function CatalogPage() {
 
     try {
       if (isNumericId(row.id)) {
-        await updateBasic(tab, row.id, { code: row.code, name: row.name, note: row.note })
+        await updateBasic(tab, row.id, {
+          code: row.code,
+          name: row.name,
+          contactInfo: row.contactInfo,
+          phone: row.phone,
+          email: row.email,
+          address: row.address,
+          note: row.note,
+          parentUnitId: row.parentUnitId,
+          conversionToBase: row.conversionToBase,
+          isPurchaseUnit: row.isPurchaseUnit,
+          isDefaultDisplay: row.isDefaultDisplay,
+        })
       } else {
-        await createBasic(tab, { code: row.code, name: row.name, note: row.note })
+        await createBasic(tab, {
+          code: row.code,
+          name: row.name,
+          contactInfo: row.contactInfo,
+          phone: row.phone,
+          email: row.email,
+          address: row.address,
+          note: row.note,
+          parentUnitId: row.parentUnitId,
+          conversionToBase: row.conversionToBase,
+          isPurchaseUnit: row.isPurchaseUnit,
+          isDefaultDisplay: row.isDefaultDisplay,
+        })
       }
       await refreshBasicTab(tab)
       return true
@@ -286,15 +333,44 @@ export function CatalogPage() {
     if (activeTab === 'materials') {
       const rows = [
         toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Trạng thái']),
-        ...filteredMaterials.map((r) => toCsvRow([r.code, r.inciName, r.materialName, r.category, r.unit, r.status])),
+        ...filteredMaterials.map((r) => {
+          const byId = classificationById.get(r.category)
+          const byCode = classificationByCodeLookup.get(r.category.toLowerCase())
+          const categoryLabel = byId?.name ?? byCode?.name ?? r.category
+          return toCsvRow([r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.status])
+        }),
       ]
       downloadTextFile(rows.join('\n'), 'catalog-nguyen-lieu.csv', 'text/csv;charset=utf-8;')
       return
     }
-    const rows = [
-      toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái']),
-      ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.note, r.status])),
-    ]
+    const rows = activeTab === 'units'
+      ? [
+          toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái']),
+          ...filteredBasics.map((r) => toCsvRow([
+            r.code,
+            r.name,
+            r.note,
+            r.parentUnitId ?? '',
+            String(r.conversionToBase ?? 1),
+            r.isPurchaseUnit ? '1' : '0',
+            r.isDefaultDisplay ? '1' : '0',
+            r.status,
+          ])),
+        ]
+      : activeTab === 'suppliers'
+        ? [
+            toCsvRow(['Mã', 'Tên', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
+            ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.contactInfo ?? '', r.address ?? '', r.note, r.status])),
+          ]
+        : activeTab === 'customers'
+          ? [
+              toCsvRow(['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
+              ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.phone ?? '', r.email ?? '', r.address ?? '', r.note, r.status])),
+            ]
+      : [
+          toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái']),
+          ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.note, r.status])),
+        ]
     downloadTextFile(rows.join('\n'), `catalog-${activeTab}.csv`, 'text/csv;charset=utf-8;')
   }
 
@@ -302,7 +378,13 @@ export function CatalogPage() {
     const content =
       activeTab === 'materials'
         ? toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Trạng thái'])
-        : toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái'])
+        : activeTab === 'units'
+          ? toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái'])
+          : activeTab === 'suppliers'
+            ? toCsvRow(['Mã', 'Tên', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
+            : activeTab === 'customers'
+              ? toCsvRow(['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
+          : toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái'])
     downloadTextFile(content, `template-${activeTab}.csv`, 'text/csv;charset=utf-8;')
   }
 
@@ -311,7 +393,7 @@ export function CatalogPage() {
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      const text = typeof reader.result === 'string' ? reader.result : ''
+      const text = (typeof reader.result === 'string' ? reader.result : '').replace(/^\uFEFF/, '')
       const lines = text
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -338,12 +420,39 @@ export function CatalogPage() {
       } else {
         const imported: BasicRow[] = dataLines.map((line, i) => {
           const cells = line.replaceAll('"', '').split(',').map((c) => c.trim())
+          const isUnits = activeTab === 'units'
+          const isSuppliers = activeTab === 'suppliers'
+          const isCustomers = activeTab === 'customers'
           return {
             id: `import-basic-${Date.now()}-${i}`,
             code: cells[0] || `${activeTab.toUpperCase().slice(0, 3)}-${catalogs[activeTab].length + i + 1}`,
             name: cells[1] || '',
-            note: cells[2] || '',
-            status: cells[3] || 'Active',
+            contactInfo: isSuppliers ? (cells[2] || '') : undefined,
+            phone: isCustomers ? (cells[2] || '') : undefined,
+            email: isCustomers ? (cells[3] || '') : undefined,
+            address: isSuppliers
+              ? (cells[3] || '')
+              : isCustomers
+                ? (cells[4] || '')
+                : undefined,
+            note: isUnits
+              ? (cells[2] || '')
+              : isSuppliers
+                ? (cells[4] || '')
+                : isCustomers
+                  ? (cells[5] || '')
+                  : (cells[2] || ''),
+            parentUnitId: isUnits ? (cells[3] || '') : undefined,
+            conversionToBase: isUnits ? (Number(cells[4]) || 1) : undefined,
+            isPurchaseUnit: isUnits ? (cells[5] === '1' || cells[5]?.toLowerCase() === 'true') : undefined,
+            isDefaultDisplay: isUnits ? (cells[6] === '1' || cells[6]?.toLowerCase() === 'true') : undefined,
+            status: isUnits
+              ? (cells[7] || 'Active')
+              : isSuppliers
+                ? (cells[5] || 'Active')
+                : isCustomers
+                  ? (cells[6] || 'Active')
+                  : (cells[3] || 'Active'),
           }
         })
         setCatalogs((prev) => ({
@@ -353,7 +462,7 @@ export function CatalogPage() {
       }
       event.target.value = ''
     }
-    reader.readAsText(file)
+    reader.readAsText(file, 'utf-8')
   }
 
   return (
@@ -394,6 +503,7 @@ export function CatalogPage() {
           onToggleSelectRow={(id, checked) =>
             setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
           }
+          classifications={catalogs.classifications}
           units={catalogs.units}
           onSaveMaterial={handleSaveMaterial}
           onSaveBasic={handleSaveBasic}
@@ -411,7 +521,9 @@ export function CatalogPage() {
           safePage={safePage}
           totalPages={totalPages}
           pageButtons={pageButtons}
+          pageSize={pageSize}
           onPageChange={setPage}
+          onPageSizeChange={(size) => setPageSize(size)}
         />
       </div>
     </section>

@@ -9,6 +9,11 @@ const mockMaterials = [
   { id: '2', code: 'NVL-002', inciName: 'Water', materialName: 'Distilled Water', category: 'raw_material', unit: 'L', status: 'Active' },
 ]
 
+const mockClassifications = [
+  { id: '1', code: 'raw_material', name: 'Nguyên liệu', note: '', status: 'Active' },
+  { id: '2', code: 'packaging', name: 'Bao bì', note: '', status: 'Active' },
+]
+
 const mockUnits = [
   { id: 'unit1', code: 'KG', name: 'Kilogram', note: '', status: 'Active' },
   { id: 'unit2', code: 'L', name: 'Liter', note: '', status: 'Active' },
@@ -27,6 +32,7 @@ describe('CatalogDataGrid inline edit', () => {
     allVisibleSelected: false,
     pagedMaterials: mockMaterials,
     pagedBasics: mockBasics,
+    classifications: mockClassifications,
     units: mockUnits,
     onToggleSelectAll: vi.fn(),
     onToggleSelectRow: vi.fn(),

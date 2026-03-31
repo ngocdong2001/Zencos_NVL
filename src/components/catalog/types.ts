@@ -17,6 +17,14 @@ export type BasicRow = {
   code: string
   name: string
   note: string
+  contactInfo?: string
+  phone?: string
+  email?: string
+  address?: string
+  parentUnitId?: string
+  conversionToBase?: number
+  isPurchaseUnit?: boolean
+  isDefaultDisplay?: boolean
   status: string
 }
 
