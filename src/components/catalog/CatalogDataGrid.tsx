@@ -1,16 +1,20 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
+import { InputText } from 'primereact/inputtext'
+import { Dropdown } from 'primereact/dropdown'
+import type { DataTableRowEditCompleteEvent } from 'primereact/datatable'
+import type { DataTableEditingRows, DataTableRowEditEvent } from 'primereact/datatable'
+import type { DataTableRowClickEvent } from 'primereact/datatable'
 import type { BasicRow, MaterialRow, TabId } from './types'
 
 const NEW_ID = '__new__'
 
-type MatDraft = Omit<MaterialRow, 'id'>
-type BasicDraft = Omit<BasicRow, 'id'>
-
-const emptyMat: MatDraft = { code: '', inciName: '', materialName: '', category: '', unit: '', status: 'Active' }
-const emptyBasic: BasicDraft = { code: '', name: '', note: '', status: 'Active' }
+const materialTypeOptions = [
+  { value: 'raw_material', label: 'Nguyên liệu' },
+  { value: 'packaging', label: 'Bao bì' },
+]
+const materialTypeLabelByValue = new Map(materialTypeOptions.map((item) => [item.value, item.label]))
 
 export interface CatalogDataGridHandle {
   focusNewRow: () => void
@@ -22,7 +26,6 @@ type Props = {
   allVisibleSelected: boolean
   pagedMaterials: MaterialRow[]
   pagedBasics: BasicRow[]
-  classifications: BasicRow[]
   units: BasicRow[]
   onToggleSelectAll: (checked: boolean) => void
   onToggleSelectRow: (id: string, checked: boolean) => void
@@ -36,424 +39,359 @@ type Props = {
 export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   function CatalogDataGrid(
     { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics,
-      classifications, units,
+      units,
       onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete,
       nextMatCode, nextBasicCode },
     ref,
   ) {
-    const [editingId, setEditingId] = useState<string | null>(null)
-    const [matDraft, setMatDraft] = useState<MatDraft>({ ...emptyMat })
-    const [basicDraft, setBasicDraft] = useState<BasicDraft>({ ...emptyBasic })
+    const [editingRows, setEditingRows] = useState<DataTableEditingRows>({})
     const firstEditRef = useRef<HTMLInputElement>(null)
     const isMat = activeTab === 'materials'
 
-    const classificationNameByCode = useMemo(
-      () => new Map(classifications.map((item) => [item.code, item.name])),
-      [classifications],
-    )
     const unitNameByCode = useMemo(
       () => new Map(units.map((item) => [item.code, item.name])),
       [units],
     )
 
     const materialRows = useMemo<MaterialRow[]>(() => {
-      if (!isMat) return pagedMaterials
-      const newRow: MaterialRow = editingId === NEW_ID
-        ? {
-            id: NEW_ID,
-            code: matDraft.code || nextMatCode,
-            inciName: matDraft.inciName,
-            materialName: matDraft.materialName,
-            category: matDraft.category,
-            unit: matDraft.unit,
-            status: matDraft.status || 'Active',
-          }
-        : {
-            id: NEW_ID,
-            code: '',
-            inciName: '',
-            materialName: '',
-            category: '',
-            unit: '',
-            status: '',
-          }
+      const newRow: MaterialRow = {
+        id: NEW_ID,
+        code: '',
+        inciName: '',
+        materialName: '',
+        category: '',
+        unit: '',
+        status: '',
+      }
       return [...pagedMaterials, newRow]
-    }, [editingId, isMat, matDraft, nextMatCode, pagedMaterials])
+    }, [pagedMaterials])
 
     const basicRows = useMemo<BasicRow[]>(() => {
-      if (isMat) return pagedBasics
-      const newRow: BasicRow = editingId === NEW_ID
-        ? {
-            id: NEW_ID,
-            code: basicDraft.code || nextBasicCode,
-            name: basicDraft.name,
-            note: basicDraft.note,
-            status: basicDraft.status || 'Active',
-          }
-        : {
-            id: NEW_ID,
-            code: '',
-            name: '',
-            note: '',
-            status: '',
-          }
+      const newRow: BasicRow = {
+        id: NEW_ID,
+        code: '',
+        name: '',
+        note: '',
+        status: '',
+      }
       return [...pagedBasics, newRow]
-    }, [basicDraft, editingId, isMat, nextBasicCode, pagedBasics])
+    }, [pagedBasics])
 
-    // Cancel any edit when tab changes
-    useEffect(() => {
-      setEditingId(null)
-      setMatDraft({ ...emptyMat })
-      setBasicDraft({ ...emptyBasic })
-    }, [activeTab])
+    const materialSelectableRows = useMemo(
+      () => materialRows.filter((row) => row.id !== NEW_ID),
+      [materialRows],
+    )
 
-    // Auto-focus first input when edit starts
-    useEffect(() => {
-      if (editingId) setTimeout(() => firstEditRef.current?.focus(), 0)
-    }, [editingId])
+    const basicSelectableRows = useMemo(
+      () => basicRows.filter((row) => row.id !== NEW_ID),
+      [basicRows],
+    )
+
+    const selectedMaterialRows = useMemo(
+      () => materialSelectableRows.filter((row) => selectedIds.includes(row.id)),
+      [materialSelectableRows, selectedIds],
+    )
+
+    const selectedBasicRows = useMemo(
+      () => basicSelectableRows.filter((row) => selectedIds.includes(row.id)),
+      [basicSelectableRows, selectedIds],
+    )
 
     useImperativeHandle(ref, () => ({
       focusNewRow() {
-        setEditingId(NEW_ID)
-        setMatDraft({ ...emptyMat, code: nextMatCode })
-        setBasicDraft({ ...emptyBasic, code: nextBasicCode })
+        setEditingRows({ [NEW_ID]: true })
       },
     }))
 
-    function activateNewRow() {
-      if (editingId === NEW_ID) return
-      setEditingId(NEW_ID)
-      setMatDraft({ ...emptyMat, code: nextMatCode })
-      setBasicDraft({ ...emptyBasic, code: nextBasicCode })
+    function handleRowEditChange(event: DataTableRowEditEvent) {
+      setEditingRows((event.data as DataTableEditingRows) ?? {})
     }
 
-    // ── Commit helpers ────────────────────────────────────────────────
-
-    function commitMat(original: MaterialRow | null) {
-      if (
-        matDraft.inciName.trim() &&
-        matDraft.materialName.trim() &&
-        matDraft.category.trim() &&
-        matDraft.unit.trim()
-      ) {
-        onSaveMaterial({
-          id: original?.id ?? `nvl-${Date.now()}`,
-          code: matDraft.code.trim() || nextMatCode,
-          inciName: matDraft.inciName.trim(),
-          materialName: matDraft.materialName.trim(),
-          category: matDraft.category.trim(),
-          unit: matDraft.unit.trim(),
-          status: matDraft.status.trim() || 'Active',
-        })
-      }
-      setEditingId(null)
-      setMatDraft({ ...emptyMat })
+    function handleNewRowClick(event: DataTableRowClickEvent) {
+      const row = event.data as MaterialRow | BasicRow
+      if (row?.id !== NEW_ID) return
+      if (editingRows[NEW_ID]) return
+      setEditingRows({ [NEW_ID]: true })
+      setTimeout(() => firstEditRef.current?.focus(), 0)
     }
 
-    function commitBasic(original: BasicRow | null) {
-      if (basicDraft.name.trim()) {
-        onSaveBasic({
-          id: original?.id ?? `${activeTab}-${Date.now()}`,
-          code: basicDraft.code.trim() || nextBasicCode,
-          name: basicDraft.name.trim(),
-          note: basicDraft.note.trim(),
-          status: basicDraft.status.trim() || 'Active',
-        })
-      }
-      setEditingId(null)
-      setBasicDraft({ ...emptyBasic })
-    }
+    // ── Material Editor Templates ─────────────────────────────────────
 
-    function cancelMatEdit() {
-      setEditingId(null)
-      setMatDraft({ ...emptyMat })
-    }
+    function materialCodeEditor(options: any) {
+      const { value, rowData, editorCallback } = options
+      const isNewRow = rowData.id === NEW_ID
 
-    function cancelBasicEdit() {
-      setEditingId(null)
-      setBasicDraft({ ...emptyBasic })
-    }
-
-    function handleMatInputKeyDown(event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        cancelMatEdit()
-      }
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        const original = editingId && editingId !== NEW_ID
-          ? (pagedMaterials.find((row) => row.id === editingId) ?? null)
-          : null
-        commitMat(original)
-      }
-    }
-
-    function handleBasicInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        cancelBasicEdit()
-      }
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        const original = editingId && editingId !== NEW_ID
-          ? (pagedBasics.find((row) => row.id === editingId) ?? null)
-          : null
-        commitBasic(original)
-      }
-    }
-
-    function startEditMat(row: MaterialRow) {
-      setEditingId(row.id)
-      setMatDraft({ code: row.code, inciName: row.inciName, materialName: row.materialName,
-        category: row.category, unit: row.unit, status: row.status })
-    }
-
-    function startEditBasic(row: BasicRow) {
-      setEditingId(row.id)
-      setBasicDraft({ code: row.code, name: row.name, note: row.note, status: row.status })
-    }
-
-    function materialSelectionBody(row: MaterialRow) {
-      if (row.id === NEW_ID) {
-        return <span className="new-row-marker">*</span>
-      }
-      return (
-        <input
-          type="checkbox"
-          checked={selectedIds.includes(row.id)}
-          onChange={(event) => onToggleSelectRow(row.id, event.target.checked)}
-        />
-      )
-    }
-
-    function basicSelectionBody(row: BasicRow) {
-      if (row.id === NEW_ID) {
-        return <span className="new-row-marker">*</span>
-      }
-      return (
-        <input
-          type="checkbox"
-          checked={selectedIds.includes(row.id)}
-          onChange={(event) => onToggleSelectRow(row.id, event.target.checked)}
-        />
-      )
-    }
-
-    function materialCodeBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) {
+      if (isNewRow && !editingRows[NEW_ID]) {
         return (
-          <button type="button" className="new-row-link" onClick={activateNewRow}>
+          <button type="button" className="new-row-link" onClick={() => {
+            setEditingRows({ [NEW_ID]: true })
+            setTimeout(() => firstEditRef.current?.focus(), 0)
+          }}>
             Nhấp để thêm dòng mới...
           </button>
         )
       }
-      if (editingId !== row.id) return row.code
+
       return (
-        <input
+        <InputText
           ref={firstEditRef}
-          value={matDraft.code}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, code: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
+          value={value || ''}
+          onChange={(e) => editorCallback?.(e.target.value)}
+          placeholder="Mã *"
+          autoFocus
         />
       )
     }
 
-    function materialInciBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return row.inciName
+    function materialInciEditor(options: any) {
       return (
-        <input
-          value={matDraft.inciName}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, inciName: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
           placeholder="INCI name *"
         />
       )
     }
 
-    function materialNameBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return row.materialName
+    function materialNameEditor(options: any) {
       return (
-        <input
-          value={matDraft.materialName}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, materialName: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
           placeholder="Tên nguyên liệu *"
         />
       )
     }
 
-    function materialCategoryBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return classificationNameByCode.get(row.category) ?? row.category
+    function materialCategoryEditor(options: any) {
       return (
-        <select
-          value={matDraft.category}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, category: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
-        >
-          <option value="">-- Chọn --</option>
-          {classifications.map((item) => (
-            <option key={item.id} value={item.code}>{item.name}</option>
-          ))}
-        </select>
-      )
-    }
-
-    function materialUnitBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return unitNameByCode.get(row.unit) ?? row.unit
-      return (
-        <select
-          value={matDraft.unit}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, unit: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
-        >
-          <option value="">-- Chọn --</option>
-          {units.map((item) => (
-            <option key={item.id} value={item.code}>{item.name}</option>
-          ))}
-        </select>
-      )
-    }
-
-    function materialStatusBody(row: MaterialRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) {
-        return <span className="status-pill">{row.status}</span>
-      }
-      return (
-        <input
-          value={matDraft.status}
-          onChange={(event) => setMatDraft((draft) => ({ ...draft, status: event.target.value }))}
-          onKeyDown={handleMatInputKeyDown}
+        <Dropdown
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.value)}
+          options={materialTypeOptions}
+          optionLabel="label"
+          optionValue="value"
+          placeholder="-- Chọn --"
         />
       )
     }
 
-    function basicCodeBody(row: BasicRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) {
+    function materialUnitEditor(options: any) {
+      return (
+        <Dropdown
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.value)}
+          options={units}
+          optionLabel="name"
+          optionValue="code"
+          placeholder="-- Chọn --"
+        />
+      )
+    }
+
+    function materialStatusEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+        />
+      )
+    }
+
+    // ── Material Body Templates ───────────────────────────────────────
+
+    function materialCodeBody(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) {
         return (
-          <button type="button" className="new-row-link" onClick={activateNewRow}>
+          <button type="button" className="new-row-link" onClick={() => {
+            setEditingRows({ [NEW_ID]: true })
+          }}>
             Nhấp để thêm dòng mới...
           </button>
         )
       }
-      if (editingId !== row.id) return row.code
+      return rowData.code
+    }
+
+    function materialCategoryBody(rowData: MaterialRow) {
+      return materialTypeLabelByValue.get(rowData.category) ?? rowData.category
+    }
+
+    function materialUnitBody(rowData: MaterialRow) {
+      return unitNameByCode.get(rowData.unit) ?? rowData.unit
+    }
+
+    function materialStatusBody(rowData: MaterialRow) {
+      return <span className="status-pill">{rowData.status}</span>
+    }
+
+    function materialDeleteButton(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) return null
       return (
-        <input
+        <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(rowData.id)}>
+          🗑
+        </button>
+      )
+    }
+
+    function handleMaterialRowEditComplete(e: DataTableRowEditCompleteEvent) {
+      const { newData } = e
+
+      // Validate required fields
+      if (!newData.inciName?.trim() || !newData.materialName?.trim() || !newData.category?.trim() || !newData.unit?.trim()) {
+        return // Don't save if validation fails
+      }
+
+      const finalData: MaterialRow = {
+        id: newData.id === NEW_ID ? `nvl-${Date.now()}` : newData.id,
+        code: newData.code?.trim() || nextMatCode,
+        inciName: newData.inciName.trim(),
+        materialName: newData.materialName.trim(),
+        category: newData.category.trim(),
+        unit: newData.unit.trim(),
+        status: newData.status?.trim() || 'Active',
+      }
+
+      onSaveMaterial(finalData)
+    }
+
+    function handleMaterialRowEditCancel() {
+      // Reset editing state
+      setEditingRows({})
+    }
+
+    // ── Basic Editor Templates ────────────────────────────────────────
+
+    function basicCodeEditor(options: any) {
+      const { value, rowData, editorCallback } = options
+      const isNewRow = rowData.id === NEW_ID
+
+      if (isNewRow && !editingRows[NEW_ID]) {
+        return (
+          <button type="button" className="new-row-link" onClick={() => {
+            setEditingRows({ [NEW_ID]: true })
+            setTimeout(() => firstEditRef.current?.focus(), 0)
+          }}>
+            Nhấp để thêm dòng mới...
+          </button>
+        )
+      }
+
+      return (
+        <InputText
           ref={firstEditRef}
-          value={basicDraft.code}
-          onChange={(event) => setBasicDraft((draft) => ({ ...draft, code: event.target.value }))}
-          onKeyDown={handleBasicInputKeyDown}
+          value={value || ''}
+          onChange={(e) => editorCallback?.(e.target.value)}
+          placeholder="Mã *"
+          autoFocus
         />
       )
     }
 
-    function basicNameBody(row: BasicRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return row.name
+    function basicNameEditor(options: any) {
       return (
-        <input
-          value={basicDraft.name}
-          onChange={(event) => setBasicDraft((draft) => ({ ...draft, name: event.target.value }))}
-          onKeyDown={handleBasicInputKeyDown}
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
           placeholder="Tên *"
         />
       )
     }
 
-    function basicNoteBody(row: BasicRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) return row.note
+    function basicNoteEditor(options: any) {
       return (
-        <input
-          value={basicDraft.note}
-          onChange={(event) => setBasicDraft((draft) => ({ ...draft, note: event.target.value }))}
-          onKeyDown={handleBasicInputKeyDown}
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
         />
       )
     }
 
-    function basicStatusBody(row: BasicRow) {
-      if (row.id === NEW_ID && editingId !== NEW_ID) return ''
-      if (editingId !== row.id) {
-        return <span className="status-pill">{row.status}</span>
-      }
+    function basicStatusEditor(options: any) {
       return (
-        <input
-          value={basicDraft.status}
-          onChange={(event) => setBasicDraft((draft) => ({ ...draft, status: event.target.value }))}
-          onKeyDown={handleBasicInputKeyDown}
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
         />
       )
     }
 
-    function materialActionsBody(row: MaterialRow) {
-      if (editingId === row.id) {
+    // ── Basic Body Templates ──────────────────────────────────────────
+
+    function basicCodeBody(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) {
         return (
-          <div className="actions">
-            <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={cancelMatEdit}>✕</button>
-            <button
-              type="button"
-              className="icon-btn save-btn"
-              title="Lưu (Enter)"
-              onClick={() => commitMat(row.id === NEW_ID ? null : row)}
-            >
-              ✔
-            </button>
-          </div>
+          <button type="button" className="new-row-link" onClick={() => {
+            setEditingRows({ [NEW_ID]: true })
+          }}>
+            Nhấp để thêm dòng mới...
+          </button>
         )
       }
+      return rowData.code
+    }
 
-      if (row.id === NEW_ID) {
-        return (
-          <div className="actions">
-            <button type="button" className="icon-btn" title="Thêm mới" onClick={activateNewRow}>✚</button>
-          </div>
-        )
-      }
+    function basicStatusBody(rowData: BasicRow) {
+      return <span className="status-pill">{rowData.status}</span>
+    }
 
+    function basicDeleteButton(rowData: BasicRow) {
+      if (rowData.id === NEW_ID) return null
       return (
-        <div className="actions">
-          <button type="button" className="icon-btn" title="Sửa" onClick={() => startEditMat(row)}>✎</button>
-          <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(row.id)}>🗑</button>
-        </div>
+        <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(rowData.id)}>
+          🗑
+        </button>
       )
     }
 
-    function basicActionsBody(row: BasicRow) {
-      if (editingId === row.id) {
-        return (
-          <div className="actions">
-            <button type="button" className="icon-btn" title="Hủy (Esc)" onClick={cancelBasicEdit}>✕</button>
-            <button
-              type="button"
-              className="icon-btn save-btn"
-              title="Lưu (Enter)"
-              onClick={() => commitBasic(row.id === NEW_ID ? null : row)}
-            >
-              ✔
-            </button>
-          </div>
-        )
+    function handleBasicRowEditComplete(e: DataTableRowEditCompleteEvent) {
+      const { newData } = e
+
+      // Validate required fields
+      if (!newData.name?.trim()) {
+        return // Don't save if validation fails
       }
 
-      if (row.id === NEW_ID) {
-        return (
-          <div className="actions">
-            <button type="button" className="icon-btn" title="Thêm mới" onClick={activateNewRow}>✚</button>
-          </div>
-        )
+      const finalData: BasicRow = {
+        id: newData.id === NEW_ID ? `${activeTab}-${Date.now()}` : newData.id,
+        code: newData.code?.trim() || nextBasicCode,
+        name: newData.name.trim(),
+        note: newData.note?.trim() || '',
+        status: newData.status?.trim() || 'Active',
       }
 
-      return (
-        <div className="actions">
-          <button type="button" className="icon-btn" title="Sửa" onClick={() => startEditBasic(row)}>✎</button>
-          <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(row.id)}>🗑</button>
-        </div>
-      )
+      onSaveBasic(finalData)
+    }
+
+    function handleBasicRowEditCancel() {
+      // Reset editing state
+      setEditingRows({})
+    }
+
+    // ── Selection ─────────────────────────────────────────────────────
+
+    function syncSelectionByVisibleRows(nextSelectedIds: string[], visibleIds: string[]) {
+      const nextSet = new Set(nextSelectedIds)
+
+      for (const id of visibleIds) {
+        const shouldBeChecked = nextSet.has(id)
+        const isChecked = selectedIds.includes(id)
+        if (shouldBeChecked !== isChecked) {
+          onToggleSelectRow(id, shouldBeChecked)
+        }
+      }
+    }
+
+    function handleMaterialSelectionChange(nextRows: MaterialRow[]) {
+      const visibleIds = materialSelectableRows.map((row) => row.id)
+      const nextSelectedIds = nextRows.map((row) => row.id)
+      syncSelectionByVisibleRows(nextSelectedIds, visibleIds)
+    }
+
+    function handleBasicSelectionChange(nextRows: BasicRow[]) {
+      const visibleIds = basicSelectableRows.map((row) => row.id)
+      const nextSelectedIds = nextRows.map((row) => row.id)
+      syncSelectionByVisibleRows(nextSelectedIds, visibleIds)
     }
 
     return (
@@ -463,23 +401,32 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             <DataTable
               value={materialRows}
               dataKey="id"
+              selectionMode="checkbox"
+              selection={selectedMaterialRows}
+              onSelectionChange={(event) => handleMaterialSelectionChange((event.value ?? []) as MaterialRow[])}
+              onRowClick={handleNewRowClick}
+              editMode="row"
+              onRowEditComplete={handleMaterialRowEditComplete}
+              onRowEditChange={handleRowEditChange}
+              onRowEditCancel={handleMaterialRowEditCancel}
+              editingRows={editingRows}
+              selectAll={allVisibleSelected}
+              onSelectAllChange={(event) => onToggleSelectAll(Boolean(event.checked))}
+              isDataSelectable={(event) => event.data?.id !== NEW_ID}
               stripedRows
               showGridlines
               className="catalog-table prime-catalog-table"
               rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
             >
-              <Column
-                header={<input type="checkbox" checked={allVisibleSelected} onChange={(event) => onToggleSelectAll(event.target.checked)} />}
-                body={materialSelectionBody}
-                style={{ width: '42px' }}
-              />
-              <Column field="code" header="MÃ NVL" body={materialCodeBody} sortable />
-              <Column field="inciName" header="INCI NAME" body={materialInciBody} sortable />
-              <Column field="materialName" header="Tên Nguyên liệu" body={materialNameBody} sortable />
-              <Column field="category" header="Phân loại" body={materialCategoryBody} sortable />
-              <Column field="unit" header="Đơn vị" body={materialUnitBody} sortable />
-              <Column field="status" header="Trạng thái" body={materialStatusBody} sortable />
-              <Column header="Thao tác" body={materialActionsBody} style={{ width: '120px' }} />
+              <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
+              <Column field="code" header="MÃ NVL" body={materialCodeBody} editor={(options) => materialCodeEditor(options)} sortable />
+              <Column field="inciName" header="INCI NAME" editor={(options) => materialInciEditor(options)} sortable />
+              <Column field="materialName" header="Tên Nguyên liệu" editor={(options) => materialNameEditor(options)} sortable />
+              <Column field="category" header="Phân loại" body={materialCategoryBody} editor={(options) => materialCategoryEditor(options)} sortable />
+              <Column field="unit" header="Đơn vị" body={materialUnitBody} editor={(options) => materialUnitEditor(options)} sortable />
+              <Column field="status" header="Trạng thái" body={materialStatusBody} editor={(options) => materialStatusEditor(options)} sortable />
+              <Column rowEditor headerStyle={{ width: '10%', minWidth: '8rem' }} bodyStyle={{ textAlign: 'center' }} />
+              <Column header="Xóa" body={materialDeleteButton} style={{ width: '60px' }} />
             </DataTable>
           </>
         ) : (
@@ -487,21 +434,30 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             <DataTable
               value={basicRows}
               dataKey="id"
+              selectionMode="checkbox"
+              selection={selectedBasicRows}
+              onSelectionChange={(event) => handleBasicSelectionChange((event.value ?? []) as BasicRow[])}
+              onRowClick={handleNewRowClick}
+              editMode="row"
+              onRowEditComplete={handleBasicRowEditComplete}
+              onRowEditChange={handleRowEditChange}
+              onRowEditCancel={handleBasicRowEditCancel}
+              editingRows={editingRows}
+              selectAll={allVisibleSelected}
+              onSelectAllChange={(event) => onToggleSelectAll(Boolean(event.checked))}
+              isDataSelectable={(event) => event.data?.id !== NEW_ID}
               stripedRows
               showGridlines
               className="catalog-table prime-catalog-table basic-table"
               rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
             >
-              <Column
-                header={<input type="checkbox" checked={allVisibleSelected} onChange={(event) => onToggleSelectAll(event.target.checked)} />}
-                body={basicSelectionBody}
-                style={{ width: '42px' }}
-              />
-              <Column field="code" header="Mã" body={basicCodeBody} sortable />
-              <Column field="name" header="Tên" body={basicNameBody} sortable />
-              <Column field="note" header="Ghi chú" body={basicNoteBody} sortable />
-              <Column field="status" header="Trạng thái" body={basicStatusBody} sortable />
-              <Column header="Thao tác" body={basicActionsBody} style={{ width: '120px' }} />
+              <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
+              <Column field="code" header="Mã" body={basicCodeBody} editor={(options) => basicCodeEditor(options)} sortable />
+              <Column field="name" header="Tên" editor={(options) => basicNameEditor(options)} sortable />
+              <Column field="note" header="Ghi chú" editor={(options) => basicNoteEditor(options)} sortable />
+              <Column field="status" header="Trạng thái" body={basicStatusBody} editor={(options) => basicStatusEditor(options)} sortable />
+              <Column rowEditor headerStyle={{ width: '10%', minWidth: '8rem' }} bodyStyle={{ textAlign: 'center' }} />
+              <Column header="Xóa" body={basicDeleteButton} style={{ width: '60px' }} />
             </DataTable>
           </>
         )}

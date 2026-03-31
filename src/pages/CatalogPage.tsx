@@ -331,7 +331,6 @@ export function CatalogPage() {
         onToggleSelectRow={(id, checked) =>
           setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
         }
-        classifications={catalogs.classifications}
         units={catalogs.units}
         onSaveMaterial={handleSaveMaterial}
         onSaveBasic={handleSaveBasic}
