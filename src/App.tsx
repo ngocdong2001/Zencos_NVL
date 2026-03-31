@@ -7,8 +7,8 @@ import { appRoutes } from './routes/config'
 import './App.css'
 
 const sidebarFooterItems = [
-  { label: 'Cài đặt', tone: 'default' as const },
-  { label: 'Đăng xuất', tone: 'danger' as const },
+  { label: 'Cài đặt', icon: 'pi pi-cog', tone: 'default' as const },
+  { label: 'Đăng xuất', icon: 'pi pi-power-off', tone: 'danger' as const },
 ]
 
 function AppLayout() {
@@ -19,7 +19,7 @@ function AppLayout() {
       sidebar={
         <MasterSidebar
           brandName="ZencosMS"
-          navItems={appRoutes.map(({ path, label }) => ({ path, label }))}
+          navItems={appRoutes.map(({ path, label, icon }) => ({ path, label, icon }))}
           footerItems={sidebarFooterItems}
         />
       }

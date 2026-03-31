@@ -16,7 +16,7 @@ export function MasterHeader({
   return (
     <header className="catalog-header">
       <div className="search-box">
-        <span aria-hidden>⌕</span>
+        <i className="pi pi-search" aria-hidden />
         <input
           value={searchValue}
           onChange={(event) => onSearchChange(event.target.value)}
@@ -26,7 +26,7 @@ export function MasterHeader({
 
       <div className="header-user">
         <button type="button" className="notif-btn" aria-label="Notifications">
-          ◌
+          <i className="pi pi-bell" />
         </button>
         <div className="user-copy">
           <strong>{userName}</strong>

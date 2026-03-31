@@ -35,16 +35,16 @@ export function CatalogToolbar({
         </div>
         <div className="title-actions">
           <button type="button" className="btn btn-ghost" onClick={onExport}>
-            ⭳ Xuất Tất Cả (Excel)
+            <i className="pi pi-download" /> Xuất Tất Cả (Excel)
           </button>
           <button type="button" className="btn btn-primary" onClick={onFocusQuickAdd}>
-            + Thêm Danh mục Mới
+            <i className="pi pi-plus" /> Thêm Danh mục Mới
           </button>
         </div>
       </section>
 
       <section className="mapping-card">
-        <div className="mapping-icon">▣</div>
+        <div className="mapping-icon"><i className="pi pi-file-excel" /></div>
         <div className="mapping-content">
           <strong>Quy tắc Mapping Excel (Bắt buộc)</strong>
           <p>
@@ -53,7 +53,7 @@ export function CatalogToolbar({
           </p>
         </div>
         <button type="button" className="btn btn-ghost compact" onClick={onDownloadTemplate}>
-          ⭳ Tải Template
+          <i className="pi pi-download" /> Tải Template
         </button>
       </section>
 
@@ -72,7 +72,7 @@ export function CatalogToolbar({
 
       <section className="filter-bar">
         <button type="button" className="btn btn-ghost compact" onClick={onToggleOnlyActive}>
-          ⌯ Bộ lọc
+          <i className="pi pi-filter" /> Bộ lọc
         </button>
         <p>
           Đã chọn <strong>{selectedCount}</strong> {activeTab === 'materials' ? 'nguyên liệu' : 'bản ghi'}
@@ -86,10 +86,10 @@ export function CatalogToolbar({
             className="hidden-input"
           />
           <button type="button" className="btn btn-ghost compact" onClick={() => importInputRef.current?.click()}>
-            ⭱ Import Excel
+            <i className="pi pi-upload" /> Import Excel
           </button>
           <button type="button" className="btn btn-inline" onClick={onFocusQuickAdd}>
-            + Thêm mới
+            <i className="pi pi-plus" /> Thêm mới
           </button>
         </div>
       </section>

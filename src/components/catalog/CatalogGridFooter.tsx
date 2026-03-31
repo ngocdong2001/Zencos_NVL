@@ -29,7 +29,7 @@ export function CatalogGridFooter({
           disabled={safePage <= 1}
           onClick={() => onPageChange(Math.max(1, safePage - 1))}
         >
-          ‹
+          <i className="pi pi-chevron-left" />
         </button>
         {pageButtons.map((pageNumber) => (
           <button
@@ -48,7 +48,7 @@ export function CatalogGridFooter({
           disabled={safePage >= totalPages}
           onClick={() => onPageChange(Math.min(totalPages, safePage + 1))}
         >
-          ›
+          <i className="pi pi-chevron-right" />
         </button>
       </div>
     </section>

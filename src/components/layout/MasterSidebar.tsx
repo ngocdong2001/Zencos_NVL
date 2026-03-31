@@ -1,18 +1,20 @@
 import { NavLink } from 'react-router-dom'
 
-type NavItem = { path: string; label: string }
+type NavItem = { path: string; label: string; icon?: string }
 
 type MasterSidebarProps = {
   brandName: string
   navItems: NavItem[]
-  footerItems?: Array<{ label: string; tone?: 'default' | 'danger' }>
+  footerItems?: Array<{ label: string; icon?: string; tone?: 'default' | 'danger' }>
 }
 
 export function MasterSidebar({ brandName, navItems, footerItems }: MasterSidebarProps) {
   return (
     <aside className="catalog-sidebar">
       <div className="sidebar-header">
-        <span className="brand-mark">◇</span>
+        <span className="brand-mark">
+          <i className="pi pi-box" />
+        </span>
         <h1>{brandName}</h1>
       </div>
 
@@ -23,7 +25,9 @@ export function MasterSidebar({ brandName, navItems, footerItems }: MasterSideba
             to={item.path}
             className={({ isActive }) => `sidebar-item${isActive ? ' active' : ''}`}
           >
-            <span className="item-dot" />
+            {item.icon
+              ? <i className={item.icon} />
+              : <span className="item-dot" />}
             {item.label}
           </NavLink>
         ))}
@@ -36,7 +40,9 @@ export function MasterSidebar({ brandName, navItems, footerItems }: MasterSideba
             type="button"
             className={`sidebar-item ${item.tone === 'danger' ? 'danger' : ''}`}
           >
-            <span className="item-dot" />
+            {item.icon
+              ? <i className={item.icon} />
+              : <span className="item-dot" />}
             {item.label}
           </button>
         ))}

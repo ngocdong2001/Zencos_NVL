@@ -559,18 +559,50 @@ input {
 }
 
 .icon-btn {
-  width: 30px;
+  min-width: 30px;
   height: 30px;
   border: none;
   background: transparent;
   color: #656d79;
   border-radius: 6px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 13px;
 }
 
 .icon-btn:hover {
   background: rgba(82, 105, 224, 0.08);
   color: var(--primary);
+}
+
+.icon-btn.save-btn {
+  background: #0d9f6e;
+  color: #fff;
+  font-weight: 600;
+  padding: 0;
+}
+
+.icon-btn.save-btn:hover:not(:disabled) {
+  background: #0a8059;
+}
+
+.icon-btn.save-btn:disabled {
+  background: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.icon-btn.danger {
+  color: var(--danger);
+}
+
+.icon-btn.danger:hover {
+  background: rgba(224, 82, 82, 0.08);
+  color: var(--danger);
 }
 
 /* ── Data rows: click-to-edit cursor ──────────────────────────────── */

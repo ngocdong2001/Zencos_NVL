@@ -381,18 +381,18 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       if (rowData.id === NEW_ID) {
         return (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="icon-btn" title="Lưu" onClick={() => void saveNewMaterialRow()} disabled={!canSaveNewMaterial || savingNewRow}>
-              ✓
+            <button type="button" className="icon-btn save-btn" title="Lưu" onClick={() => void saveNewMaterialRow()} disabled={!canSaveNewMaterial || savingNewRow}>
+              <i className="pi pi-save" />
             </button>
             <button type="button" className="icon-btn" title="Xóa nháp" onClick={clearNewMaterialRow} disabled={savingNewRow}>
-              ✕
+              ×
             </button>
           </div>
         )
       }
       return (
-        <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(rowData.id)}>
-          🗑
+        <button type="button" className="icon-btn danger" title="Xóa" onClick={() => onDelete(rowData.id)}>
+          <i className="pi pi-trash" />
         </button>
       )
     }
@@ -501,18 +501,18 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       if (rowData.id === NEW_ID) {
         return (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="icon-btn" title="Lưu" onClick={() => void saveNewBasicRow()} disabled={!canSaveNewBasic || savingNewRow}>
-              ✓
+            <button type="button" className="icon-btn save-btn" title="Lưu" onClick={() => void saveNewBasicRow()} disabled={!canSaveNewBasic || savingNewRow}>
+              <i className="pi pi-save" />
             </button>
             <button type="button" className="icon-btn" title="Xóa nháp" onClick={clearNewBasicRow} disabled={savingNewRow}>
-              ✕
+              ×
             </button>
           </div>
         )
       }
       return (
-        <button type="button" className="icon-btn" title="Xóa" onClick={() => onDelete(rowData.id)}>
-          🗑
+        <button type="button" className="icon-btn danger" title="Xóa" onClick={() => onDelete(rowData.id)}>
+          <i className="pi pi-trash" />
         </button>
       )
     }
