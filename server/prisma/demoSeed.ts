@@ -30,6 +30,7 @@ type SupplierSeed = {
 }
 
 type CustomerSeed = {
+  code: string
   name: string
   phone: string | null
   email: string | null
@@ -80,9 +81,9 @@ const supplierSeeds: SupplierSeed[] = [
 ]
 
 const customerSeeds: CustomerSeed[] = [
-  { name: 'Khach Hang A', phone: '091364551', email: 'khachA@example.com', address: 'HCM', notes: 'Demo', deletedAt: null },
-  { name: 'Khách hàng B', phone: '090999999', email: 'khachB@gmail.com', address: 'HCM', notes: 'Demo', deletedAt: null },
-  { name: 'Nguyễn Văn KH', phone: '0978999555', email: '', address: 'Long An', notes: 'Demo', deletedAt: null },
+  { code: 'CUS-001', name: 'Khach Hang A', phone: '091364551', email: 'khachA@example.com', address: 'HCM', notes: 'Demo', deletedAt: null },
+  { code: 'CUS-002', name: 'Khách hàng B', phone: '090999999', email: 'khachB@gmail.com', address: 'HCM', notes: 'Demo', deletedAt: null },
+  { code: 'CUS-003', name: 'Nguyễn Văn KH', phone: '0978999555', email: '', address: 'Long An', notes: 'Demo', deletedAt: null },
 ]
 
 const locationSeeds: LocationSeed[] = [
@@ -310,9 +311,16 @@ async function main() {
   for (const item of customerSeeds) {
     const existing = await prisma.customer.findFirst({
       where: {
-        name: item.name,
-        phone: item.phone,
-        email: item.email,
+        OR: [
+          { code: item.code },
+          {
+            AND: [
+              { name: item.name },
+              { phone: item.phone },
+              { email: item.email },
+            ],
+          },
+        ],
       },
       select: { id: true },
     })
@@ -321,6 +329,7 @@ async function main() {
       await prisma.customer.update({
         where: { id: existing.id },
         data: {
+          code: item.code,
           address: item.address,
           notes: item.notes,
           deletedAt: toDate(item.deletedAt),
@@ -329,6 +338,7 @@ async function main() {
     } else {
       await prisma.customer.create({
         data: {
+          code: item.code,
           name: item.name,
           phone: item.phone,
           email: item.email,

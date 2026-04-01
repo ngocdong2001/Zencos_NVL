@@ -28,3 +28,12 @@ server/.env.*
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary files
+~$*
+*.tmp
+*.temp
+*.swp
+*.swo
+*.cache
+Thumbs.db

@@ -1,4 +1,3 @@
-import type { ChangeEvent, RefObject } from 'react'
 import type { TabId } from './types'
 
 const mappingGuides: Record<TabId, { title: string; columns: string[]; note: string }> = {
@@ -38,26 +37,24 @@ type CatalogToolbarProps = {
   activeTab: TabId
   tabItems: Array<{ id: TabId; label: string }>
   selectedCount: number
-  importInputRef: RefObject<HTMLInputElement | null>
   onExport: () => void
   onFocusQuickAdd: () => void
   onDownloadTemplate: () => void
   onTabChange: (tab: TabId) => void
   onToggleOnlyActive: () => void
-  onImportCsv: (event: ChangeEvent<HTMLInputElement>) => void
+  onOpenImport: () => void
 }
 
 export function CatalogToolbar({
   activeTab,
   tabItems,
   selectedCount,
-  importInputRef,
   onExport,
   onFocusQuickAdd,
   onDownloadTemplate,
   onTabChange,
   onToggleOnlyActive,
-  onImportCsv,
+  onOpenImport,
 }: CatalogToolbarProps) {
   const currentMappingGuide = mappingGuides[activeTab]
 
@@ -69,17 +66,10 @@ export function CatalogToolbar({
           <p>Quản trị dữ liệu gốc cho toàn bộ hệ thống ZencosMS.</p>
         </div>
         <div className="title-actions">
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onImportCsv}
-            className="hidden-input"
-          />
           <button type="button" className="btn btn-ghost" onClick={onExport}>
             <i className="pi pi-download" /> Xuất Tất Cả (Excel)
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => importInputRef.current?.click()}>
+          <button type="button" className="btn btn-ghost" onClick={onOpenImport}>
             <i className="pi pi-upload" /> Import Excel
           </button>
           <button type="button" className="btn btn-primary" onClick={onFocusQuickAdd}>

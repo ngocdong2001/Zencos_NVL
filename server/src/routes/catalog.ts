@@ -32,6 +32,34 @@ function isDuplicateCodeError(error: unknown): boolean {
   return error.message.includes('Code: `1062`') && error.message.includes('products.products_code_key')
 }
 
+function isDuplicateIndexError(error: unknown, indexName: string): boolean {
+  if (!(error instanceof Error)) return false
+  if (!error.message.includes('Code: `1062`')) return false
+
+  const normalizedIndex = indexName.trim()
+  const shortIndex = normalizedIndex.includes('.')
+    ? normalizedIndex.split('.').pop() ?? normalizedIndex
+    : normalizedIndex
+
+  return error.message.includes(normalizedIndex) || error.message.includes(shortIndex)
+}
+
+async function hasDuplicateCatalogUnitCode(code: string, excludeId?: number): Promise<boolean> {
+  const normalizedCode = code.trim()
+  if (!normalizedCode) return false
+
+  const duplicated = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id
+    FROM product_units
+    WHERE product_id IS NULL
+      AND unit_code_name = ${normalizedCode}
+      AND (${excludeId ?? null} IS NULL OR id <> ${excludeId ?? null})
+    LIMIT 1
+  `)
+
+  return duplicated.length > 0
+}
+
 function getNextNumberFromCodes(codes: string[], prefix: string): number {
   const used = new Set<number>()
 
@@ -57,6 +85,17 @@ async function getNextMaterialCode(): Promise<string> {
 
   const next = getNextNumberFromCodes(rows.map((row) => String(row.code ?? '')), 'NVL')
   return `NVL-${String(next).padStart(3, '0')}`
+}
+
+async function getNextCustomerCode(): Promise<string> {
+  const rows = await prisma.$queryRaw<Array<{ code: string | null }>>(Prisma.sql`
+    SELECT code
+    FROM customers
+    WHERE code LIKE 'CUS-%'
+  `)
+
+  const next = getNextNumberFromCodes(rows.map((row) => String(row.code ?? '')), 'CUS')
+  return `CUS-${String(next).padStart(3, '0')}`
 }
 
 const materialSchema = z.object({
@@ -147,6 +186,7 @@ const supplierSchema = z.object({
 })
 
 const customerSchema = z.object({
+  code: z.string().min(1).optional(),
   name: z.string().min(1),
   phone: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
@@ -304,21 +344,26 @@ router.put('/materials/:id', async (req, res) => {
     }
   }
 
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE products
-    SET
-      code = COALESCE(${data.code ?? null}, code),
-      name = COALESCE(${data.name ?? null}, name),
-      inci_name = COALESCE(${data.inciName ?? null}, inci_name),
-      product_type = COALESCE(${productTypeId}, product_type),
-      has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
-      use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
-      base_unit = COALESCE(${baseUnitId}, base_unit),
-      min_stock_level = COALESCE(${data.minStockLevel ?? null}, min_stock_level),
-      notes = COALESCE(${data.notes ?? null}, notes),
-      updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
-  `)
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE products
+      SET
+        code = COALESCE(${data.code ?? null}, code),
+        name = COALESCE(${data.name ?? null}, name),
+        inci_name = COALESCE(${data.inciName ?? null}, inci_name),
+        product_type = COALESCE(${productTypeId}, product_type),
+        has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
+        use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
+        base_unit = COALESCE(${baseUnitId}, base_unit),
+        min_stock_level = COALESCE(${data.minStockLevel ?? null}, min_stock_level),
+        notes = COALESCE(${data.notes ?? null}, notes),
+        updated_at = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'products.products_code_key')) throw error
+    return res.status(409).json({ message: 'Mã nguyên liệu đã tồn tại', code: data.code })
+  }
 
   const updated = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT
@@ -386,12 +431,17 @@ router.post('/suppliers', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO suppliers
-      (code, name, phone, contact_info, address, notes, created_at, updated_at)
-    VALUES
-      (${data.code}, ${data.name}, ${data.phone ?? null}, ${data.contactInfo ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
-  `)
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO suppliers
+        (code, name, phone, contact_info, address, notes, created_at, updated_at)
+      VALUES
+        (${data.code}, ${data.name}, ${data.phone ?? null}, ${data.contactInfo ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'suppliers.suppliers_code_key')) throw error
+    return res.status(409).json({ message: 'Mã nhà cung cấp đã tồn tại', code: data.code })
+  }
 
   return res.status(201).json({ ok: true })
 })
@@ -408,18 +458,23 @@ router.put('/suppliers/:id', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE suppliers
-    SET
-      code = COALESCE(${data.code ?? null}, code),
-      name = COALESCE(${data.name ?? null}, name),
-      phone = COALESCE(${data.phone ?? null}, phone),
-      contact_info = COALESCE(${data.contactInfo ?? null}, contact_info),
-      address = COALESCE(${data.address ?? null}, address),
-      notes = COALESCE(${data.notes ?? null}, notes),
-      updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
-  `)
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE suppliers
+      SET
+        code = COALESCE(${data.code ?? null}, code),
+        name = COALESCE(${data.name ?? null}, name),
+        phone = COALESCE(${data.phone ?? null}, phone),
+        contact_info = COALESCE(${data.contactInfo ?? null}, contact_info),
+        address = COALESCE(${data.address ?? null}, address),
+        notes = COALESCE(${data.notes ?? null}, notes),
+        updated_at = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'suppliers.suppliers_code_key')) throw error
+    return res.status(409).json({ message: 'Mã nhà cung cấp đã tồn tại', code: data.code })
+  }
 
   return res.json({ ok: true })
 })
@@ -441,7 +496,7 @@ router.delete('/suppliers/:id', async (req, res) => {
 
 router.get('/customers', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, name, phone, email, address, notes, deleted_at
+    SELECT id, code, name, phone, email, address, notes, deleted_at
     FROM customers
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
@@ -449,7 +504,7 @@ router.get('/customers', async (_req, res) => {
 
   const data = rows.map((row) => ({
     id: String(row.id),
-    code: `CUS-${String(row.id)}`,
+    code: String(row.code ?? ''),
     name: String(row.name ?? ''),
     phone: String(row.phone ?? ''),
     email: String(row.email ?? ''),
@@ -468,12 +523,18 @@ router.post('/customers', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO customers
-      (name, phone, email, address, notes, created_at, updated_at)
-    VALUES
-      (${data.name}, ${data.phone ?? null}, ${data.email ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
-  `)
+  const code = data.code?.trim() || await getNextCustomerCode()
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO customers
+        (code, name, phone, email, address, notes, created_at, updated_at)
+      VALUES
+        (${code}, ${data.name}, ${data.phone ?? null}, ${data.email ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'customers.customers_code_key')) throw error
+    return res.status(409).json({ message: 'Mã khách hàng đã tồn tại', code })
+  }
 
   return res.status(201).json({ ok: true })
 })
@@ -490,17 +551,23 @@ router.put('/customers/:id', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE customers
-    SET
-      name = COALESCE(${data.name ?? null}, name),
-      phone = COALESCE(${data.phone ?? null}, phone),
-      email = COALESCE(${data.email ?? null}, email),
-      address = COALESCE(${data.address ?? null}, address),
-      notes = COALESCE(${data.notes ?? null}, notes),
-      updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
-  `)
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE customers
+      SET
+        code = COALESCE(${data.code ?? null}, code),
+        name = COALESCE(${data.name ?? null}, name),
+        phone = COALESCE(${data.phone ?? null}, phone),
+        email = COALESCE(${data.email ?? null}, email),
+        address = COALESCE(${data.address ?? null}, address),
+        notes = COALESCE(${data.notes ?? null}, notes),
+        updated_at = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'customers.customers_code_key')) throw error
+    return res.status(409).json({ message: 'Mã khách hàng đã tồn tại', code: data.code })
+  }
 
   return res.json({ ok: true })
 })
@@ -546,12 +613,27 @@ router.post('/classifications', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO product_classifications
-      (code, name, notes, created_at, updated_at)
-    VALUES
-      (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+  const duplicated = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id
+    FROM product_classifications
+    WHERE code = ${data.code}
+    LIMIT 1
   `)
+  if (duplicated.length > 0) {
+    return res.status(409).json({ message: 'Mã phân loại đã tồn tại', code: data.code })
+  }
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO product_classifications
+        (code, name, notes, created_at, updated_at)
+      VALUES
+        (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'product_classifications.product_classifications_code_key')) throw error
+    return res.status(409).json({ message: 'Mã phân loại đã tồn tại', code: data.code })
+  }
 
   return res.status(201).json({ ok: true })
 })
@@ -568,15 +650,33 @@ router.put('/classifications/:id', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE product_classifications
-    SET
-      code = COALESCE(${data.code ?? null}, code),
-      name = COALESCE(${data.name ?? null}, name),
-      notes = COALESCE(${data.note ?? null}, notes),
-      updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
-  `)
+  if (data.code?.trim()) {
+    const duplicated = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT id
+      FROM product_classifications
+      WHERE code = ${data.code}
+        AND id <> ${id}
+      LIMIT 1
+    `)
+    if (duplicated.length > 0) {
+      return res.status(409).json({ message: 'Mã phân loại đã tồn tại', code: data.code })
+    }
+  }
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE product_classifications
+      SET
+        code = COALESCE(${data.code ?? null}, code),
+        name = COALESCE(${data.name ?? null}, name),
+        notes = COALESCE(${data.note ?? null}, notes),
+        updated_at = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'product_classifications.product_classifications_code_key')) throw error
+    return res.status(409).json({ message: 'Mã phân loại đã tồn tại', code: data.code })
+  }
 
   return res.json({ ok: true })
 })
@@ -626,6 +726,9 @@ router.post('/units', async (req, res) => {
   }
 
   const data = parsed.data
+  if (await hasDuplicateCatalogUnitCode(data.code)) {
+    return res.status(409).json({ message: 'Mã đơn vị đã tồn tại', code: data.code })
+  }
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO product_units
       (product_id, parent_unit_id, unit_code_name, unit_name, unit_memo, conversion_to_base, is_purchase_unit, is_default_display, created_at, updated_at)
@@ -648,6 +751,9 @@ router.put('/units/:id', async (req, res) => {
   }
 
   const data = parsed.data
+  if (data.code?.trim() && await hasDuplicateCatalogUnitCode(data.code, id)) {
+    return res.status(409).json({ message: 'Mã đơn vị đã tồn tại', code: data.code })
+  }
   const hasParentUnitId = Object.prototype.hasOwnProperty.call(data, 'parentUnitId')
   await prisma.$executeRaw(Prisma.sql`
     UPDATE product_units
@@ -709,12 +815,28 @@ router.post('/locations', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    INSERT INTO inventory_locations
-      (code, name, notes, created_at, updated_at)
-    VALUES
-      (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+  const duplicated = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id
+    FROM inventory_locations
+    WHERE code = ${data.code}
+      AND deleted_at IS NULL
+    LIMIT 1
   `)
+  if (duplicated.length > 0) {
+    return res.status(409).json({ message: 'Mã vị trí kho đã tồn tại', code: data.code })
+  }
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO inventory_locations
+        (code, name, notes, created_at, updated_at)
+      VALUES
+        (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'inventory_locations.inventory_locations_code_key')) throw error
+    return res.status(409).json({ message: 'Mã vị trí kho đã tồn tại', code: data.code })
+  }
 
   return res.status(201).json({ ok: true })
 })
@@ -731,15 +853,34 @@ router.put('/locations/:id', async (req, res) => {
   }
 
   const data = parsed.data
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE inventory_locations
-    SET
-      code = COALESCE(${data.code ?? null}, code),
-      name = COALESCE(${data.name ?? null}, name),
-      notes = COALESCE(${data.note ?? null}, notes),
-      updated_at = NOW(3)
-    WHERE id = ${id} AND deleted_at IS NULL
-  `)
+  if (data.code?.trim()) {
+    const duplicated = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT id
+      FROM inventory_locations
+      WHERE code = ${data.code}
+        AND id <> ${id}
+        AND deleted_at IS NULL
+      LIMIT 1
+    `)
+    if (duplicated.length > 0) {
+      return res.status(409).json({ message: 'Mã vị trí kho đã tồn tại', code: data.code })
+    }
+  }
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE inventory_locations
+      SET
+        code = COALESCE(${data.code ?? null}, code),
+        name = COALESCE(${data.name ?? null}, name),
+        notes = COALESCE(${data.note ?? null}, notes),
+        updated_at = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (!isDuplicateIndexError(error, 'inventory_locations.inventory_locations_code_key')) throw error
+    return res.status(409).json({ message: 'Mã vị trí kho đã tồn tại', code: data.code })
+  }
 
   return res.json({ ok: true })
 })

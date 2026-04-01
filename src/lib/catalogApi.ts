@@ -139,6 +139,7 @@ export async function createBasic(tab: BasicTabId, payload: {
     return http('/api/catalog/customers', {
       method: 'POST',
       body: JSON.stringify({
+        code: payload.code,
         name: payload.name,
         notes: payload.note,
         phone: payload.phone,
@@ -211,6 +212,7 @@ export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<
     return http(`/api/catalog/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify({
+        code: payload.code,
         name: payload.name,
         notes: payload.note,
         phone: payload.phone,

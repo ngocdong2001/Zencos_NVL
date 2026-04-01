@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import type { CatalogDataGridHandle } from '../components/catalog/CatalogDataGrid'
 import { CatalogDataGrid } from '../components/catalog/CatalogDataGrid'
 import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
+import { CatalogImportModal } from '../components/catalog/CatalogImportModal'
 import { CatalogToolbar } from '../components/catalog/CatalogToolbar'
+import type { ParsedImportResult, ParsedImportRow } from '../components/catalog/excelImport'
+import { parseCatalogExcel } from '../components/catalog/excelImport'
 import {
   initialBasicRows,
   tabItems,
@@ -30,24 +32,29 @@ type ParsedApiError = {
   suggestedCode?: string
 }
 
-function parseApiError(error: unknown): ParsedApiError {
+type CatalogNotice = {
+  tone: 'error' | 'success'
+  message: string
+}
+
+function parseApiError(error: unknown, fallbackMessage = 'Lưu dữ liệu thất bại'): ParsedApiError {
   if (!(error instanceof Error)) {
-    return { message: 'Lưu nguyên liệu thất bại' }
+    return { message: fallbackMessage }
   }
 
   const raw = error.message?.trim() ?? ''
   if (!raw.startsWith('{')) {
-    return { message: raw || 'Lưu nguyên liệu thất bại' }
+    return { message: raw || fallbackMessage }
   }
 
   try {
     const parsed = JSON.parse(raw) as { message?: string; error?: string; suggestedCode?: string }
     return {
-      message: parsed.message || parsed.error || 'Lưu nguyên liệu thất bại',
+      message: parsed.message || parsed.error || fallbackMessage,
       suggestedCode: parsed.suggestedCode,
     }
   } catch {
-    return { message: raw }
+    return { message: raw || fallbackMessage }
   }
 }
 
@@ -67,6 +74,36 @@ function getNextCode(codes: string[], prefix: string, pad = 3): string {
   return `${prefix}-${String(next).padStart(pad, '0')}`
 }
 
+function normalizeCatalogCode(value: string): string {
+  return value.trim().toUpperCase()
+}
+
+function normalizeLookupKey(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replaceAll('đ', 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+function toBooleanFlag(value: string): boolean {
+  const normalized = value.trim().toLocaleLowerCase()
+  return ['1', 'true', 'yes', 'co', 'x'].includes(normalized)
+}
+
+function toNumberOrDefault(value: string, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || 'Import thất bại.'
+  }
+  return 'Import thất bại.'
+}
+
 export function CatalogPage() {
   const { search } = useOutletContext<OutletContext>()
 
@@ -79,7 +116,14 @@ export function CatalogPage() {
   const [nextMatCode, setNextMatCode] = useState('NVL-001')
   const [loading, setLoading] = useState(false)
   const [pageSize, setPageSize] = useState(10)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importParsing, setImportParsing] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importParseError, setImportParseError] = useState<string | null>(null)
+  const [selectedImportFileName, setSelectedImportFileName] = useState('')
+  const [parsedImportResult, setParsedImportResult] = useState<ParsedImportResult | null>(null)
+  const [importSummary, setImportSummary] = useState<string | null>(null)
+  const [catalogNotice, setCatalogNotice] = useState<CatalogNotice | null>(null)
   const gridRef = useRef<CatalogDataGridHandle>(null)
 
   const isNumericId = (id: string) => /^\d+$/.test(id)
@@ -139,7 +183,15 @@ export function CatalogPage() {
   useEffect(() => {
     setPage(1)
     setSelectedIds([])
+    setCatalogNotice(null)
   }, [activeTab, search, onlyActive, pageSize])
+
+  useEffect(() => {
+    setParsedImportResult(null)
+    setImportParseError(null)
+    setImportSummary(null)
+    setSelectedImportFileName('')
+  }, [activeTab])
 
   const filteredMaterials = useMemo(() => {
     const q = search.trim()
@@ -220,8 +272,28 @@ export function CatalogPage() {
     [catalogs.classifications],
   )
 
+  const classificationByNameLookup = useMemo(
+    () => new Map(catalogs.classifications.map((item) => [normalizeLookupKey(item.name), item])),
+    [catalogs.classifications],
+  )
+
+  const basicTabLabels: Record<BasicTabId, string> = {
+    classifications: 'phân loại',
+    suppliers: 'nhà cung cấp',
+    customers: 'khách hàng',
+    locations: 'vị trí kho',
+    units: 'đơn vị',
+  }
+
   // ── Save handlers (upsert: insert if new id, update if existing) ─────
   const handleSaveMaterial = async (row: MaterialRow): Promise<boolean> => {
+    const normalizedCode = normalizeCatalogCode(row.code)
+    const duplicatedMaterial = materials.some((item) => item.id !== row.id && normalizeCatalogCode(item.code) === normalizedCode)
+    if (normalizedCode && duplicatedMaterial) {
+      setCatalogNotice({ tone: 'error', message: 'Mã nguyên liệu đã tồn tại trong danh mục hiện tại.' })
+      return false
+    }
+
     const rawCategory = row.category.trim()
     const classificationByNumericId = isNumericId(rawCategory) ? classificationById.get(rawCategory) : undefined
     const classificationByCode = classificationByCodeLookup.get(rawCategory.toLowerCase())
@@ -249,15 +321,16 @@ export function CatalogPage() {
         await createMaterial(payload)
       }
       await refreshMaterials()
+      setCatalogNotice(null)
       return true
     } catch (error) {
       console.error('Lưu nguyên liệu thất bại:', error)
-      const parsed = parseApiError(error)
+      const parsed = parseApiError(error, 'Lưu nguyên liệu thất bại')
       if (parsed.suggestedCode) {
         setNextMatCode(parsed.suggestedCode)
       }
-      const hint = parsed.suggestedCode ? `\nMã gợi ý: ${parsed.suggestedCode}` : ''
-      window.alert(`${parsed.message}${hint}`)
+      const hint = parsed.suggestedCode ? ` Mã gợi ý: ${parsed.suggestedCode}` : ''
+      setCatalogNotice({ tone: 'error', message: `${parsed.message}${hint}` })
       return false
     }
   }
@@ -265,6 +338,12 @@ export function CatalogPage() {
   const handleSaveBasic = async (row: BasicRow): Promise<boolean> => {
     if (activeTab === 'materials') return false
     const tab = activeTab as BasicTabId
+    const normalizedCode = normalizeCatalogCode(row.code)
+    const duplicatedBasic = catalogs[tab].some((item) => item.id !== row.id && normalizeCatalogCode(item.code) === normalizedCode)
+    if (normalizedCode && duplicatedBasic) {
+      setCatalogNotice({ tone: 'error', message: `Mã ${basicTabLabels[tab]} đã tồn tại trong danh mục hiện tại.` })
+      return false
+    }
 
     try {
       if (isNumericId(row.id)) {
@@ -297,9 +376,12 @@ export function CatalogPage() {
         })
       }
       await refreshBasicTab(tab)
+      setCatalogNotice(null)
       return true
     } catch (error) {
       console.error('Lưu danh mục thất bại:', error)
+      const parsed = parseApiError(error, 'Lưu danh mục thất bại')
+      setCatalogNotice({ tone: 'error', message: parsed.message })
       return false
     }
   }
@@ -388,81 +470,181 @@ export function CatalogPage() {
     downloadTextFile(content, `template-${activeTab}.csv`, 'text/csv;charset=utf-8;')
   }
 
-  const importCsv = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = (typeof reader.result === 'string' ? reader.result : '').replace(/^\uFEFF/, '')
-      const lines = text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-      if (lines.length <= 1) {
-        event.target.value = ''
+  const handleOpenImportModal = () => {
+    setImportModalOpen(true)
+    setImportSummary(null)
+  }
+
+  const resetImportState = () => {
+    setImportParseError(null)
+    setImportSummary(null)
+    setSelectedImportFileName('')
+    setParsedImportResult(null)
+  }
+
+  const handleCloseImportModal = () => {
+    if (importing) return
+    setImportModalOpen(false)
+    resetImportState()
+  }
+
+  const handlePickImportFile = async (file: File) => {
+    try {
+      setImportParsing(true)
+      setImportParseError(null)
+      setImportSummary(null)
+      setSelectedImportFileName(file.name)
+      const parsed = await parseCatalogExcel(file, activeTab)
+      setParsedImportResult(parsed)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đọc file import.'
+      setImportParseError(message)
+      setParsedImportResult(null)
+    } finally {
+      setImportParsing(false)
+    }
+  }
+
+  const importMaterialRows = async (rows: ParsedImportRow[]) => {
+    let successCount = 0
+    const failedRows: ParsedImportRow[] = []
+
+    for (const row of rows) {
+      const values = row.values
+      const rawProductType = (values['phan loai'] ?? '').trim()
+      const normalizedProductType = normalizeLookupKey(rawProductType)
+      const matchedClassification =
+        (isNumericId(rawProductType) ? classificationById.get(rawProductType) : undefined) ??
+        classificationByCodeLookup.get(rawProductType.toLowerCase()) ??
+        classificationByNameLookup.get(normalizedProductType)
+
+      const resolvedProductType =
+        isNumericId(rawProductType)
+          ? Number(rawProductType)
+          : matchedClassification?.id
+            ? Number(matchedClassification.id)
+            : rawProductType
+
+      const payload = {
+        code: values['ma nvl'],
+        name: values['ten nguyen lieu'],
+        inciName: values['inci name'],
+        productType: resolvedProductType,
+        baseUnit: values['don vi'],
+        minStockLevel: 0,
+        hasExpiry: true,
+        useFefo: true,
+        notes: '',
+      } as const
+
+      try {
+        await createMaterial(payload)
+        successCount += 1
+      } catch (error) {
+        const parsed = parseApiError(error)
+        const message = parsed.suggestedCode
+          ? `${parsed.message}. Mã gợi ý: ${parsed.suggestedCode}`
+          : parsed.message
+
+        failedRows.push({
+          ...row,
+          issues: [
+            ...row.issues,
+            {
+              field: 'import',
+              message,
+              severity: 'error',
+            },
+          ],
+        })
+      }
+    }
+
+    return { successCount, failedRows }
+  }
+
+  const importBasicRows = async (rows: ParsedImportRow[]) => {
+    const tab = activeTab as BasicTabId
+    let successCount = 0
+    const failedRows: ParsedImportRow[] = []
+
+    for (const row of rows) {
+      const values = row.values
+
+      try {
+        await createBasic(tab, {
+          code: values.ma,
+          name: values.ten,
+          note: values['ghi chu'] ?? '',
+          phone: tab === 'suppliers' || tab === 'customers' ? values.sdt : undefined,
+          contactInfo: tab === 'suppliers' ? values['lien he'] : undefined,
+          email: tab === 'customers' ? values.email : undefined,
+          address: tab === 'suppliers' || tab === 'customers' ? values['dia chi'] : undefined,
+          parentUnitId: tab === 'units' ? values['parent unit id'] : undefined,
+          conversionToBase: tab === 'units' ? toNumberOrDefault(values['ty le quy doi'], 1) : undefined,
+          isPurchaseUnit: tab === 'units' ? toBooleanFlag(values['dv mua hang']) : undefined,
+          isDefaultDisplay: tab === 'units' ? toBooleanFlag(values['hien thi mac dinh']) : undefined,
+        })
+        successCount += 1
+      } catch (error) {
+        const parsed = parseApiError(error, 'Import thất bại.')
+        failedRows.push({
+          ...row,
+          issues: [
+            ...row.issues,
+            {
+              field: 'import',
+              message: parsed.message,
+              severity: 'error',
+            },
+          ],
+        })
+      }
+    }
+
+    return { successCount, failedRows }
+  }
+
+  const handleConfirmImport = async (rows: ParsedImportRow[]) => {
+    if (rows.length === 0) {
+      setImportSummary('Không có dòng hợp lệ để import.')
+      return
+    }
+
+    try {
+      setImporting(true)
+      setImportParseError(null)
+
+      const result = activeTab === 'materials'
+        ? await importMaterialRows(rows)
+        : await importBasicRows(rows)
+
+      if (activeTab === 'materials') {
+        await refreshMaterials()
+      } else {
+        await refreshBasicTab(activeTab as BasicTabId)
+      }
+
+      if (result.failedRows.length === 0) {
+        setImportModalOpen(false)
+        resetImportState()
         return
       }
-      const dataLines = lines.slice(1)
-      if (activeTab === 'materials') {
-        const imported: MaterialRow[] = dataLines.map((line, i) => {
-          const cells = line.replaceAll('"', '').split(',').map((c) => c.trim())
-          return {
-            id: `import-mat-${Date.now()}-${i}`,
-            code: cells[0] || `NVL-${String(materials.length + i + 1).padStart(3, '0')}`,
-            inciName: cells[1] || '',
-            materialName: cells[2] || '',
-            category: cells[3] || '',
-            unit: cells[4] || '',
-            status: cells[5] || 'Active',
-          }
-        })
-        setMaterials((prev) => [...prev, ...imported.filter((r) => r.inciName && r.materialName)])
-      } else {
-        const imported: BasicRow[] = dataLines.map((line, i) => {
-          const cells = line.replaceAll('"', '').split(',').map((c) => c.trim())
-          const isUnits = activeTab === 'units'
-          const isSuppliers = activeTab === 'suppliers'
-          const isCustomers = activeTab === 'customers'
-          return {
-            id: `import-basic-${Date.now()}-${i}`,
-            code: cells[0] || `${activeTab.toUpperCase().slice(0, 3)}-${catalogs[activeTab].length + i + 1}`,
-            name: cells[1] || '',
-            phone: isSuppliers ? (cells[2] || '') : isCustomers ? (cells[2] || '') : undefined,
-            contactInfo: isSuppliers ? (cells[3] || '') : undefined,
-            email: isCustomers ? (cells[3] || '') : undefined,
-            address: isSuppliers
-              ? (cells[4] || '')
-              : isCustomers
-                ? (cells[4] || '')
-                : undefined,
-            note: isUnits
-              ? (cells[2] || '')
-              : isSuppliers
-                ? (cells[5] || '')
-                : isCustomers
-                  ? (cells[5] || '')
-                  : (cells[2] || ''),
-            parentUnitId: isUnits ? (cells[3] || '') : undefined,
-            conversionToBase: isUnits ? (Number(cells[4]) || 1) : undefined,
-            isPurchaseUnit: isUnits ? (cells[5] === '1' || cells[5]?.toLowerCase() === 'true') : undefined,
-            isDefaultDisplay: isUnits ? (cells[6] === '1' || cells[6]?.toLowerCase() === 'true') : undefined,
-            status: isUnits
-              ? (cells[7] || 'Active')
-              : isSuppliers
-                ? (cells[6] || 'Active')
-                : isCustomers
-                  ? (cells[6] || 'Active')
-                  : (cells[3] || 'Active'),
-          }
-        })
-        setCatalogs((prev) => ({
+
+      setParsedImportResult((prev) => {
+        if (!prev) return prev
+        return {
           ...prev,
-          [activeTab]: [...prev[activeTab], ...imported.filter((r) => r.name)],
-        }))
-      }
-      event.target.value = ''
+          rows: result.failedRows,
+        }
+      })
+      setImportSummary(`Đã import thành công ${result.successCount}/${rows.length} dòng. ${result.failedRows.length} dòng lỗi cần xử lý.`)
+      setImportParseError('Import chưa hoàn tất. Kiểm tra các dòng lỗi trong bảng preview bên dưới.')
+    } catch (error) {
+      setImportParseError(getErrorMessage(error))
+    } finally {
+      setImporting(false)
     }
-    reader.readAsText(file, 'utf-8')
   }
 
   return (
@@ -472,7 +654,6 @@ export function CatalogPage() {
           activeTab={activeTab}
           tabItems={tabItems}
           selectedCount={selectedCount}
-          importInputRef={importInputRef}
           onExport={exportCurrent}
           onFocusQuickAdd={() => {
             gridRef.current?.focusNewRow()
@@ -480,9 +661,17 @@ export function CatalogPage() {
           onDownloadTemplate={downloadTemplate}
           onTabChange={setActiveTab}
           onToggleOnlyActive={() => setOnlyActive((prev) => !prev)}
-          onImportCsv={importCsv}
+          onOpenImport={handleOpenImportModal}
         />
         {loading ? <p style={{ margin: '8px 0 12px', opacity: 0.7 }}>Đang tải dữ liệu catalog...</p> : null}
+        {catalogNotice ? (
+          <div className={`catalog-inline-notice ${catalogNotice.tone}`} role="alert">
+            <span>{catalogNotice.message}</span>
+            <button type="button" className="catalog-inline-notice-close" onClick={() => setCatalogNotice(null)} aria-label="Đóng thông báo">
+              ×
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="catalog-page-table">
@@ -526,6 +715,20 @@ export function CatalogPage() {
           onPageSizeChange={(size) => setPageSize(size)}
         />
       </div>
+
+      <CatalogImportModal
+        visible={importModalOpen}
+        activeTab={activeTab}
+        parsing={importParsing}
+        importing={importing}
+        parseError={importParseError}
+        parsedResult={parsedImportResult}
+        selectedFileName={selectedImportFileName}
+        importSummary={importSummary}
+        onClose={handleCloseImportModal}
+        onPickFile={handlePickImportFile}
+        onImport={handleConfirmImport}
+      />
     </section>
   )
 }
