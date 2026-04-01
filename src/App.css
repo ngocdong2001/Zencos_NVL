@@ -506,6 +506,66 @@ input {
   box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
 }
 
+.prime-catalog-table .unit-flag-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.prime-catalog-table td.unit-flag-col {
+  text-align: center;
+}
+
+.prime-catalog-table td.unit-flag-col .p-cell-editor {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prime-catalog-table td.unit-conversion-col {
+  text-align: right;
+}
+
+.prime-catalog-table td.unit-conversion-col .p-cell-editor {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.prime-catalog-table .unit-conversion-value {
+  display: inline-block;
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.prime-catalog-table input.unit-conversion-input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.prime-catalog-table input.unit-flag-checkbox {
+  width: 14px;
+  min-width: 14px;
+  max-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  vertical-align: middle;
+}
+
+.prime-catalog-table input.unit-flag-checkbox:focus {
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.12);
+}
+
+.prime-catalog-table input.unit-flag-checkbox:disabled {
+  opacity: 0.85;
+}
+
 .new-row-cta-wrap {
   padding: 10px 12px;
   border-top: 1px solid var(--line);

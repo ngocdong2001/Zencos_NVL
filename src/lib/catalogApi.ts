@@ -127,6 +127,7 @@ export async function createBasic(tab: BasicTabId, payload: {
       body: JSON.stringify({
         code: payload.code,
         name: payload.name,
+        phone: payload.phone,
         notes: payload.note,
         contactInfo: payload.contactInfo,
         address: payload.address,
@@ -198,6 +199,7 @@ export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<
       body: JSON.stringify({
         code: payload.code,
         name: payload.name,
+        phone: payload.phone,
         notes: payload.note,
         contactInfo: payload.contactInfo,
         address: payload.address,

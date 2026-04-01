@@ -2,258 +2,397 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+type ClassificationSeed = {
+  code: string
+  name: string
+  notes: string | null
+  deletedAt: string | null
+}
+
+type UnitSeed = {
+  code: string
+  name: string
+  memo: string | null
+  conversionToBase: number
+  isPurchaseUnit: boolean
+  isDefaultDisplay: boolean
+  parentCode: string | null
+}
+
+type SupplierSeed = {
+  code: string
+  name: string
+  phone: string | null
+  contactInfo: string | null
+  address: string | null
+  notes: string | null
+  deletedAt: string | null
+}
+
+type CustomerSeed = {
+  name: string
+  phone: string | null
+  email: string | null
+  address: string | null
+  notes: string | null
+  deletedAt: string | null
+}
+
+type LocationSeed = {
+  code: string
+  name: string
+  notes: string | null
+  deletedAt: string | null
+}
+
+type ProductSeed = {
+  code: string
+  name: string
+  inciName: string | null
+  productTypeCode: string
+  baseUnitCode: string
+  hasExpiry: boolean
+  useFefo: boolean
+  minStockLevel: number
+  notes: string | null
+  deletedAt: string | null
+}
+
+const classificationSeeds: ClassificationSeed[] = [
+  { code: 'RAW_MATERIAL', name: 'Hóa chất pha chế', notes: 'Danh mục mặc định', deletedAt: null },
+  { code: 'CLS-TEST', name: 'Phan loai test', notes: 'updated', deletedAt: '2026-03-30T14:35:45.109Z' },
+  { code: 'CLA-2', name: 'Lít', notes: 'Dùng cho dạng dung dịch lỏng', deletedAt: '2026-03-31T21:46:46.416Z' },
+  { code: 'CLA-001', name: 'NVL loại 2', notes: 'Danh mục mặc định', deletedAt: '2026-03-31T17:29:45.264Z' },
+  { code: 'PACK', name: 'Bao bì', notes: 'Bao bì giấy cho hộp kem', deletedAt: null },
+]
+
+const unitSeeds: UnitSeed[] = [
+  { code: 'KG', name: 'KG', memo: 'thể rắn', conversionToBase: 1000, isPurchaseUnit: true, isDefaultDisplay: true, parentCode: 'GR' },
+  { code: 'GR', name: 'gr', memo: 'Dạng bột', conversionToBase: 1, isPurchaseUnit: true, isDefaultDisplay: false, parentCode: null },
+  { code: 'L', name: 'Lít', memo: 'Dùng cho dạng dung dịch lỏng', conversionToBase: 1, isPurchaseUnit: false, isDefaultDisplay: false, parentCode: 'ml' },
+  { code: 'ml', name: 'Mili lít', memo: 'test test', conversionToBase: 1000, isPurchaseUnit: false, isDefaultDisplay: false, parentCode: null },
+]
+
+const supplierSeeds: SupplierSeed[] = [
+  { code: 'RAW_MATERIAL', name: 'ChemSource Vietnam', phone: '0900000001', contactInfo: '0900000001', address: 'HCM', notes: 'Demo', deletedAt: null },
+  { code: 'SUP-2', name: 'BASF', phone: null, contactInfo: null, address: null, notes: 'Demo', deletedAt: null },
+  { code: 'SUP-003', name: 'AAA', phone: null, contactInfo: null, address: null, notes: '', deletedAt: null },
+]
+
+const customerSeeds: CustomerSeed[] = [
+  { name: 'Khach Hang A', phone: '091364551', email: 'khachA@example.com', address: 'HCM', notes: 'Demo', deletedAt: null },
+  { name: 'Khách hàng B', phone: '090999999', email: 'khachB@gmail.com', address: 'HCM', notes: 'Demo', deletedAt: null },
+  { name: 'Nguyễn Văn KH', phone: '0978999555', email: '', address: 'Long An', notes: 'Demo', deletedAt: null },
+]
+
+const locationSeeds: LocationSeed[] = [
+  { code: 'LOC-001', name: 'Kho Long An', notes: 'Kho mặc định', deletedAt: null },
+  { code: 'LOC-TEST', name: 'Vi tri test', notes: 'updated', deletedAt: '2026-03-30T14:38:15.175Z' },
+  { code: 'LOC-002', name: 'Kho Vĩnh Long', notes: 'Không sử dụng', deletedAt: null },
+]
+
+const productSeeds: ProductSeed[] = [
+  {
+    code: 'RAW_MATERIAL',
+    name: 'Glycerin 99.5%',
+    inciName: 'Glycerin',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'L',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: null,
+  },
+  {
+    code: 'NVL-002',
+    name: 'Vitamin E BASE',
+    inciName: 'Vitamin E',
+    productTypeCode: 'PACK',
+    baseUnitCode: 'GR',
+    hasExpiry: false,
+    useFefo: false,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: '2026-03-31T10:58:16.167Z',
+  },
+  {
+    code: 'NVL-003',
+    name: 'havchavc',
+    inciName: 'hhhh',
+    productTypeCode: 'PACK',
+    baseUnitCode: 'GR',
+    hasExpiry: false,
+    useFefo: false,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: '2026-03-31T10:44:25.442Z',
+  },
+  {
+    code: 'NVL-004',
+    name: 'Vitamin D',
+    inciName: 'Vitamin D1',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'GR',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: null,
+  },
+  {
+    code: 'NVL-005',
+    name: 'bbbbb',
+    inciName: 'bbbb',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'GR',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: '2026-03-30T17:32:13.503Z',
+  },
+  {
+    code: 'NVL-001',
+    name: 'sdfsdf',
+    inciName: 'sdfsf',
+    productTypeCode: 'PACK',
+    baseUnitCode: 'ml',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: null,
+  },
+  {
+    code: 'NVL-006',
+    name: 'aaa aaa',
+    inciName: 'aaa',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'GR',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: '2026-03-31T14:40:43.653Z',
+  },
+  {
+    code: 'NVL-007',
+    name: 'Acid HCL 95%',
+    inciName: 'Acid Clohydric',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'L',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: null,
+  },
+  {
+    code: 'NVL-008',
+    name: 'Vitamin E - BASF',
+    inciName: 'Vitamin E',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'GR',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: null,
+  },
+  {
+    code: 'NVL-009',
+    name: 'VitaC',
+    inciName: 'Vitamin C',
+    productTypeCode: 'RAW_MATERIAL',
+    baseUnitCode: 'GR',
+    hasExpiry: true,
+    useFefo: true,
+    minStockLevel: 0,
+    notes: '',
+    deletedAt: '2026-03-31T16:17:14.181Z',
+  },
+]
+
+function toDate(value: string | null): Date | null {
+  return value ? new Date(value) : null
+}
+
 async function main() {
-  const warehouse = await prisma.warehouse.upsert({
-    where: { code: 'WH-HQ' },
-    update: { name: 'Headquarters Warehouse', address: '15 Tran Hung Dao, Ho Chi Minh City' },
-    create: {
-      code: 'WH-HQ',
-      name: 'Headquarters Warehouse',
-      address: '15 Tran Hung Dao, Ho Chi Minh City',
-    },
-  })
-
-  const unit = await prisma.unit.upsert({
-    where: { code: 'PCS' },
-    update: { name: 'Piece' },
-    create: { code: 'PCS', name: 'Piece' },
-  })
-
-  const categoryHardware = await prisma.category.upsert({
-    where: { code: 'CAT-HARDWARE' },
-    update: { name: 'Business Hardware' },
-    create: { code: 'CAT-HARDWARE', name: 'Business Hardware' },
-  })
-
-  const categoryServices = await prisma.category.upsert({
-    where: { code: 'CAT-SERVICES' },
-    update: { name: 'Business Services' },
-    create: { code: 'CAT-SERVICES', name: 'Business Services' },
-  })
-
-  const brandNorth = await prisma.brand.upsert({
-    where: { code: 'BR-NORTH' },
-    update: { name: 'North Axis' },
-    create: { code: 'BR-NORTH', name: 'North Axis' },
-  })
-
-  const brandPulse = await prisma.brand.upsert({
-    where: { code: 'BR-PULSE' },
-    update: { name: 'Pulse Systems' },
-    create: { code: 'BR-PULSE', name: 'Pulse Systems' },
-  })
-
-  const taxRate = await prisma.taxRate.upsert({
-    where: { code: 'VAT10' },
-    update: { name: 'VAT 10%', rate: 10 },
-    create: { code: 'VAT10', name: 'VAT 10%', rate: 10 },
-  })
-
-  await prisma.currency.upsert({
-    where: { code: 'VND' },
-    update: { name: 'Vietnamese Dong', symbol: '₫' },
-    create: { code: 'VND', name: 'Vietnamese Dong', symbol: '₫' },
-  })
-
-  const customers = await Promise.all([
-    prisma.customer.upsert({
-      where: { code: 'CUST-NORTHWIND' },
-      update: { name: 'Northwind Retail', phone: '0901000001', email: 'ops@northwind.vn', note: 'Key retail account' },
-      create: { code: 'CUST-NORTHWIND', name: 'Northwind Retail', phone: '0901000001', email: 'ops@northwind.vn', note: 'Key retail account' },
-    }),
-    prisma.customer.upsert({
-      where: { code: 'CUST-LUMEN' },
-      update: { name: 'Lumen Health', phone: '0901000002', email: 'finance@lumen.vn', note: 'Healthcare vertical' },
-      create: { code: 'CUST-LUMEN', name: 'Lumen Health', phone: '0901000002', email: 'finance@lumen.vn', note: 'Healthcare vertical' },
-    }),
-    prisma.customer.upsert({
-      where: { code: 'CUST-APEX' },
-      update: { name: 'Apex Commerce', phone: '0901000003', email: 'admin@apex.vn', note: 'Multi-store operator' },
-      create: { code: 'CUST-APEX', name: 'Apex Commerce', phone: '0901000003', email: 'admin@apex.vn', note: 'Multi-store operator' },
-    }),
-  ])
-
-  const products = await Promise.all([
-    prisma.product.upsert({
-      where: { code: 'PRD-POS-KIT' },
+  const classificationByCode = new Map<string, bigint>()
+  for (const item of classificationSeeds) {
+    const saved = await prisma.productClassification.upsert({
+      where: { code: item.code },
       update: {
-        name: 'POS Starter Kit',
-        description: 'Touch screen terminal bundle for storefront rollout.',
-        categoryId: categoryHardware.id,
-        brandId: brandNorth.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 7200000,
-        sellPrice: 9900000,
-        alertQty: 8,
+        name: item.name,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
       },
       create: {
-        code: 'PRD-POS-KIT',
-        name: 'POS Starter Kit',
-        description: 'Touch screen terminal bundle for storefront rollout.',
-        categoryId: categoryHardware.id,
-        brandId: brandNorth.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 7200000,
-        sellPrice: 9900000,
-        alertQty: 8,
-      },
-    }),
-    prisma.product.upsert({
-      where: { code: 'PRD-LABEL-PRINTER' },
-      update: {
-        name: 'Label Printer X2',
-        description: 'High-volume label printer for warehouse and retail.',
-        categoryId: categoryHardware.id,
-        brandId: brandPulse.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 2300000,
-        sellPrice: 3200000,
-        alertQty: 6,
-      },
-      create: {
-        code: 'PRD-LABEL-PRINTER',
-        name: 'Label Printer X2',
-        description: 'High-volume label printer for warehouse and retail.',
-        categoryId: categoryHardware.id,
-        brandId: brandPulse.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 2300000,
-        sellPrice: 3200000,
-        alertQty: 6,
-      },
-    }),
-    prisma.product.upsert({
-      where: { code: 'PRD-ERP-CARE' },
-      update: {
-        name: 'ERP Care Subscription',
-        description: '12-month managed support subscription.',
-        categoryId: categoryServices.id,
-        brandId: brandNorth.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 1200000,
-        sellPrice: 1800000,
-        alertQty: 2,
-      },
-      create: {
-        code: 'PRD-ERP-CARE',
-        name: 'ERP Care Subscription',
-        description: '12-month managed support subscription.',
-        categoryId: categoryServices.id,
-        brandId: brandNorth.id,
-        unitId: unit.id,
-        taxRateId: taxRate.id,
-        costPrice: 1200000,
-        sellPrice: 1800000,
-        alertQty: 2,
-      },
-    }),
-  ])
-
-  const [posKit, labelPrinter, erpCare] = products
-
-  await prisma.warehouseProduct.upsert({
-    where: { warehouseId_productId: { warehouseId: warehouse.id, productId: posKit.id } },
-    update: { qty: 18 },
-    create: { warehouseId: warehouse.id, productId: posKit.id, qty: 18 },
-  })
-  await prisma.warehouseProduct.upsert({
-    where: { warehouseId_productId: { warehouseId: warehouse.id, productId: labelPrinter.id } },
-    update: { qty: 11 },
-    create: { warehouseId: warehouse.id, productId: labelPrinter.id, qty: 11 },
-  })
-  await prisma.warehouseProduct.upsert({
-    where: { warehouseId_productId: { warehouseId: warehouse.id, productId: erpCare.id } },
-    update: { qty: 4 },
-    create: { warehouseId: warehouse.id, productId: erpCare.id, qty: 4 },
-  })
-
-  const saleOne = await prisma.sale.findUnique({ where: { reference: 'SAL-1001' } })
-  if (!saleOne) {
-    const created = await prisma.sale.create({
-      data: {
-        reference: 'SAL-1001',
-        customerId: customers[0].id,
-        warehouseId: warehouse.id,
-        status: 'delivered',
-        paymentStatus: 'paid',
-        discount: 300000,
-        tax: 990000,
-        shipping: 150000,
-        grandTotal: 10650000,
-        paid: 10650000,
-        note: 'Demo order for dashboard walkthrough',
-        items: {
-          create: [
-            { productId: posKit.id, qty: 1, unitPrice: 9900000, discount: 300000, tax: 990000, subtotal: 10590000 },
-            { productId: erpCare.id, qty: 0.5, unitPrice: 1800000, discount: 0, tax: 60000, subtotal: 960000 },
-          ],
-        },
+        code: item.code,
+        name: item.name,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
       },
     })
+    classificationByCode.set(item.code, saved.id)
+  }
 
-    await prisma.salePayment.create({
-      data: { saleId: created.id, amount: 10650000, method: 'bank', note: 'Demo full payment' },
+  const unitByCode = new Map<string, bigint>()
+  for (const item of unitSeeds) {
+    const existing = await prisma.productUnit.findFirst({
+      where: { productId: null, unitCodeName: item.code },
+      select: { id: true },
+    })
+
+    const saved = existing
+      ? await prisma.productUnit.update({
+          where: { id: existing.id },
+          data: {
+            unitName: item.name,
+            unitMemo: item.memo,
+            conversionToBase: item.conversionToBase,
+            isPurchaseUnit: item.isPurchaseUnit,
+            isDefaultDisplay: item.isDefaultDisplay,
+          },
+          select: { id: true },
+        })
+      : await prisma.productUnit.create({
+          data: {
+            productId: null,
+            unitCodeName: item.code,
+            unitName: item.name,
+            unitMemo: item.memo,
+            conversionToBase: item.conversionToBase,
+            isPurchaseUnit: item.isPurchaseUnit,
+            isDefaultDisplay: item.isDefaultDisplay,
+          },
+          select: { id: true },
+        })
+
+    unitByCode.set(item.code, saved.id)
+  }
+
+  for (const item of unitSeeds) {
+    const currentId = unitByCode.get(item.code)
+    if (!currentId) continue
+    const parentId = item.parentCode ? (unitByCode.get(item.parentCode) ?? null) : null
+
+    await prisma.productUnit.update({
+      where: { id: currentId },
+      data: { parentUnitId: parentId },
     })
   }
 
-  const saleTwo = await prisma.sale.findUnique({ where: { reference: 'SAL-1002' } })
-  if (!saleTwo) {
-    const created = await prisma.sale.create({
-      data: {
-        reference: 'SAL-1002',
-        customerId: customers[1].id,
-        warehouseId: warehouse.id,
-        status: 'confirmed',
-        paymentStatus: 'partial',
-        discount: 0,
-        tax: 320000,
-        shipping: 80000,
-        grandTotal: 3600000,
-        paid: 1800000,
-        note: 'Demo partially paid invoice',
-        items: {
-          create: [
-            { productId: labelPrinter.id, qty: 1, unitPrice: 3200000, discount: 0, tax: 320000, subtotal: 3520000 },
-          ],
-        },
+  for (const item of supplierSeeds) {
+    await prisma.supplier.upsert({
+      where: { code: item.code },
+      update: {
+        name: item.name,
+        phone: item.phone,
+        contactInfo: item.contactInfo,
+        address: item.address,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
       },
-    })
-
-    await prisma.salePayment.create({
-      data: { saleId: created.id, amount: 1800000, method: 'cash', note: 'Deposit received' },
-    })
-  }
-
-  const saleThree = await prisma.sale.findUnique({ where: { reference: 'SAL-1003' } })
-  if (!saleThree) {
-    await prisma.sale.create({
-      data: {
-        reference: 'SAL-1003',
-        customerId: customers[2].id,
-        warehouseId: warehouse.id,
-        status: 'pending',
-        paymentStatus: 'unpaid',
-        discount: 100000,
-        tax: 198000,
-        shipping: 50000,
-        grandTotal: 2128000,
-        paid: 0,
-        note: 'Demo unpaid order',
-        items: {
-          create: [
-            { productId: erpCare.id, qty: 1, unitPrice: 1800000, discount: 100000, tax: 198000, subtotal: 1898000 },
-          ],
-        },
+      create: {
+        code: item.code,
+        name: item.name,
+        phone: item.phone,
+        contactInfo: item.contactInfo,
+        address: item.address,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
       },
     })
   }
 
-  console.log('Demo data seeded: customers, products, inventory, and sales')
+  for (const item of customerSeeds) {
+    const existing = await prisma.customer.findFirst({
+      where: {
+        name: item.name,
+        phone: item.phone,
+        email: item.email,
+      },
+      select: { id: true },
+    })
+
+    if (existing) {
+      await prisma.customer.update({
+        where: { id: existing.id },
+        data: {
+          address: item.address,
+          notes: item.notes,
+          deletedAt: toDate(item.deletedAt),
+        },
+      })
+    } else {
+      await prisma.customer.create({
+        data: {
+          name: item.name,
+          phone: item.phone,
+          email: item.email,
+          address: item.address,
+          notes: item.notes,
+          deletedAt: toDate(item.deletedAt),
+        },
+      })
+    }
+  }
+
+  for (const item of locationSeeds) {
+    await prisma.catalogLocation.upsert({
+      where: { code: item.code },
+      update: {
+        name: item.name,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
+      },
+      create: {
+        code: item.code,
+        name: item.name,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
+      },
+    })
+  }
+
+  for (const item of productSeeds) {
+    const productTypeId = classificationByCode.get(item.productTypeCode)
+    const baseUnitId = unitByCode.get(item.baseUnitCode)
+    if (!productTypeId || !baseUnitId) {
+      throw new Error(`Missing reference for product ${item.code}`)
+    }
+
+    await prisma.product.upsert({
+      where: { code: item.code },
+      update: {
+        name: item.name,
+        inciName: item.inciName,
+        productType: productTypeId,
+        hasExpiry: item.hasExpiry,
+        useFefo: item.useFefo,
+        baseUnit: baseUnitId,
+        minStockLevel: item.minStockLevel,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
+      },
+      create: {
+        code: item.code,
+        name: item.name,
+        inciName: item.inciName,
+        productType: productTypeId,
+        hasExpiry: item.hasExpiry,
+        useFefo: item.useFefo,
+        baseUnit: baseUnitId,
+        minStockLevel: item.minStockLevel,
+        notes: item.notes,
+        deletedAt: toDate(item.deletedAt),
+      },
+    })
+  }
+
+  console.log('Demo seed applied from current snapshot (classifications, units, suppliers, customers, locations, products).')
 }
 
 main()

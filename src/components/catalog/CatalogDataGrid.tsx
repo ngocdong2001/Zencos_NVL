@@ -82,6 +82,11 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       [classifications],
     )
 
+    const numberFormatter = useMemo(
+      () => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 6 }),
+      [],
+    )
+
     function resolveCategoryLabel(categoryValue: string) {
       if (!categoryValue) return ''
       const byId = classificationById.get(categoryValue)
@@ -580,6 +585,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     function basicConversionEditor(options: any) {
       return (
         <InputText
+          className="unit-conversion-input"
           value={String(options.value ?? 1)}
           onChange={(e) => options.editorCallback?.(e.target.value)}
           placeholder="1"
@@ -590,11 +596,14 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     function basicBoolEditor(options: any) {
       const checked = Boolean(options.value)
       return (
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => options.editorCallback?.(e.target.checked)}
-        />
+        <span className="unit-flag-cell">
+          <input
+            className="unit-flag-checkbox"
+            type="checkbox"
+            checked={checked}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => options.editorCallback?.(e.target.checked)}
+          />
+        </span>
       )
     }
 
@@ -736,6 +745,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       if (rowData.id === NEW_ID) {
         return (
           <InputText
+            className="unit-conversion-input"
             value={String(pendingNewBasic.conversionToBase ?? 1)}
             onChange={(e) => setNewBasicField('conversionToBase', Number(e.target.value) || 0)}
             onKeyDown={handleNewRowKeyDown}
@@ -743,21 +753,35 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           />
         )
       }
-      return String(rowData.conversionToBase ?? 1)
+      return <span className="unit-conversion-value">{numberFormatter.format(Number(rowData.conversionToBase ?? 1))}</span>
     }
 
     function basicBoolBody(rowData: BasicRow, field: 'isPurchaseUnit' | 'isDefaultDisplay') {
       if (rowData.id === NEW_ID) {
         const checked = Boolean(pendingNewBasic[field])
         return (
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setNewBasicField(field, e.target.checked)}
-          />
+          <span className="unit-flag-cell">
+            <input
+              className="unit-flag-checkbox"
+              type="checkbox"
+              checked={checked}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setNewBasicField(field, e.target.checked)}
+            />
+          </span>
         )
       }
-      return rowData[field] ? 'Yes' : 'No'
+      return (
+        <span className="unit-flag-cell">
+          <input
+            className="unit-flag-checkbox"
+            type="checkbox"
+            checked={Boolean(rowData[field])}
+            readOnly
+            disabled
+            tabIndex={-1}
+          />
+        </span>
+      )
     }
 
     function basicDeleteButton(rowData: BasicRow) {
@@ -855,15 +879,16 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
               <Column field="code" header="Mã" body={basicCodeBody} editor={(options) => basicCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
               <Column field="name" header="Tên" body={basicNameBody} editor={(options) => basicNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
+              {activeTab === 'suppliers' ? <Column field="phone" header="SĐT" body={basicPhoneBody} editor={(options) => basicPhoneEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {activeTab === 'suppliers' ? <Column field="contactInfo" header="Liên hệ" body={basicContactInfoBody} editor={(options) => basicContactInfoEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {activeTab === 'customers' ? <Column field="phone" header="SĐT" body={basicPhoneBody} editor={(options) => basicPhoneEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {activeTab === 'customers' ? <Column field="email" header="Email" body={basicEmailBody} editor={(options) => basicEmailEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {(activeTab === 'suppliers' || activeTab === 'customers') ? <Column field="address" header="Địa chỉ" body={basicAddressBody} editor={(options) => basicAddressEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               <Column field="note" header="Ghi chú" body={basicNoteBody} editor={(options) => basicNoteEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
-              {activeTab === 'units' ? <Column field="parentUnitId" header="Parent Unit ID" body={basicParentUnitIdBody} editor={(options) => basicParentUnitIdEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
-              {activeTab === 'units' ? <Column field="conversionToBase" header="Quy đổi" body={basicConversionBody} editor={(options) => basicConversionEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
-              {activeTab === 'units' ? <Column field="isPurchaseUnit" header="ĐV mua" body={(row) => basicBoolBody(row, 'isPurchaseUnit')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
-              {activeTab === 'units' ? <Column field="isDefaultDisplay" header="Mặc định" body={(row) => basicBoolBody(row, 'isDefaultDisplay')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="parentUnitId" header="Đơn vị cấp dưới" body={basicParentUnitIdBody} editor={(options) => basicParentUnitIdEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="conversionToBase" header="Quy đổi" bodyClassName="unit-conversion-col" body={basicConversionBody} editor={(options) => basicConversionEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="isPurchaseUnit" header="ĐV mua" bodyClassName="unit-flag-col" body={(row) => basicBoolBody(row, 'isPurchaseUnit')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'units' ? <Column field="isDefaultDisplay" header="Mặc định" bodyClassName="unit-flag-col" body={(row) => basicBoolBody(row, 'isDefaultDisplay')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               <Column field="status" header="Trạng thái" body={basicStatusBody} editor={(options) => basicStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
               <Column header="Xử lý" body={basicDeleteButton} style={{ width: '88px' }} />
             </DataTable>

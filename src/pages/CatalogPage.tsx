@@ -359,8 +359,8 @@ export function CatalogPage() {
         ]
       : activeTab === 'suppliers'
         ? [
-            toCsvRow(['Mã', 'Tên', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
-            ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.contactInfo ?? '', r.address ?? '', r.note, r.status])),
+            toCsvRow(['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
+            ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.phone ?? '', r.contactInfo ?? '', r.address ?? '', r.note, r.status])),
           ]
         : activeTab === 'customers'
           ? [
@@ -381,7 +381,7 @@ export function CatalogPage() {
         : activeTab === 'units'
           ? toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái'])
           : activeTab === 'suppliers'
-            ? toCsvRow(['Mã', 'Tên', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
+            ? toCsvRow(['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
             : activeTab === 'customers'
               ? toCsvRow(['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
           : toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái'])
@@ -427,18 +427,18 @@ export function CatalogPage() {
             id: `import-basic-${Date.now()}-${i}`,
             code: cells[0] || `${activeTab.toUpperCase().slice(0, 3)}-${catalogs[activeTab].length + i + 1}`,
             name: cells[1] || '',
-            contactInfo: isSuppliers ? (cells[2] || '') : undefined,
-            phone: isCustomers ? (cells[2] || '') : undefined,
+            phone: isSuppliers ? (cells[2] || '') : isCustomers ? (cells[2] || '') : undefined,
+            contactInfo: isSuppliers ? (cells[3] || '') : undefined,
             email: isCustomers ? (cells[3] || '') : undefined,
             address: isSuppliers
-              ? (cells[3] || '')
+              ? (cells[4] || '')
               : isCustomers
                 ? (cells[4] || '')
                 : undefined,
             note: isUnits
               ? (cells[2] || '')
               : isSuppliers
-                ? (cells[4] || '')
+                ? (cells[5] || '')
                 : isCustomers
                   ? (cells[5] || '')
                   : (cells[2] || ''),
@@ -449,7 +449,7 @@ export function CatalogPage() {
             status: isUnits
               ? (cells[7] || 'Active')
               : isSuppliers
-                ? (cells[5] || 'Active')
+                ? (cells[6] || 'Active')
                 : isCustomers
                   ? (cells[6] || 'Active')
                   : (cells[3] || 'Active'),

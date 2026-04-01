@@ -1,6 +1,39 @@
 import type { ChangeEvent, RefObject } from 'react'
 import type { TabId } from './types'
 
+const mappingGuides: Record<TabId, { title: string; columns: string[]; note: string }> = {
+  materials: {
+    title: 'Mapping Excel cho Nguyên liệu Master',
+    columns: ['MÃ NVL', 'INCI NAME', 'TÊN NGUYÊN LIỆU', 'PHÂN LOẠI', 'ĐƠN VỊ TÍNH'],
+    note: 'Dùng để tạo/cập nhật danh mục nguyên liệu chuẩn trong hệ thống.',
+  },
+  classifications: {
+    title: 'Mapping Excel cho Phân loại NVL',
+    columns: ['MÃ PHÂN LOẠI', 'TÊN PHÂN LOẠI', 'GHI CHÚ', 'TRẠNG THÁI'],
+    note: 'Phục vụ chuẩn hóa nhóm nguyên liệu cho tìm kiếm và báo cáo.',
+  },
+  suppliers: {
+    title: 'Mapping Excel cho Nhà cung cấp',
+    columns: ['MÃ NCC', 'TÊN NHÀ CUNG CẤP', 'THÔNG TIN LIÊN HỆ', 'SỐ ĐIỆN THOẠI', 'EMAIL'],
+    note: 'Nên đảm bảo email và số điện thoại đúng định dạng trước khi import.',
+  },
+  customers: {
+    title: 'Mapping Excel cho Khách hàng',
+    columns: ['MÃ KH', 'TÊN KHÁCH HÀNG', 'THÔNG TIN LIÊN HỆ', 'SỐ ĐIỆN THOẠI', 'ĐỊA CHỈ'],
+    note: 'Dùng cho dữ liệu đối tác bán hàng và phân phối.',
+  },
+  locations: {
+    title: 'Mapping Excel cho Vị trí kho',
+    columns: ['MÃ VỊ TRÍ', 'TÊN VỊ TRÍ', 'MÔ TẢ', 'TRẠNG THÁI'],
+    note: 'Hỗ trợ chuẩn hóa sơ đồ vị trí chứa hàng trong kho.',
+  },
+  units: {
+    title: 'Mapping Excel cho Đơn vị đo',
+    columns: ['MÃ ĐƠN VỊ', 'TÊN ĐƠN VỊ', 'ĐƠN VỊ CHA', 'HỆ SỐ QUY ĐỔI', 'MẶC ĐỊNH HIỂN THỊ'],
+    note: 'Dùng để chuẩn hóa đơn vị tính và quy đổi nội bộ.',
+  },
+}
+
 type CatalogToolbarProps = {
   activeTab: TabId
   tabItems: Array<{ id: TabId; label: string }>
@@ -26,6 +59,8 @@ export function CatalogToolbar({
   onToggleOnlyActive,
   onImportCsv,
 }: CatalogToolbarProps) {
+  const currentMappingGuide = mappingGuides[activeTab]
+
   return (
     <>
       <section className="title-bar">
@@ -34,8 +69,18 @@ export function CatalogToolbar({
           <p>Quản trị dữ liệu gốc cho toàn bộ hệ thống ZencosMS.</p>
         </div>
         <div className="title-actions">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            onChange={onImportCsv}
+            className="hidden-input"
+          />
           <button type="button" className="btn btn-ghost" onClick={onExport}>
             <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => importInputRef.current?.click()}>
+            <i className="pi pi-upload" /> Import Excel
           </button>
           <button type="button" className="btn btn-primary" onClick={onFocusQuickAdd}>
             <i className="pi pi-plus" /> Thêm Danh mục Mới
@@ -46,10 +91,17 @@ export function CatalogToolbar({
       <section className="mapping-card">
         <div className="mapping-icon"><i className="pi pi-file-excel" /></div>
         <div className="mapping-content">
-          <strong>Quy tắc Mapping Excel (Bắt buộc)</strong>
+          <strong>{currentMappingGuide.title}</strong>
           <p>
-            Hệ thống tự động nhận diện dữ liệu dựa trên tiêu đề cột. Đảm bảo file Excel của bạn chứa các cột chính xác
-            sau: <span>MÃ NVL</span>, <span>INCI NAME</span>, <span>LOT NO</span>, <span>ĐƠN GIÁ/1 KG</span>.
+            Hệ thống tự động nhận diện dữ liệu dựa trên tiêu đề cột. Với bảng hiện tại, file Excel cần có các cột:
+            {' '}
+            {currentMappingGuide.columns.map((column, index) => (
+              <span key={column}>
+                {index > 0 ? ', ' : ''}
+                {column}
+              </span>
+            ))}
+            . {currentMappingGuide.note}
           </p>
         </div>
         <button type="button" className="btn btn-ghost compact" onClick={onDownloadTemplate}>
@@ -70,29 +122,21 @@ export function CatalogToolbar({
         ))}
       </section>
 
-      <section className="filter-bar">
-        <button type="button" className="btn btn-ghost compact" onClick={onToggleOnlyActive}>
-          <i className="pi pi-filter" /> Bộ lọc
-        </button>
-        <p>
-          Đã chọn <strong>{selectedCount}</strong> {activeTab === 'materials' ? 'nguyên liệu' : 'bản ghi'}
-        </p>
-        <div className="filter-actions">
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onImportCsv}
-            className="hidden-input"
-          />
-          <button type="button" className="btn btn-ghost compact" onClick={() => importInputRef.current?.click()}>
-            <i className="pi pi-upload" /> Import Excel
+      {false && (
+        <section className="filter-bar">
+          <button type="button" className="btn btn-ghost compact" onClick={onToggleOnlyActive}>
+            <i className="pi pi-filter" /> Bộ lọc
           </button>
-          <button type="button" className="btn btn-inline" onClick={onFocusQuickAdd}>
-            <i className="pi pi-plus" /> Thêm mới
-          </button>
-        </div>
-      </section>
+          <p>
+            Đã chọn <strong>{selectedCount}</strong> {activeTab === 'materials' ? 'nguyên liệu' : 'bản ghi'}
+          </p>
+          <div className="filter-actions">
+            <button type="button" className="btn btn-inline" onClick={onFocusQuickAdd}>
+              <i className="pi pi-plus" /> Thêm mới
+            </button>
+          </div>
+        </section>
+      )}
     </>
   )
 }

@@ -61,6 +61,7 @@ router.delete('/customers/:id', requirePermission('customers.write'), async (req
 const supplierSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
+  phone: z.string().optional(),
   contactInfo: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),

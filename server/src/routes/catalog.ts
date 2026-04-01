@@ -140,6 +140,7 @@ async function resolveProductTypeId(productType: string | number): Promise<numbe
 const supplierSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
+  phone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   contactInfo: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
@@ -358,7 +359,7 @@ router.delete('/materials/:id', async (req, res) => {
 
 router.get('/suppliers', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, contact_info, address, notes, deleted_at
+    SELECT id, code, name, phone, contact_info, address, notes, deleted_at
     FROM suppliers
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
@@ -368,6 +369,7 @@ router.get('/suppliers', async (_req, res) => {
     id: String(row.id),
     code: String(row.code ?? ''),
     name: String(row.name ?? ''),
+    phone: String(row.phone ?? ''),
     contactInfo: String(row.contact_info ?? ''),
     address: String(row.address ?? ''),
     note: String(row.notes ?? ''),
@@ -386,9 +388,9 @@ router.post('/suppliers', async (req, res) => {
   const data = parsed.data
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO suppliers
-      (code, name, contact_info, address, notes, created_at, updated_at)
+      (code, name, phone, contact_info, address, notes, created_at, updated_at)
     VALUES
-      (${data.code}, ${data.name}, ${data.contactInfo ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
+      (${data.code}, ${data.name}, ${data.phone ?? null}, ${data.contactInfo ?? null}, ${data.address ?? null}, ${data.notes ?? null}, NOW(3), NOW(3))
   `)
 
   return res.status(201).json({ ok: true })
@@ -411,6 +413,7 @@ router.put('/suppliers/:id', async (req, res) => {
     SET
       code = COALESCE(${data.code ?? null}, code),
       name = COALESCE(${data.name ?? null}, name),
+      phone = COALESCE(${data.phone ?? null}, phone),
       contact_info = COALESCE(${data.contactInfo ?? null}, contact_info),
       address = COALESCE(${data.address ?? null}, address),
       notes = COALESCE(${data.notes ?? null}, notes),
