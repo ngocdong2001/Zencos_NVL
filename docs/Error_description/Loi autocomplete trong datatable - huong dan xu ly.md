@@ -1,68 +1,69 @@
-# Loi AutoComplete trong DataTable - Huong dan xu ly
+# Lỗi AutoComplete trong DataTable - Hướng dẫn xử lý
 
-## Trieu chung thuong gap
-- Go vao o AutoComplete thay icon loading nhung khong hien danh sach goi y.
-- Chon item xong bi nhay sang item khac (thuong la item dau tien).
-- Click vao o AutoComplete bi DataTable chuyen sang che do cell edit, mat focus hoac dong panel.
+## Triệu chứng thường gặp
+- Gõ vào ô AutoComplete thấy icon loading nhưng không hiện danh sách gợi ý.
+- Chọn item xong bị nhảy sang item khác (thường là item đầu tiên).
+- Click vào ô AutoComplete bị DataTable chuyển sang chế độ cell edit, mất focus hoặc đóng panel.
 
-## Nguyen nhan goc
+## Nguyên nhân gốc
 1. DataTable cell memoization
-- DataTable mac dinh co cellMemo=true.
-- Neu suggestions la state ben ngoai rowData, cell co the khong re-render khi suggestions thay doi.
-- Ket qua: panel khong duoc cap nhat du lieu moi.
+- DataTable mặc định có `cellMemo=true`.
+- Nếu `suggestions` là state bên ngoài `rowData`, cell có thể không re-render khi suggestions thay đổi.
+- Kết quả: panel không được cập nhật dữ liệu mới.
 
-2. Xung dot su kien voi editMode="cell"
-- Click vao o co the bi DataTable bat su kien cell edit truoc AutoComplete.
-- Ket qua: dropdown khong mo dung hoac mat focus ngay.
+2. Xung đột sự kiện với `editMode="cell"`
+- Click vào ô có thể bị DataTable bắt sự kiện cell edit trước AutoComplete.
+- Kết quả: dropdown không mở đúng hoặc mất focus ngay.
 
-3. Overlay bi cat boi container
-- Cac wrapper co overflow hidden/auto co the cat panel cua AutoComplete.
-- Ket qua: loading co chay nhung khong thay danh sach.
+3. Overlay bị cắt bởi container
+- Các wrapper có `overflow: hidden/auto` có thể cắt panel của AutoComplete.
+- Kết quả: loading có chạy nhưng không thấy danh sách.
 
-4. Flow chon item khong on dinh
-- Xu ly chon item trong ca onChange va onSelect cung luc.
-- Ket hop forceSelection/coercion co the lam gia tri vua chon bi ghi de.
+4. Flow chọn item không ổn định
+- Xử lý chọn item trong cả `onChange` và `onSelect` cùng lúc.
+- Kết hợp `forceSelection`/coercion có thể làm giá trị vừa chọn bị ghi đè.
 
-## Mau xu ly on dinh de tai su dung
-1. Cho column chua AutoComplete trong DataTable editMode cell
-- Them onBeforeCellEditShow va chan edit voi dong new row.
-- Muc tieu: khong cho DataTable tranh focus voi AutoComplete.
+## Mẫu xử lý ổn định để tái sử dụng
+1. Cho column chứa AutoComplete trong DataTable `editMode="cell"`
+- Thêm `onBeforeCellEditShow` và chặn edit với dòng new row.
+- Mục tiêu: không cho DataTable tranh focus với AutoComplete.
 
-2. Dat overlay ra ngoai container table
-- Dat appendTo=document.body cho AutoComplete.
-- Muc tieu: tranh bi cat boi overflow.
+2. Đặt overlay ra ngoài container table
+- Đặt `appendTo={document.body}` cho AutoComplete.
+- Mục tiêu: tránh bị cắt bởi overflow.
 
-3. Chan bubble su kien o wrapper cua AutoComplete
-- Wrapper quanh AutoComplete nen stopPropagation cho click va mousedown.
-- Muc tieu: tranh DataTable bat su kien cua input.
+3. Chặn bubble sự kiện ở wrapper của AutoComplete
+- Wrapper quanh AutoComplete nên `stopPropagation` cho `click` và `mousedown`.
+- Mục tiêu: tránh DataTable bắt sự kiện của input.
 
-4. Don gian hoa luong chon item
-- onSelect: chi dung de chot item duoc chon.
-- onChange: chi xu ly text nguoi dung dang go (kieu string) va clear khi rong.
-- Khong goi ham chon item trong onChange khi e.value la object.
+4. Đơn giản hóa luồng chọn item
+- `onSelect`: chỉ dùng để chốt item được chọn.
+- `onChange`: chỉ xử lý text người dùng đang gõ (kiểu string) và clear khi rỗng.
+- Không gọi hàm chọn item trong `onChange` khi `e.value` là object.
 
-5. Tranh race condition khi da chon item
-- Khi onSelect chay:
-  - clear timeout search dang cho.
-  - tang request id de vo hieu hoa request cu.
-  - clear suggestions de dong panel sach.
+5. Tránh race condition khi đã chọn item
+- Khi `onSelect` chạy:
+  - clear timeout search đang chờ.
+  - tăng request id để vô hiệu hóa request cũ.
+  - clear suggestions để đóng panel sạch.
 
-6. Neu van gap hien tuong khong re-render suggestions
-- Tat cell memo cho bang co dong nhap moi:
-  - Dat cellMemo=false tren DataTable.
-- Luu y: bang lon can can nhac hieu nang.
+6. Nếu vẫn gặp hiện tượng không re-render suggestions
+- Tắt cell memo cho bảng có dòng nhập mới:
+  - Đặt `cellMemo={false}` trên DataTable.
+- Lưu ý: bảng lớn cần cân nhắc hiệu năng.
 
 ## Checklist debug nhanh
-1. Kiem tra suggestions co cap nhat khong (React DevTools/state).
-2. Kiem tra panel co render trong DOM khong.
-3. Neu panel co render nhung khong thay, uu tien check overflow va appendTo.
-4. Neu click xong nhay item, check lai onChange/onSelect va forceSelection.
-5. Neu state dung ma UI khong doi, check cellMemo.
+1. Kiểm tra `suggestions` có cập nhật không (React DevTools/state).
+2. Kiểm tra panel có render trong DOM không.
+3. Nếu panel có render nhưng không thấy, ưu tiên check `overflow` và `appendTo`.
+4. Nếu click xong nhảy item, check lại `onChange`/`onSelect` và `forceSelection`.
+5. Nếu state đúng mà UI không đổi, check `cellMemo`.
 
-## Tai lieu lien quan
-- Loi scrollbar ngang / layout bang: xem file `horizontal-scroll-fix.md` trong cung thu muc.
+## Tài liệu liên quan
+- Lỗi date picker (`input[type=date]`) trong DataTable: xem file `Loi date picker trong DataTable - huong dan xu ly.md` trong cùng thư mục.
+- Lỗi scrollbar ngang / layout bảng: xem file `horizontal-scroll-fix.md` trong cùng thư mục.
 
-## Ghi chu cho codebase nay
-- Da ap dung nhom fix tren Opening Stock DataTable.
-- Build da pass sau moi buoc chinh sua.
-- Neu sao chep mau nay sang DataTable khac, uu tien giu nguyen thu tu xu ly nhu tren de tranh bug lap lai.
+## Ghi chú cho codebase này
+- Đã áp dụng nhóm fix trên Opening Stock DataTable.
+- Build đã pass sau mỗi bước chỉnh sửa.
+- Nếu sao chép mẫu này sang DataTable khác, ưu tiên giữ nguyên thứ tự xử lý như trên để tránh bug lặp lại.

@@ -19,7 +19,7 @@ function AppLayout() {
       sidebar={
         <MasterSidebar
           brandName="ZencosMS"
-          navItems={appRoutes.map(({ path, label, icon }) => ({ path, label, icon }))}
+          navItems={appRoutes.filter((route) => route.showInNav !== false).map(({ path, label, icon }) => ({ path, label, icon }))}
           footerItems={sidebarFooterItems}
         />
       }

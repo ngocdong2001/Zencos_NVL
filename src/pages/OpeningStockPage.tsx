@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useOutletContext } from 'react-router-dom'
 import { AutoComplete } from 'primereact/autocomplete'
 import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import type { ColumnEvent } from 'primereact/column'
 import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
+import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
 import {
   createOpeningStockRow,
@@ -20,6 +21,53 @@ import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
 import type { BasicRow, MaterialRow } from '../components/catalog/types'
 
 type OutletContext = { search: string }
+
+type SupplierOption = Pick<BasicRow, 'id' | 'code' | 'name'>
+
+function SupplierEditorCell({
+  initialId,
+  supplierOptions,
+  onConfirm,
+}: {
+  initialId: string
+  supplierOptions: SupplierOption[]
+  onConfirm: (id: string) => void
+}) {
+  const initialSupplier = supplierOptions.find((s) => s.id === initialId) ?? null
+  const [value, setValue] = useState<SupplierOption | string>(initialSupplier ?? '')
+  const [suggestions, setSuggestions] = useState<SupplierOption[]>([])
+
+  const search = (e: AutoCompleteCompleteEvent) => {
+    const q = e.query.toLowerCase()
+    setSuggestions(
+      supplierOptions
+        .filter((s) => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+        .slice(0, 10),
+    )
+  }
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+      <AutoComplete
+        value={value}
+        suggestions={suggestions}
+        completeMethod={search}
+        field="name"
+        itemTemplate={(s: SupplierOption) => `${s.code} - ${s.name}`}
+        onChange={(e) => setValue(e.value)}
+        onSelect={(e) => {
+          const s = e.value as SupplierOption
+          setValue(s)
+          onConfirm(s.id)
+        }}
+        onClear={() => onConfirm('')}
+        appendTo={document.body}
+        placeholder="Tìm nhà cung cấp..."
+        autoFocus
+      />
+    </div>
+  )
+}
 
 const NEW_ROW_ID = '__new__'
 
@@ -40,12 +88,12 @@ type DraftRow = {
   expiryDate: string
 }
 
-const emptyDraft: DraftRow = {
+const emptyDraft = (): DraftRow => ({
   code: '',
   tradeName: '',
   inciName: '',
   lot: '',
-  openingDate: '',
+  openingDate: new Date().toISOString().slice(0, 10),
   invoiceNo: '',
   invoiceDate: '',
   supplierId: '',
@@ -55,12 +103,17 @@ const emptyDraft: DraftRow = {
   unitPriceUnitCode: '',
   unitPriceConversionToBase: '',
   expiryDate: '',
-}
-
-type SupplierOption = Pick<BasicRow, 'id' | 'code' | 'name'>
+})
 
 function formatNumber(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value)
+  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value)
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '---'
+  const [y, m, d] = value.split('-')
+  if (!y || !m || !d) return value
+  return `${d}/${m}/${y}`
 }
 
 function normalizeCode(value: string): string {
@@ -69,6 +122,7 @@ function normalizeCode(value: string): string {
 
 export function OpeningStockPage() {
   const { search } = useOutletContext<OutletContext>()
+  const location = useLocation()
   const [rows, setRows] = useState<OpeningStockRow[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [page, setPage] = useState(1)
@@ -80,7 +134,10 @@ export function OpeningStockPage() {
   const [materialSuggestions, setMaterialSuggestions] = useState<MaterialRow[]>([])
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialRow | null>(null)
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([])
+  const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
   const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
+  const [productModalOpen, setProductModalOpen] = useState(false)
   const codeSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const codeSearchRequestRef = useRef(0)
   const priceUnitRequestRef = useRef(0)
@@ -286,6 +343,20 @@ export function OpeningStockPage() {
     setTimeout(() => {
       lotInputRef.current?.focus()
     }, 0)
+  }
+
+  const handleSupplierSearch = (e: AutoCompleteCompleteEvent) => {
+    const q = e.query.toLowerCase()
+    setSupplierSuggestions(
+      supplierOptions
+        .filter((s) => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+        .slice(0, 10),
+    )
+  }
+
+  const handleSelectSupplier = (s: SupplierOption) => {
+    setSelectedSupplier(s)
+    setDraft((prev) => ({ ...prev, supplierId: s.id }))
   }
 
   const loadRows = async () => {
@@ -522,9 +593,11 @@ export function OpeningStockPage() {
 
   const clearDraftRow = () => {
     clearNotice()
-    setDraft(emptyDraft)
+    setDraft(emptyDraft())
     setSelectedMaterial(null)
     setMaterialSuggestions([])
+    setSelectedSupplier(null)
+    setSupplierSuggestions([])
     setLoadingPriceUnits(false)
   }
 
@@ -575,11 +648,12 @@ export function OpeningStockPage() {
         expiryDate: draft.expiryDate || undefined,
       })
 
-      setRows((prev) => [newRow, ...prev])
-      setDraft(emptyDraft)
+      setRows((prev) => [...prev, newRow])
+      setDraft(emptyDraft())
       setSelectedMaterial(null)
       setMaterialSuggestions([])
-      setPage(1)
+      setSelectedSupplier(null)
+      setPage(Number.MAX_SAFE_INTEGER)
     } catch (error) {
       showNotice(parseApiErrorMessage(error, 'Không thể lưu dòng tồn kho đầu kỳ.'), 'error')
     }
@@ -596,6 +670,13 @@ export function OpeningStockPage() {
           <div className="title-actions">
             <button type="button" className="btn btn-ghost" onClick={handleExportAll}>
               <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setProductModalOpen(true)}
+            >
+              <i className="pi pi-plus-circle" /> Tạo mã NVL mới
             </button>
             <button type="button" className="btn btn-primary" onClick={handleOpenUpload}>
               <i className="pi pi-upload" /> Tải lên dữ liệu (Excel)
@@ -662,9 +743,15 @@ export function OpeningStockPage() {
             className="catalog-table opening-stock-table prime-catalog-table"
             rowClassName={(rowData) => (rowData.id === NEW_ROW_ID ? 'new-row opening-stock-add-row' : 'data-row')}
           >
-            <Column selectionMode="multiple" headerStyle={{ width: '38px' }} style={{ width: '38px' }} body={(rowData: OpeningStockRow) => (
+            <Column
+              selectionMode="multiple"
+              headerStyle={{ width: '38px' }}
+              style={{ width: '38px' }}
+              headerClassName="opening-stock-selection-col"
+              bodyClassName="opening-stock-selection-col"
+              body={(rowData: OpeningStockRow) => (
               rowData.id === NEW_ROW_ID ? <span className="new-row-marker">+</span> : undefined
-            )}
+              )}
             />
             <Column
               field="code"
@@ -803,7 +890,7 @@ export function OpeningStockPage() {
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? (rowData.openingDate ? <span className="status-pill">{rowData.openingDate}</span> : '---')
+                  ? (rowData.openingDate ? <span className="status-pill">{formatDate(rowData.openingDate)}</span> : '---')
                   : (
                     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                       <input
@@ -860,7 +947,7 @@ export function OpeningStockPage() {
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? (rowData.invoiceDate ? <span className="status-pill">{rowData.invoiceDate}</span> : '---')
+                  ? (rowData.invoiceDate ? <span className="status-pill">{formatDate(rowData.invoiceDate)}</span> : '---')
                   : (
                     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                       <input
@@ -882,31 +969,38 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
-                <select
-                  value={String(options.value ?? '')}
-                  onChange={(e) => options.editorCallback?.(e.target.value)}
-                  aria-label="Nhà cung cấp"
-                >
-                  <option value="">---</option>
-                  {supplierOptions.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>{supplier.code} - {supplier.name}</option>
-                  ))}
-                </select>
+                <SupplierEditorCell
+                  initialId={String(options.value ?? '')}
+                  supplierOptions={supplierOptions}
+                  onConfirm={(id) => options.editorCallback?.(id)}
+                />
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? (rowData.supplierName || rowData.supplierCode || '---')
                   : (
-                    <select
-                      value={draft.supplierId}
-                      onChange={(event) => handleDraftChange('supplierId', event.target.value)}
-                      aria-label="Nhà cung cấp"
-                    >
-                      <option value="">---</option>
-                      {supplierOptions.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>{supplier.code} - {supplier.name}</option>
-                      ))}
-                    </select>
+                    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                      <AutoComplete
+                        value={selectedSupplier ?? ''}
+                        suggestions={supplierSuggestions}
+                        completeMethod={handleSupplierSearch}
+                        field="name"
+                        itemTemplate={(s: SupplierOption) => `${s.code} - ${s.name}`}
+                        onChange={(e) => {
+                          if (!e.value || (typeof e.value === 'string' && e.value === '')) {
+                            setSelectedSupplier(null)
+                            handleDraftChange('supplierId', '')
+                          }
+                        }}
+                        onSelect={(e) => handleSelectSupplier(e.value as SupplierOption)}
+                        onClear={() => {
+                          setSelectedSupplier(null)
+                          handleDraftChange('supplierId', '')
+                        }}
+                        appendTo={document.body}
+                        placeholder="Tìm nhà cung cấp..."
+                      />
+                    </div>
                   )
               )}
             />
@@ -914,6 +1008,7 @@ export function OpeningStockPage() {
               field="quantityGram"
               header="SL (GRAM)"
               style={{ width: '110px' }}
+              align="right"
               bodyClassName="opening-stock-number-col"
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
@@ -927,7 +1022,7 @@ export function OpeningStockPage() {
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? formatNumber(rowData.quantityGram)
+                  ? <span className="num-r">{formatNumber(rowData.quantityGram)}</span>
                   : (
                     <input
                       value={draft.quantityGram}
@@ -943,6 +1038,7 @@ export function OpeningStockPage() {
               field="unitPriceValue"
               header="ĐƠN GIÁ"
               style={{ width: '115px' }}
+              align="right"
               bodyClassName="opening-stock-number-col"
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
@@ -956,7 +1052,7 @@ export function OpeningStockPage() {
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? formatNumber(rowData.unitPriceValue)
+                  ? <span className="num-r">{formatNumber(rowData.unitPriceValue)}</span>
                   : (
                     <input
                       value={draft.unitPriceValue}
@@ -997,11 +1093,12 @@ export function OpeningStockPage() {
               field="lineAmount"
               header="THÀNH TIỀN"
               style={{ width: '120px' }}
+              align="right"
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-number-col opening-stock-readonly-column"
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? formatNumber(rowData.lineAmount)
+                  ? <span className="num-r">{formatNumber(rowData.lineAmount)}</span>
                   : <input className="opening-stock-readonly-input" value={formatNumber(draftLineAmount)} readOnly aria-label="Thành tiền" />
               )}
             />
@@ -1012,23 +1109,31 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
-                <input
-                  type="date"
-                  value={String(options.value ?? '')}
-                  onChange={(e) => options.editorCallback?.(e.target.value)}
-                  aria-label="Hạn sử dụng"
-                />
+                <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                  <input
+                    type="date"
+                    value={String(options.value ?? '')}
+                    onChange={(e) => options.editorCallback?.(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    aria-label="Hạn sử dụng"
+                  />
+                </div>
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? (rowData.expiryDate ? <span className="status-pill">{rowData.expiryDate}</span> : '---')
+                  ? (rowData.expiryDate ? <span className="status-pill">{formatDate(rowData.expiryDate)}</span> : '---')
                   : (
-                    <input
-                      type="date"
-                      value={draft.expiryDate}
-                      onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
-                      aria-label="Hạn sử dụng"
-                    />
+                    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={draft.expiryDate}
+                        onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Hạn sử dụng"
+                      />
+                    </div>
                   )
               )}
             />
@@ -1110,6 +1215,46 @@ export function OpeningStockPage() {
           onPageSizeChange={setPageSize}
         />
       </section>
+
+      {productModalOpen ? (
+        <div className="product-create-overlay" role="presentation" onClick={() => setProductModalOpen(false)}>
+          <div className="product-create-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="product-create-modal-header">
+              <h3>Tạo Product Mới</h3>
+              <button type="button" className="catalog-inline-notice-close" onClick={() => setProductModalOpen(false)} aria-label="Đóng">
+                x
+              </button>
+            </div>
+            <ProductCreateForm
+              returnToPath={`${location.pathname}${location.search}`}
+              onCreated={async (product) => {
+                try {
+                  const candidates = await fetchMaterials(product.code)
+                  const exact = candidates.find((item) => item.code.toUpperCase() === product.code.toUpperCase())
+                  if (exact) {
+                    await handleSelectMaterial(exact)
+                  } else {
+                    setDraft((prev) => ({
+                      ...prev,
+                      code: product.code,
+                      tradeName: product.name,
+                    }))
+                  }
+                  showNotice(`Đã tạo product ${product.code}. Mã đã được nạp vào dòng nhập liệu.`, 'success')
+                } catch {
+                  showNotice(`Đã tạo product ${product.code}. Bạn có thể tiếp tục chọn mã này trong dòng tồn đầu kỳ.`, 'success')
+                } finally {
+                  setProductModalOpen(false)
+                  setTimeout(() => {
+                    lotInputRef.current?.focus()
+                  }, 0)
+                }
+              }}
+              onCancel={() => setProductModalOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

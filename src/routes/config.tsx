@@ -2,12 +2,14 @@ import type { ComponentType } from 'react'
 import { CatalogPage } from '../pages/CatalogPage'
 import { OpeningStockPage } from '../pages/OpeningStockPage'
 import { PlaceholderPage } from '../pages/PlaceholderPage'
+import { ProductCreatePage } from '../pages/ProductCreatePage'
 
 export type RouteConfig = {
   path: string
   label: string
   icon: string
   component: ComponentType
+  showInNav?: boolean
 }
 
 export const appRoutes: RouteConfig[] = [
@@ -17,5 +19,6 @@ export const appRoutes: RouteConfig[] = [
   { path: '/outbound', label: 'Xuất kho', icon: 'pi pi-upload', component: () => <PlaceholderPage title="Xuất kho" /> },
   { path: '/purchase', label: 'Yêu cầu mua hàng', icon: 'pi pi-shopping-cart', component: () => <PlaceholderPage title="Yêu cầu mua hàng" /> },
   { path: '/catalog', label: 'Danh mục (Catalogs)', icon: 'pi pi-database', component: CatalogPage },
+  { path: '/catalog/products/new', label: 'Tạo Product Mới', icon: 'pi pi-plus-circle', component: ProductCreatePage, showInNav: false },
   { path: '/opening-stock', label: 'Khai báo tồn kho đầu kỳ', icon: 'pi pi-box', component: OpeningStockPage },
 ]

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useOutletContext } from 'react-router-dom'
 import type { CatalogDataGridHandle } from '../components/catalog/CatalogDataGrid'
 import { CatalogDataGrid } from '../components/catalog/CatalogDataGrid'
 import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
 import { CatalogImportModal } from '../components/catalog/CatalogImportModal'
+import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { CatalogToolbar } from '../components/catalog/CatalogToolbar'
 import type { ParsedImportResult, ParsedImportRow } from '../components/catalog/excelImport'
 import { parseCatalogExcel } from '../components/catalog/excelImport'
@@ -106,6 +107,7 @@ function getErrorMessage(error: unknown): string {
 
 export function CatalogPage() {
   const { search } = useOutletContext<OutletContext>()
+  const location = useLocation()
 
   const [activeTab, setActiveTab] = useState<TabId>('materials')
   const [onlyActive, setOnlyActive] = useState(false)
@@ -124,6 +126,7 @@ export function CatalogPage() {
   const [parsedImportResult, setParsedImportResult] = useState<ParsedImportResult | null>(null)
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const [catalogNotice, setCatalogNotice] = useState<CatalogNotice | null>(null)
+  const [productModalOpen, setProductModalOpen] = useState(false)
   const gridRef = useRef<CatalogDataGridHandle>(null)
 
   const isNumericId = (id: string) => /^\d+$/.test(id)
@@ -657,6 +660,7 @@ export function CatalogPage() {
           tabItems={tabItems}
           selectedCount={selectedCount}
           onExport={exportCurrent}
+          onOpenProductForm={() => setProductModalOpen(true)}
           onFocusQuickAdd={() => {
             gridRef.current?.focusNewRow()
           }}
@@ -731,6 +735,29 @@ export function CatalogPage() {
         onPickFile={handlePickImportFile}
         onImport={handleConfirmImport}
       />
+
+      {productModalOpen ? (
+        <div className="product-create-overlay" role="presentation" onClick={() => setProductModalOpen(false)}>
+          <div className="product-create-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="product-create-modal-header">
+              <h3>Tạo Product Mới</h3>
+              <button type="button" className="catalog-inline-notice-close" onClick={() => setProductModalOpen(false)} aria-label="Đóng">
+                x
+              </button>
+            </div>
+            <ProductCreateForm
+              returnToPath={`${location.pathname}${location.search}`}
+              onCreated={async (product) => {
+                await refreshMaterials()
+                setActiveTab('materials')
+                setCatalogNotice({ tone: 'success', message: `Đã tạo product ${product.code}. Danh mục nguyên liệu đã được cập nhật.` })
+                setProductModalOpen(false)
+              }}
+              onCancel={() => setProductModalOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

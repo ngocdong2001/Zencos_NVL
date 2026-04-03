@@ -38,6 +38,7 @@ type CatalogToolbarProps = {
   tabItems: Array<{ id: TabId; label: string }>
   selectedCount: number
   onExport: () => void
+  onOpenProductForm: () => void
   onFocusQuickAdd: () => void
   onDownloadTemplate: () => void
   onTabChange: (tab: TabId) => void
@@ -50,6 +51,7 @@ export function CatalogToolbar({
   tabItems,
   selectedCount,
   onExport,
+  onOpenProductForm,
   onFocusQuickAdd,
   onDownloadTemplate,
   onTabChange,
@@ -68,6 +70,9 @@ export function CatalogToolbar({
         <div className="title-actions">
           <button type="button" className="btn btn-ghost" onClick={onExport}>
             <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onOpenProductForm}>
+            <i className="pi pi-plus-circle" /> Tạo NVL mới
           </button>
           <button type="button" className="btn btn-ghost" onClick={onOpenImport}>
             <i className="pi pi-upload" /> Import Excel

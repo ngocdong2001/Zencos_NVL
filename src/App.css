@@ -1193,12 +1193,32 @@ input {
 }
 
 .opening-stock-number-col {
+  font-variant-numeric: tabular-nums;
+}
+
+.opening-stock-number-col input {
+  text-align: right;
+}
+
+.num-r {
+  display: block;
+  width: 100%;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .opening-stock-center-col {
   text-align: center;
+}
+
+.opening-stock-selection-col {
+  text-align: center;
+}
+
+.opening-stock-selection-col .new-row-marker {
+  display: inline-flex;
+  width: 100%;
+  justify-content: center;
 }
 
 .opening-stock-table .icon-btn {
@@ -1251,12 +1271,12 @@ input {
 }
 
 .opening-stock-actions-col {
-  background: #fff;
+  background: #fff !important;
   box-shadow: -1px 0 0 var(--line) inset;
 }
 
 .opening-stock-add-row .opening-stock-actions-col {
-  background: rgba(23, 207, 145, 0.07);
+  background: #edfaf5 !important;
 }
 
 .opening-stock-add-row input {
@@ -1395,6 +1415,161 @@ input {
   font-size: 12px;
 }
 
+.product-create-page-table {
+  align-items: flex-start;
+}
+
+.product-create-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 16, 13, 0.42);
+  backdrop-filter: blur(2px);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.product-create-modal {
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 36px);
+  background: #f9fbfb;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 16px;
+  box-shadow: 0 20px 42px rgba(4, 10, 8, 0.26);
+  overflow: auto;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.product-create-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+}
+
+.product-create-modal-header h3 {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  font-size: 20px;
+}
+
+.product-create-form {
+  width: 100%;
+  display: flex;
+}
+
+.product-form-card {
+  width: min(1100px, 100%);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 1px 2.5px rgba(23, 26, 31, 0.05), 0 0 2px rgba(23, 26, 31, 0.08);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.product-form-header h3 {
+  margin: 6px 0 0;
+  font-family: 'Inter', sans-serif;
+  font-size: 24px;
+}
+
+.product-form-header p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.product-form-kicker {
+  margin: 0;
+  color: #2f8a63;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+.product-form-return-hint {
+  margin-top: 10px;
+  color: #6e7685;
+  font-size: 12px;
+}
+
+.product-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.product-form-field {
+  display: grid;
+  gap: 6px;
+}
+
+.product-form-field > span {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.product-form-field > input,
+.product-form-field > select,
+.product-form-field > textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.product-form-field > textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.product-form-field > input:focus,
+.product-form-field > select:focus,
+.product-form-field > textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
+}
+
+.product-form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.product-form-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.product-form-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.product-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
 .catalog-footer {
   border-top: 1px solid var(--line);
   background: #fff;
@@ -1490,6 +1665,19 @@ input {
   .grid-footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .product-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-create-overlay {
+    padding: 10px;
+  }
+
+  .product-create-modal {
+    max-height: calc(100vh - 20px);
+    padding: 10px;
   }
 
   .opening-stock-footer {

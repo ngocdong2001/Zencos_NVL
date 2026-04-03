@@ -122,12 +122,19 @@ const productUnitCatalogSchema = z.object({
 })
 
 async function resolveBaseUnitId(baseUnit: string | number): Promise<number> {
-  const byId =
+  const numericId =
     typeof baseUnit === 'number'
+      ? baseUnit
+      : /^\d+$/.test(baseUnit.trim())
+        ? Number.parseInt(baseUnit.trim(), 10)
+        : null
+
+  const byId =
+    numericId != null
       ? await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
           SELECT id
           FROM product_units
-          WHERE id = ${baseUnit}
+          WHERE id = ${numericId}
           LIMIT 1
         `)
       : []
