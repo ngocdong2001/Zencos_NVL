@@ -59,52 +59,62 @@ catalog-app-shell  (grid: 256px minmax(0, 1fr))
 
 Nếu thiếu bất kỳ một cấp nào trong chuỗi, item đó sẽ tự giãn và vô hiệu hóa constraint của tất cả các cấp bên dưới.
 
-## Trường hợp riêng: scrollbar ngang không nằm ở đáy container DataTable
+## Trường hợp riêng: Datatable nhiều cột, nhập liệu ở mép phải bị giật layout
 
 ### Triệu chứng
 
-- Thanh cuộn ngang xuất hiện ngay dưới hàng dữ liệu đang thấy, không nằm sát đáy khung bảng.
-- Khi có ít dòng dữ liệu, phần phân trang bên dưới nhìn bị tách rời khỏi vùng scroll.
-- Nếu chỉnh CSS sai, DataTable có thể bị vỡ layout, cột bung rộng hoặc wrapper bị chồng scroll.
+- Khi nhập ở các cột gần mép phải và tiếp tục Tab sang cột đang khuất, bảng có thể giật ngang.
+- Có lúc xuất hiện cảm giác bảng bị lệch trái, dư khoảng trắng ở mép phải.
+- Tình trạng rõ nhất khi bảng có nhiều cột và đang ở trạng thái cell edit.
 
-### Nguyên nhân gốc
+### Kết luận nguyên nhân
 
-1. Wrapper ngoài và wrapper trong cùng quản lý scroll
-- `.data-grid-wrap` hoặc `.opening-stock-grid-wrap` đã có `overflow`.
-- PrimeReact lại có thêm `.p-datatable-wrapper` với `overflow: auto`.
-- Kết quả: thanh cuộn ngang bị render ở lớp trong, không nằm theo vị trí đáy của container hiển thị.
+- Cơ chế scroll do CSS wrapper tự quản lý dễ xung đột với cách PrimeReact xử lý focus + scroll của DataTable.
+- Các workaround kiểu bắt focus/Tab thủ công có thể xử lý tạm, nhưng dễ phát sinh regression khi thay cột hoặc thay editor.
 
-2. Override quá mạnh lên `.p-datatable`
-- Nếu đặt `min-width: max-content` hoặc `overflow: visible` không đúng cho `.p-datatable` / `.p-datatable-wrapper`, layout bảng dễ bị vỡ.
-- Kết quả: table bung kích thước, sticky width sai, cột lệch nhau.
+### Cách fix hiện tại (khuyến nghị)
 
-### Cách xử lý ổn định
+Ưu tiên dùng cơ chế scroll native của PrimeReact, không tự quản lý overflow bằng CSS/JS custom.
 
-1. Để wrapper ngoài không tự tạo thêm một thanh cuộn riêng
-- Với màn hình Opening Stock, đặt `.opening-stock-grid-wrap { overflow: hidden; }`.
+1. Bật scrollable trực tiếp trên DataTable.
+2. Dùng scrollHeight flex để vùng bảng tự co giãn theo layout.
+3. Giữ min-width cho table bên trong để đảm bảo có horizontal scroll khi số cột lớn.
+4. Đóng băng cột THAO TÁC ở bên phải (frozen, alignFrozen right) để vùng thao tác ổn định khi cuộn.
 
-2. Để PrimeReact wrapper trong tự co giãn theo chiều cao và tự scroll
+Ví dụ cấu hình:
+
+```tsx
+<DataTable
+  ...
+  scrollable
+  scrollHeight="flex"
+  className="catalog-table opening-stock-table prime-catalog-table"
+>
+```
+
+```tsx
+<Column
+  header="THAO TÁC"
+  frozen
+  alignFrozen="right"
+  ...
+/>
+```
 
 ```css
-.opening-stock-grid-wrap .p-datatable {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.opening-stock-grid-wrap .p-datatable-wrapper {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
+.opening-stock-table .p-datatable-table {
+  min-width: 2100px;
 }
 ```
 
-3. Không dùng các override dễ làm vỡ layout
-- Không đặt `min-width: max-content` cho `.p-datatable` nếu chưa kiểm soát hết các cột.
-- Không đặt `overflow: visible` cho `.p-datatable-wrapper` trong trường hợp bảng cần scroll.
+### Lưu ý quan trọng
+
+- Không giữ song song nhiều lớp custom scroll cho opening stock (wrapper ngoài, wrapper trong, JS bắt Tab/focus).
+- Tránh override mạnh vào `.p-datatable-wrapper` hoặc ép scroll thủ công trừ khi thật sự bắt buộc.
+- Nếu cần tinh chỉnh thêm, ưu tiên chỉnh width cột và min-width table thay vì can thiệp hành vi focus.
 
 ### Dấu hiệu đã fix đúng
 
-- Thanh cuộn ngang nằm ở đáy vùng bảng hiển thị.
-- Table không bung layout, cột không bị lệch.
-- Khi thêm dòng mới hoặc có ít dữ liệu, khu vực scroll vẫn ổn định.
+- Tab qua các cột mép phải không làm grid giật ngang bất thường.
+- Không còn khoảng trắng lạ ở bên phải khi đang nhập liệu.
+- Cột THAO TÁC luôn ổn định ở mép phải khi cuộn ngang.

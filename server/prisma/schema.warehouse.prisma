@@ -162,6 +162,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt @map("updated_at")
   batches     Batch[]
   purchaseRequests PurchaseRequest[]
+  openingStockItems OpeningStockItem[]
 
   @@map("suppliers")
 }
@@ -394,6 +395,9 @@ model OpeningStockItem {
   productId       BigInt                  @map("product_id") @db.UnsignedBigInt
   lotNo           String                  @map("lot_no") @db.VarChar(100)
   openingDate     DateTime                @map("opening_date") @db.Date
+  invoiceNo       String?                 @map("invoice_no") @db.VarChar(100)
+  invoiceDate     DateTime?               @map("invoice_date") @db.Date
+  supplierId      BigInt?                 @map("supplier_id") @db.UnsignedBigInt
   manufactureDate DateTime?               @map("manufacture_date") @db.Date
   expiryDate      DateTime?               @map("expiry_date") @db.Date
   quantityBase    Decimal                 @map("quantity_base") @db.Decimal(15, 4)
@@ -411,11 +415,13 @@ model OpeningStockItem {
   updatedAt       DateTime                @updatedAt @map("updated_at")
   declaration     OpeningStockDeclaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
   product         Product                 @relation(fields: [productId], references: [id], onDelete: Restrict)
+  supplier        Supplier?               @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   unitPriceUnit   ProductUnit?            @relation(fields: [unitPriceUnitId], references: [id], onDelete: Restrict)
   location        CatalogLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
   @@index([productId])
   @@index([expiryDate])
+  @@index([supplierId])
   @@index([unitPriceUnitId])
   @@unique([declarationId, productId, lotNo])
   @@map("opening_stock_items")

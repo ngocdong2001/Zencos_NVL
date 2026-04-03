@@ -60,6 +60,11 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     inciName: String(row.inci_name ?? ''),
     lot: String(row.lot_no ?? ''),
     openingDate: formatDateOnly(row.opening_date),
+    invoiceNo: String(row.invoice_no ?? ''),
+    invoiceDate: formatDateOnly(row.invoice_date),
+    supplierId: row.supplier_id == null ? null : String(row.supplier_id),
+    supplierCode: String(row.supplier_code ?? ''),
+    supplierName: String(row.supplier_name ?? ''),
     quantityGram: quantityBase,
     unitPricePerKg: Number(row.unit_price_per_kg ?? unitPriceValue),
     unitPriceValue,
@@ -70,6 +75,19 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     expiryDate: formatDateOnly(row.expiry_date),
     hasCertificate: Boolean(row.has_document),
   }
+}
+
+async function ensureSupplierExists(supplierId: bigint | null): Promise<{ id: bigint; code: string; name: string } | null> {
+  if (supplierId === null) return null
+
+  const suppliers = await prisma.$queryRaw<Array<{ id: bigint; code: string; name: string }>>(Prisma.sql`
+    SELECT id, code, name
+    FROM suppliers
+    WHERE id = ${supplierId} AND deleted_at IS NULL
+    LIMIT 1
+  `)
+
+  return suppliers[0] ?? null
 }
 
 async function hasOpeningStockAmountFields(): Promise<boolean> {
@@ -137,6 +155,9 @@ const addRowSchema = z.object({
   code: z.string().min(1),
   lot: z.string().optional().default(''),
   openingDate: z.string({ required_error: 'Ngày tồn đầu không được để trống.' }).min(1, 'Ngày tồn đầu không được để trống.'),
+  invoiceNo: z.string().optional().default(''),
+  invoiceDate: z.string().optional().nullable(),
+  supplierId: z.union([z.coerce.bigint().positive(), z.literal(''), z.null()]).optional(),
   quantityBase: z.coerce.number().nonnegative().optional(),
   quantityGram: z.coerce.number().nonnegative().optional(),
   unitPriceValue: z.coerce.number().nonnegative().optional(),
@@ -148,6 +169,9 @@ const addRowSchema = z.object({
 const updateRowSchema = z.object({
   lot: z.string().optional(),
   openingDate: z.string().optional().nullable(),
+  invoiceNo: z.string().optional(),
+  invoiceDate: z.string().optional().nullable(),
+  supplierId: z.union([z.coerce.bigint().positive(), z.literal(''), z.null()]).optional(),
   quantityBase: z.coerce.number().nonnegative().optional(),
   unitPriceValue: z.coerce.number().nonnegative().optional(),
   expiryDate: z.string().optional().nullable(),
@@ -221,6 +245,11 @@ router.get('/rows', async (_req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_value,
           osi.unit_price_unit_id,
@@ -232,6 +261,7 @@ router.get('/rows', async (_req, res) => {
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
         JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
         WHERE osd.status = 'draft'
@@ -245,12 +275,18 @@ router.get('/rows', async (_req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
         WHERE osd.status = 'draft'
         ORDER BY osi.created_at DESC
@@ -371,6 +407,14 @@ router.post('/rows', async (req, res) => {
   }
 
   const lineAmount = (quantityBase / unitPriceConversionToBase) * unitPriceValue
+  const invoiceNo = data.invoiceNo?.trim() || null
+  const invoiceDate = data.invoiceDate?.trim() || null
+  const supplierId = typeof data.supplierId === 'bigint' ? data.supplierId : null
+  const supplier = await ensureSupplierExists(supplierId)
+
+  if (supplierId !== null && !supplier) {
+    return res.status(400).json({ message: 'Nhà cung cấp không hợp lệ.' })
+  }
 
   // Kiểm tra trùng lặp (declarationId + productId + lotNo)
   const duplicate = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
@@ -398,6 +442,7 @@ router.post('/rows', async (req, res) => {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
         (declaration_id, product_id, lot_no, opening_date, expiry_date,
+         invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg,
          unit_price_value, unit_price_unit_id, unit_price_conversion_to_base, line_amount,
          has_document,
@@ -406,6 +451,7 @@ router.post('/rows', async (req, res) => {
         (${declarationId}, ${productId}, ${lotNo},
          ${openingDate ? new Date(openingDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
+         ${invoiceNo}, ${invoiceDate ? new Date(invoiceDate) : null}, ${supplierId},
          ${quantityBase}, ${unitUsed}, ${quantityDisplay},
          ${unitPriceValue},
          ${unitPriceValue}, ${unitPriceUnitId}, ${unitPriceConversionToBase}, ${lineAmount},
@@ -416,12 +462,14 @@ router.post('/rows', async (req, res) => {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
         (declaration_id, product_id, lot_no, opening_date, expiry_date,
+         invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg, has_document,
          created_at, updated_at)
       VALUES
         (${declarationId}, ${productId}, ${lotNo},
          ${openingDate ? new Date(openingDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
+         ${invoiceNo}, ${invoiceDate ? new Date(invoiceDate) : null}, ${supplierId},
          ${quantityBase}, ${unitUsed}, ${quantityDisplay}, ${unitPriceValue}, 0,
          NOW(3), NOW(3))
     `)
@@ -436,6 +484,11 @@ router.post('/rows', async (req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_value,
           osi.unit_price_unit_id,
@@ -447,6 +500,7 @@ router.post('/rows', async (req, res) => {
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
         WHERE osi.id = LAST_INSERT_ID()
       `)
@@ -458,12 +512,18 @@ router.post('/rows', async (req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         WHERE osi.id = LAST_INSERT_ID()
       `)
 
@@ -500,6 +560,9 @@ router.put('/rows/:id', async (req, res) => {
       osi.unit_price_conversion_to_base,
       osi.lot_no,
       osi.opening_date,
+      osi.invoice_no,
+      osi.invoice_date,
+      osi.supplier_id,
       osi.expiry_date
     FROM opening_stock_items osi
     JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
@@ -519,7 +582,17 @@ router.put('/rows/:id', async (req, res) => {
   const lineAmount = conversionToBase > 0 ? (quantityBase / conversionToBase) * unitPriceValue : 0
   const lotNo = (data.lot ?? String(current.lot_no ?? '')).trim()
   const openingDate = data.openingDate === undefined ? current.opening_date : (data.openingDate?.trim() || null)
+  const invoiceNo = data.invoiceNo === undefined ? String(current.invoice_no ?? '') : data.invoiceNo.trim()
+  const invoiceDate = data.invoiceDate === undefined ? current.invoice_date : (data.invoiceDate?.trim() || null)
+  const supplierId = data.supplierId === undefined
+    ? toBigInt(current.supplier_id)
+    : (typeof data.supplierId === 'bigint' ? data.supplierId : null)
   const expiryDate = data.expiryDate === undefined ? current.expiry_date : (data.expiryDate?.trim() || null)
+
+  const supplier = await ensureSupplierExists(supplierId)
+  if (supplierId !== null && !supplier) {
+    return res.status(400).json({ message: 'Nhà cung cấp không hợp lệ.' })
+  }
 
   if (!Number.isFinite(quantityBase) || quantityBase < 0 || !Number.isFinite(unitPriceValue) || unitPriceValue < 0) {
     return res.status(400).json({ message: 'SL (GRAM) và Đơn giá phải là số hợp lệ >= 0.' })
@@ -531,6 +604,9 @@ router.put('/rows/:id', async (req, res) => {
       SET
         lot_no = ${lotNo},
         opening_date = ${openingDate ? new Date(String(openingDate)) : null},
+        invoice_no = ${invoiceNo || null},
+        invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
+        supplier_id = ${supplierId},
         expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
         quantity_base = ${quantityBase},
         quantity_display = ${quantityBase},
@@ -546,6 +622,9 @@ router.put('/rows/:id', async (req, res) => {
       SET
         lot_no = ${lotNo},
         opening_date = ${openingDate ? new Date(String(openingDate)) : null},
+        invoice_no = ${invoiceNo || null},
+        invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
+        supplier_id = ${supplierId},
         expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
         quantity_base = ${quantityBase},
         quantity_display = ${quantityBase},
@@ -564,6 +643,11 @@ router.put('/rows/:id', async (req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_value,
           osi.unit_price_unit_id,
@@ -575,6 +659,7 @@ router.put('/rows/:id', async (req, res) => {
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
         WHERE osi.id = ${id}
         LIMIT 1
@@ -587,12 +672,18 @@ router.put('/rows/:id', async (req, res) => {
           p.inci_name,
           osi.lot_no,
           osi.opening_date,
+          osi.invoice_no,
+          osi.invoice_date,
+          osi.supplier_id,
+          s.code AS supplier_code,
+          s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
+        LEFT JOIN suppliers s ON s.id = osi.supplier_id
         WHERE osi.id = ${id}
         LIMIT 1
       `)

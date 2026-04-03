@@ -16,8 +16,8 @@ import {
   updateOpeningStockRow,
 } from '../lib/openingStockApi'
 import type { OpeningStockRow } from '../lib/openingStockApi'
-import { fetchMaterials } from '../lib/catalogApi'
-import type { MaterialRow } from '../components/catalog/types'
+import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
+import type { BasicRow, MaterialRow } from '../components/catalog/types'
 
 type OutletContext = { search: string }
 
@@ -29,6 +29,9 @@ type DraftRow = {
   inciName: string
   lot: string
   openingDate: string
+  invoiceNo: string
+  invoiceDate: string
+  supplierId: string
   quantityGram: string
   unitPriceValue: string
   unitPriceUnitId: string
@@ -43,6 +46,9 @@ const emptyDraft: DraftRow = {
   inciName: '',
   lot: '',
   openingDate: '',
+  invoiceNo: '',
+  invoiceDate: '',
+  supplierId: '',
   quantityGram: '',
   unitPriceValue: '',
   unitPriceUnitId: '',
@@ -50,6 +56,8 @@ const emptyDraft: DraftRow = {
   unitPriceConversionToBase: '',
   expiryDate: '',
 }
+
+type SupplierOption = Pick<BasicRow, 'id' | 'code' | 'name'>
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN').format(value)
@@ -71,6 +79,7 @@ export function OpeningStockPage() {
   const [loading, setLoading] = useState(false)
   const [materialSuggestions, setMaterialSuggestions] = useState<MaterialRow[]>([])
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialRow | null>(null)
+  const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([])
   const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
   const codeSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const codeSearchRequestRef = useRef(0)
@@ -88,6 +97,10 @@ export function OpeningStockPage() {
         row.inciName,
         row.lot,
         row.openingDate,
+        row.invoiceNo,
+        row.invoiceDate,
+        row.supplierCode,
+        row.supplierName,
         row.expiryDate,
         String(row.quantityGram),
         String(row.unitPriceValue),
@@ -160,6 +173,11 @@ export function OpeningStockPage() {
       inciName: '',
       lot: '',
       openingDate: '',
+      invoiceNo: '',
+      invoiceDate: '',
+      supplierId: null,
+      supplierCode: '',
+      supplierName: '',
       quantityGram: 0,
       unitPricePerKg: 0,
       unitPriceValue: 0,
@@ -287,6 +305,21 @@ export function OpeningStockPage() {
   }, [])
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const suppliers = await fetchBasics('suppliers')
+        setSupplierOptions(suppliers.map((supplier) => ({
+          id: supplier.id,
+          code: supplier.code,
+          name: supplier.name,
+        })))
+      } catch (error) {
+        showNotice(parseApiErrorMessage(error, 'Không tải được danh sách nhà cung cấp.'), 'error')
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
     setPage(1)
     setSelectedIds([])
   }, [search, pageSize])
@@ -349,13 +382,16 @@ export function OpeningStockPage() {
 
   const handleCellEditComplete = (event: ColumnEvent) => {
     const rowData = event.rowData as OpeningStockRow
-    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'quantityGram' | 'unitPriceValue' | 'expiryDate'
+    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'invoiceNo' | 'invoiceDate' | 'supplierId' | 'quantityGram' | 'unitPriceValue' | 'expiryDate'
     if (!field || rowData.id === NEW_ROW_ID) return
 
     const raw = event.newValue
     const next: {
       lot?: string
       openingDate?: string | null
+      invoiceNo?: string
+      invoiceDate?: string | null
+      supplierId?: string | null
       quantityBase?: number
       unitPriceValue?: number
       expiryDate?: string | null
@@ -368,6 +404,20 @@ export function OpeningStockPage() {
     if (field === 'openingDate') {
       const value = String(raw ?? '').trim()
       next.openingDate = value || null
+    }
+
+    if (field === 'invoiceNo') {
+      next.invoiceNo = String(raw ?? '').trim()
+    }
+
+    if (field === 'invoiceDate') {
+      const value = String(raw ?? '').trim()
+      next.invoiceDate = value || null
+    }
+
+    if (field === 'supplierId') {
+      const value = String(raw ?? '').trim()
+      next.supplierId = value || null
     }
 
     if (field === 'expiryDate') {
@@ -412,6 +462,9 @@ export function OpeningStockPage() {
       'TEN INCI',
       'SO LO',
       'NGAY TD',
+      'SO HOA DON',
+      'NGAY HOA DON',
+      'NHA CUNG CAP',
       'SL (GRAM)',
       'DON GIA',
       'DON VI GIA',
@@ -426,9 +479,13 @@ export function OpeningStockPage() {
       row.inciName,
       row.lot,
       row.openingDate,
+      row.invoiceNo,
+      row.invoiceDate,
+      row.supplierName || row.supplierCode,
       String(row.quantityGram),
       String(row.unitPriceValue),
       row.unitPriceUnitCode,
+      String(row.lineAmount),
       row.expiryDate,
       row.hasCertificate ? 'CO' : 'KHONG',
     ])
@@ -439,8 +496,8 @@ export function OpeningStockPage() {
 
   const handleDownloadTemplate = () => {
     const template = [
-      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,CHUNG TU',
-      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,1000,25000,kg,25000,2028-12-31,CO',
+      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,CHUNG TU',
+      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,kg,25000,2028-12-31,CO',
     ].join('\n')
 
     downloadTextFile(template, 'mau-khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
@@ -509,6 +566,9 @@ export function OpeningStockPage() {
         code,
         lot: normalizedLot,
         openingDate: draft.openingDate || undefined,
+        invoiceNo: draft.invoiceNo || undefined,
+        invoiceDate: draft.invoiceDate || undefined,
+        supplierId: draft.supplierId || null,
         quantityBase,
         unitPriceValue,
         unitPriceUnitId: draft.unitPriceUnitId,
@@ -596,6 +656,8 @@ export function OpeningStockPage() {
             stripedRows
             loading={loading}
             cellMemo={false}
+            scrollable
+            scrollHeight="flex"
             emptyMessage="Chưa có dữ liệu tồn kho đầu kỳ."
             className="catalog-table opening-stock-table prime-catalog-table"
             rowClassName={(rowData) => (rowData.id === NEW_ROW_ID ? 'new-row opening-stock-add-row' : 'data-row')}
@@ -743,12 +805,108 @@ export function OpeningStockPage() {
                 rowData.id !== NEW_ROW_ID
                   ? (rowData.openingDate ? <span className="status-pill">{rowData.openingDate}</span> : '---')
                   : (
+                    <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={draft.openingDate}
+                        onChange={(event) => handleDraftChange('openingDate', event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        aria-label="Ngày tồn đầu"
+                      />
+                    </div>
+                  )
+              )}
+            />
+            <Column
+              field="invoiceNo"
+              header="SỐ HÓA ĐƠN"
+              style={{ width: '130px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Số hóa đơn"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.invoiceNo || '---')
+                  : (
                     <input
-                      type="date"
-                      value={draft.openingDate}
-                      onChange={(event) => handleDraftChange('openingDate', event.target.value)}
-                      aria-label="Ngày tồn đầu"
+                      value={draft.invoiceNo}
+                      onChange={(event) => handleDraftChange('invoiceNo', event.target.value)}
+                      placeholder="Số hóa đơn"
+                      aria-label="Số hóa đơn"
                     />
+                  )
+              )}
+            />
+            <Column
+              field="invoiceDate"
+              header="NGÀY HÓA ĐƠN"
+              style={{ width: '130px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  type="date"
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Ngày hóa đơn"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.invoiceDate ? <span className="status-pill">{rowData.invoiceDate}</span> : '---')
+                  : (
+                    <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={draft.invoiceDate}
+                        onChange={(event) => handleDraftChange('invoiceDate', event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        aria-label="Ngày hóa đơn"
+                      />
+                    </div>
+                  )
+              )}
+            />
+            <Column
+              field="supplierId"
+              header="NHÀ CUNG CẤP"
+              style={{ width: '220px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <select
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Nhà cung cấp"
+                >
+                  <option value="">---</option>
+                  {supplierOptions.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>{supplier.code} - {supplier.name}</option>
+                  ))}
+                </select>
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.supplierName || rowData.supplierCode || '---')
+                  : (
+                    <select
+                      value={draft.supplierId}
+                      onChange={(event) => handleDraftChange('supplierId', event.target.value)}
+                      aria-label="Nhà cung cấp"
+                    >
+                      <option value="">---</option>
+                      {supplierOptions.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>{supplier.code} - {supplier.name}</option>
+                      ))}
+                    </select>
                   )
               )}
             />
@@ -891,7 +1049,10 @@ export function OpeningStockPage() {
             />
             <Column
               header="THAO TÁC"
-              bodyClassName="actions"
+              frozen
+              alignFrozen="right"
+              headerClassName="actions opening-stock-actions-col"
+              bodyClassName="actions opening-stock-actions-col"
               body={(rowData: OpeningStockRow) => {
                 if (rowData.id !== NEW_ROW_ID) {
                   return (
@@ -907,7 +1068,7 @@ export function OpeningStockPage() {
                 }
 
                 return (
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div className="opening-stock-action-buttons">
                     <button
                       type="button"
                       className="icon-btn save-btn"
@@ -930,7 +1091,7 @@ export function OpeningStockPage() {
                   </div>
                 )
               }}
-              style={{ width: '90px' }}
+              style={{ width: '110px' }}
             />
           </DataTable>
         </div>

@@ -32,6 +32,11 @@ export type OpeningStockRow = {
   inciName: string
   lot: string
   openingDate: string
+  invoiceNo: string
+  invoiceDate: string
+  supplierId: string | null
+  supplierCode: string
+  supplierName: string
   quantityGram: number
   unitPricePerKg: number
   unitPriceValue: number
@@ -59,6 +64,9 @@ export async function createOpeningStockRow(payload: {
   code: string
   lot: string
   openingDate?: string
+  invoiceNo?: string
+  invoiceDate?: string
+  supplierId?: string | null
   quantityBase: number
   unitPriceValue: number
   unitPriceUnitId: string
@@ -73,6 +81,9 @@ export async function createOpeningStockRow(payload: {
 export async function updateOpeningStockRow(id: string, payload: {
   lot?: string
   openingDate?: string | null
+  invoiceNo?: string
+  invoiceDate?: string | null
+  supplierId?: string | null
   quantityBase?: number
   unitPriceValue?: number
   expiryDate?: string | null
