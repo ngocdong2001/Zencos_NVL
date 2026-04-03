@@ -9,6 +9,7 @@ export type MaterialRow = {
   materialName: string
   category: string
   unit: string
+  orderUnit: string
   status: string
 }
 
@@ -34,6 +35,7 @@ export type QuickMaterialForm = {
   materialName: string
   category: string
   unit: string
+  orderUnit: string
   status: string
 }
 

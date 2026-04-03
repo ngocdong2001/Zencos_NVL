@@ -36,6 +36,7 @@ export async function createMaterial(payload: {
   inciName: string
   productType: string | number
   baseUnit: string
+  orderUnit?: string
   minStockLevel: number
   hasExpiry: boolean
   useFefo: boolean
@@ -53,6 +54,7 @@ export async function updateMaterial(id: string, payload: Partial<{
   inciName: string
   productType: string | number
   baseUnit: string
+  orderUnit: string
   minStockLevel: number
   hasExpiry: boolean
   useFefo: boolean

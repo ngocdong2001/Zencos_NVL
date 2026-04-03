@@ -51,6 +51,26 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       [units],
     )
 
+    const materialBaseUnits = useMemo(
+      () => units.filter((item) => !item.parentUnitId?.toString().trim()),
+      [units],
+    )
+
+    function getMaterialOrderUnits(baseUnitCode?: string) {
+      if (!baseUnitCode) return []
+
+      const baseUnit = units.find((item) => item.code === baseUnitCode)
+      if (!baseUnit) return []
+
+      const relatedUnits = units.filter((item) => item.parentUnitId?.toString().trim() === baseUnit.id)
+      return [baseUnit, ...relatedUnits]
+    }
+
+    function isValidMaterialOrderUnit(orderUnitCode: string, baseUnitCode?: string) {
+      if (!orderUnitCode.trim()) return false
+      return getMaterialOrderUnits(baseUnitCode).some((item) => item.code === orderUnitCode)
+    }
+
     const unitById = useMemo(
       () => new Map(units.map((item) => [item.id, item])),
       [units],
@@ -106,6 +126,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         materialName: pendingNewMat.materialName ?? '',
         category: pendingNewMat.category ?? '',
         unit: pendingNewMat.unit ?? '',
+        orderUnit: pendingNewMat.orderUnit ?? '',
         status: pendingNewMat.status ?? '',
       }
       return [...pagedMaterials, newRow]
@@ -165,7 +186,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       }
 
       const updatedRow: MaterialRow = { ...rowData, [field]: newValue }
-      if (!updatedRow.inciName?.trim() || !updatedRow.materialName?.trim() || !updatedRow.category?.trim() || !updatedRow.unit?.trim()) {
+      if (!updatedRow.inciName?.trim() || !updatedRow.materialName?.trim() || !updatedRow.category?.trim() || !updatedRow.unit?.trim() || !updatedRow.orderUnit?.trim()) {
         event.preventDefault()
         return
       }
@@ -227,6 +248,18 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       setPendingNewMat((prev) => ({ ...prev, [field]: value }))
     }
 
+    function setNewMaterialUnit(value: string) {
+      setPendingNewMat((prev) => ({
+        ...prev,
+        unit: value,
+        orderUnit: prev.orderUnit?.trim() && isValidMaterialOrderUnit(prev.orderUnit, value)
+          ? prev.orderUnit
+          : isValidMaterialOrderUnit(value, value)
+            ? value
+            : '',
+      }))
+    }
+
     function setNewBasicField(field: keyof BasicRow, value: string | number | boolean) {
       setPendingNewBasic((prev) => ({ ...prev, [field]: value as never }))
     }
@@ -235,7 +268,8 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       pendingNewMat.inciName?.trim()
       && pendingNewMat.materialName?.trim()
       && pendingNewMat.category?.trim()
-      && pendingNewMat.unit?.trim(),
+      && pendingNewMat.unit?.trim()
+      && pendingNewMat.orderUnit?.trim()
     )
 
     const canSaveNewBasic = Boolean(
@@ -254,6 +288,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           materialName: pendingNewMat.materialName!.trim(),
           category: pendingNewMat.category!.trim(),
           unit: pendingNewMat.unit!.trim(),
+          orderUnit: pendingNewMat.orderUnit?.trim() || pendingNewMat.unit!.trim(),
           status: pendingNewMat.status?.trim() || 'Active',
         }
         const saved = await onSaveMaterial(candidate)
@@ -354,7 +389,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         <Dropdown
           value={options.value || ''}
           onChange={(e) => options.editorCallback?.(e.value)}
-          options={units}
+          options={materialBaseUnits}
           optionLabel="name"
           optionValue="code"
           placeholder="-- Chọn --"
@@ -367,6 +402,20 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         <InputText
           value={options.value || ''}
           onChange={(e) => options.editorCallback?.(e.target.value)}
+        />
+      )
+    }
+
+    function materialOrderUnitEditor(options: any) {
+      const baseUnitCode = options?.rowData?.unit || ''
+      return (
+        <Dropdown
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.value)}
+          options={getMaterialOrderUnits(baseUnitCode)}
+          optionLabel="name"
+          optionValue="code"
+          placeholder="-- Chọn --"
         />
       )
     }
@@ -438,9 +487,9 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         return (
           <Dropdown
             value={pendingNewMat.unit ?? ''}
-            onChange={(e) => setNewMaterialField('unit', e.value)}
+            onChange={(e) => setNewMaterialUnit(e.value)}
             onKeyDown={handleNewRowKeyDown}
-            options={units}
+            options={materialBaseUnits}
             optionLabel="name"
             optionValue="code"
             placeholder="-- Chọn --"
@@ -448,6 +497,23 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         )
       }
       return unitNameByCode.get(rowData.unit) ?? rowData.unit
+    }
+
+    function materialOrderUnitBody(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <Dropdown
+            value={pendingNewMat.orderUnit ?? ''}
+            onChange={(e) => setNewMaterialField('orderUnit', e.value)}
+            onKeyDown={handleNewRowKeyDown}
+            options={getMaterialOrderUnits(pendingNewMat.unit ?? '')}
+            optionLabel="name"
+            optionValue="code"
+            placeholder="-- Chọn --"
+          />
+        )
+      }
+      return unitNameByCode.get(rowData.orderUnit) ?? rowData.orderUnit
     }
 
     function materialStatusBody(rowData: MaterialRow) {
@@ -856,6 +922,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column field="materialName" header="Tên Nguyên liệu" body={materialNameBody} editor={(options) => materialNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="category" header="Phân loại" body={materialCategoryBody} editor={(options) => materialCategoryEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="unit" header="Đơn vị" body={materialUnitBody} editor={(options) => materialUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
+              <Column field="orderUnit" header="Đơn vị đặt hàng" body={materialOrderUnitBody} editor={(options) => materialOrderUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="status" header="Trạng thái" body={materialStatusBody} editor={(options) => materialStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column header="Xử lý" body={materialDeleteButton} style={{ width: '88px' }} />
             </DataTable>

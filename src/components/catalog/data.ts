@@ -26,6 +26,7 @@ export const initialMaterialRows: MaterialRow[] = [
     materialName: 'Glycerin 99.5%',
     category: 'Chất giữ ẩm',
     unit: 'kg',
+    orderUnit: 'kg',
     status: 'Active',
   },
   {
@@ -35,6 +36,7 @@ export const initialMaterialRows: MaterialRow[] = [
     materialName: 'Phenoxyethanol',
     category: 'Chất bảo quản',
     unit: 'kg',
+    orderUnit: 'kg',
     status: 'Active',
   },
   {
@@ -44,6 +46,7 @@ export const initialMaterialRows: MaterialRow[] = [
     materialName: 'SLES 70%',
     category: 'Chất hoạt động bề mặt',
     unit: 'kg',
+    orderUnit: 'kg',
     status: 'Active',
   },
   {
@@ -53,6 +56,7 @@ export const initialMaterialRows: MaterialRow[] = [
     materialName: 'Hương Lavender',
     category: 'Hương liệu',
     unit: 'Lít',
+    orderUnit: 'Lít',
     status: 'Active',
   },
   {
@@ -62,6 +66,7 @@ export const initialMaterialRows: MaterialRow[] = [
     materialName: 'Nước cất hai lần',
     category: 'Dung môi',
     unit: 'Lít',
+    orderUnit: 'Lít',
     status: 'Active',
   },
 ]
@@ -95,6 +100,7 @@ export const emptyMaterialForm: QuickMaterialForm = {
   materialName: '',
   category: '',
   unit: '',
+  orderUnit: '',
   status: 'Active',
 }
 

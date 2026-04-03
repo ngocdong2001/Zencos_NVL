@@ -21,6 +21,8 @@ html,
 body,
 #root {
   min-height: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -38,9 +40,12 @@ input {
 
 .catalog-app-shell {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   display: grid;
-  grid-template-columns: 256px 1fr;
+  grid-template-columns: 256px minmax(0, 1fr);
   background: var(--bg-page);
+  overflow: hidden;
 }
 
 .catalog-sidebar {
@@ -136,7 +141,9 @@ input {
 
 .catalog-main-shell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 64px 1fr 50px;
+  min-width: 0;
 }
 
 .catalog-header {
@@ -217,6 +224,7 @@ input {
 .catalog-main {
   padding: 24px 32px 20px;
   overflow: hidden;
+  min-width: 0;
   display: grid;
   gap: 14px;
 }
@@ -224,6 +232,7 @@ input {
 .catalog-page-shell {
   height: 100%;
   min-height: 0;
+  min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
@@ -232,6 +241,7 @@ input {
 .catalog-page-top,
 .catalog-page-bottom {
   flex: 0 0 auto;
+  min-width: 0;
 }
 
 .catalog-inline-notice {
@@ -271,12 +281,14 @@ input {
 
 .catalog-page-table {
   min-height: 0;
+  min-width: 0;
   display: flex;
 }
 
 .catalog-page-table .data-grid-wrap {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
 }
 
@@ -738,7 +750,7 @@ input {
   background: rgba(82, 105, 224, 0.04);
 }
 
-.prime-catalog-table input,
+.prime-catalog-table input:not([type='checkbox']),
 .prime-catalog-table select {
   width: 100%;
   max-width: 100%;
@@ -754,10 +766,30 @@ input {
   box-sizing: border-box;
 }
 
-.prime-catalog-table input:focus,
+.prime-catalog-table input:not([type='checkbox']):focus,
 .prime-catalog-table select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td[data-p-selection-column='true'],
+.prime-catalog-table .p-datatable-thead > tr > th[data-p-selection-column='true'] {
+  font-size: 0;
+  line-height: 0;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td[data-p-selection-column='true'] .p-checkbox,
+.prime-catalog-table .p-datatable-thead > tr > th[data-p-selection-column='true'] .p-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.prime-catalog-table .p-datatable-tbody > tr > td[data-p-selection-column='true'] .p-checkbox-box,
+.prime-catalog-table .p-datatable-thead > tr > th[data-p-selection-column='true'] .p-checkbox-box {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .prime-catalog-table .p-dropdown {
@@ -1118,35 +1150,44 @@ input {
 
 .opening-stock-shell {
   gap: 12px;
+  font-size: 90%;
 }
 
 .opening-stock-mapping-card {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  min-height: 74px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  align-items: center;
+}
+
+.opening-stock-mapping-card .mapping-content {
+  min-width: 0;
+}
+
+.opening-stock-mapping-card .mapping-content p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .opening-stock-grid-wrap {
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: hidden;
+}
+
+.opening-stock-grid-wrap .p-datatable {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.opening-stock-grid-wrap .p-datatable-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .opening-stock-table {
-  min-width: 1120px;
-}
-
-.opening-stock-table th {
-  font-size: 12px;
-  letter-spacing: 0.03em;
-}
-
-.opening-stock-table td {
-  font-size: 14px;
-}
-
-.opening-stock-table td,
-.opening-stock-table th {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  min-width: 1220px;
 }
 
 .opening-stock-code {
@@ -1197,27 +1238,75 @@ input {
 }
 
 .opening-stock-add-row {
-  background: #eefaf5;
+  background: rgba(23, 207, 145, 0.07);
 }
 
 .opening-stock-add-row td {
-  border-bottom: none;
+  border-bottom: 1px solid var(--line);
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
 .opening-stock-add-row input {
   width: 100%;
-  height: 34px;
-  border: 1px solid #d2d8e3;
-  border-radius: 6px;
-  padding: 0 10px;
+  max-width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 8px;
   background: #fff;
   color: var(--text);
+  box-sizing: border-box;
 }
 
 .opening-stock-add-row input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.16);
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
+}
+
+.opening-stock-readonly-column {
+  background: #f0f2fa;
+}
+
+.opening-stock-readonly-column-header {
+  background: #e5e9f7;
+}
+
+.opening-stock-readonly-input {
+  background: #edf0fb !important;
+  border-color: #c5cdf0 !important;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.opening-stock-readonly-input:focus {
+  border-color: #c5cdf0 !important;
+  box-shadow: none !important;
+}
+
+.opening-stock-autocomplete {
+  width: 100%;
+}
+
+.opening-stock-autocomplete .opening-stock-autocomplete-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 8px;
+  background: #fff;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.opening-stock-autocomplete .opening-stock-autocomplete-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(82, 105, 224, 0.18);
 }
 
 .opening-stock-add-btn {
@@ -1225,6 +1314,41 @@ input {
   min-width: 96px;
   font-size: 12px;
   padding: 0 10px;
+}
+
+.opening-stock-code-suggestion-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.opening-stock-code-suggestion-item:hover {
+  background: rgba(82, 105, 224, 0.07);
+}
+
+.opening-stock-code-suggestion-item .suggestion-code {
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.opening-stock-code-suggestion-item .suggestion-name {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opening-stock-code-suggestion-item .suggestion-inci {
+  color: #7a8392;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .opening-stock-footer {
@@ -1309,6 +1433,17 @@ input {
     flex-direction: column;
     align-items: flex-start;
     padding-right: 14px;
+  }
+
+  .opening-stock-mapping-card {
+    min-height: 0;
+    align-items: flex-start;
+  }
+
+  .opening-stock-mapping-card .mapping-content p {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .filter-bar {

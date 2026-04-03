@@ -196,7 +196,7 @@ export function CatalogPage() {
   const filteredMaterials = useMemo(() => {
     const q = search.trim()
     return materials.filter((row) => {
-      const searchable = [row.code, row.inciName, row.materialName, row.category, row.unit, row.status].join(' ')
+      const searchable = [row.code, row.inciName, row.materialName, row.category, row.unit, row.orderUnit, row.status].join(' ')
       const passesSearch = !q || containsInsensitive(searchable, q)
       const passesStatus = !onlyActive || row.status.toLocaleLowerCase() === 'active'
       return passesSearch && passesStatus
@@ -308,6 +308,7 @@ export function CatalogPage() {
       inciName: row.inciName,
       productType: resolvedProductType,
       baseUnit: row.unit,
+      orderUnit: row.orderUnit || row.unit,
       minStockLevel: 0,
       hasExpiry: !isPackaging,
       useFefo: !isPackaging,
@@ -414,12 +415,12 @@ export function CatalogPage() {
   const exportCurrent = () => {
     if (activeTab === 'materials') {
       const rows = [
-        toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Trạng thái']),
+        toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái']),
         ...filteredMaterials.map((r) => {
           const byId = classificationById.get(r.category)
           const byCode = classificationByCodeLookup.get(r.category.toLowerCase())
           const categoryLabel = byId?.name ?? byCode?.name ?? r.category
-          return toCsvRow([r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.status])
+          return toCsvRow([r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.orderUnit || r.unit, r.status])
         }),
       ]
       downloadTextFile(rows.join('\n'), 'catalog-nguyen-lieu.csv', 'text/csv;charset=utf-8;')
@@ -459,7 +460,7 @@ export function CatalogPage() {
   const downloadTemplate = () => {
     const content =
       activeTab === 'materials'
-        ? toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Trạng thái'])
+        ? toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái'])
         : activeTab === 'units'
           ? toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái'])
           : activeTab === 'suppliers'
@@ -531,6 +532,7 @@ export function CatalogPage() {
         inciName: values['inci name'],
         productType: resolvedProductType,
         baseUnit: values['don vi'],
+        orderUnit: values['don vi dat hang'] || values['don vi'],
         minStockLevel: 0,
         hasExpiry: true,
         useFefo: true,

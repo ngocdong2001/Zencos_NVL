@@ -23,6 +23,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@berthojoris/mcp-mysql-server": "^1.40.4",
     "@eslint/js": "^9.39.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

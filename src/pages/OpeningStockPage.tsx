@@ -1,97 +1,53 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { AutoComplete } from 'primereact/autocomplete'
+import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
+import { DataTable } from 'primereact/datatable'
+import { Column } from 'primereact/column'
+import type { ColumnEvent } from 'primereact/column'
+import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
 import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
+import {
+  createOpeningStockRow,
+  deleteOpeningStockRow,
+  fetchOpeningStockPriceUnits,
+  fetchOpeningStockRows,
+  updateOpeningStockRow,
+} from '../lib/openingStockApi'
+import type { OpeningStockRow } from '../lib/openingStockApi'
+import { fetchMaterials } from '../lib/catalogApi'
+import type { MaterialRow } from '../components/catalog/types'
 
 type OutletContext = { search: string }
 
-type OpeningStockRow = {
-  id: string
-  code: string
-  tradeName: string
-  inciName: string
-  lot: string
-  quantityGram: number
-  unitPricePerKg: number
-  expiryDate: string
-  hasCertificate: boolean
-}
+const NEW_ROW_ID = '__new__'
 
 type DraftRow = {
   code: string
   tradeName: string
   inciName: string
   lot: string
+  openingDate: string
   quantityGram: string
-  unitPricePerKg: string
+  unitPriceValue: string
+  unitPriceUnitId: string
+  unitPriceUnitCode: string
+  unitPriceConversionToBase: string
   expiryDate: string
 }
-
-const initialRows: OpeningStockRow[] = [
-  {
-    id: 'raw-gly-01',
-    code: 'RAW-GLY-01',
-    tradeName: 'Glycerin 99.5% USP',
-    inciName: 'Glycerin',
-    lot: 'GLY240101',
-    quantityGram: 2500,
-    unitPricePerKg: 48000,
-    expiryDate: '2028-12-30',
-    hasCertificate: true,
-  },
-  {
-    id: 'raw-alc-05',
-    code: 'RAW-ALC-05',
-    tradeName: 'Ethanol Thực Phẩm 96%',
-    inciName: 'Alcohol Denat.',
-    lot: 'ALC-00923',
-    quantityGram: 15000,
-    unitPricePerKg: 31500,
-    expiryDate: '2025-06-15',
-    hasCertificate: false,
-  },
-  {
-    id: 'oil-es-lav',
-    code: 'OIL-ES-LAV',
-    tradeName: 'Tinh dầu Oải hương Pháp',
-    inciName: 'Lavandula Angustifolia Oil',
-    lot: 'LAV-2024-X',
-    quantityGram: 120,
-    unitPricePerKg: 1250000,
-    expiryDate: '2027-02-10',
-    hasCertificate: true,
-  },
-  {
-    id: 'col-pig-red',
-    code: 'COL-PIG-RED',
-    tradeName: 'Bột màu đỏ Cosmetic',
-    inciName: 'CI 15850',
-    lot: 'RED-B-441',
-    quantityGram: 50,
-    unitPricePerKg: 850000,
-    expiryDate: '2028-08-20',
-    hasCertificate: false,
-  },
-  {
-    id: 'pac-boi-250',
-    code: 'PAC-BOI-250',
-    tradeName: 'Chai Nhựa PET 250ml',
-    inciName: 'PET Resin',
-    lot: 'B-250-2024',
-    quantityGram: 5000,
-    unitPricePerKg: 4200,
-    expiryDate: '2030-01-01',
-    hasCertificate: false,
-  },
-]
 
 const emptyDraft: DraftRow = {
   code: '',
   tradeName: '',
   inciName: '',
   lot: '',
+  openingDate: '',
   quantityGram: '',
-  unitPricePerKg: '',
+  unitPriceValue: '',
+  unitPriceUnitId: '',
+  unitPriceUnitCode: '',
+  unitPriceConversionToBase: '',
   expiryDate: '',
 }
 
@@ -105,15 +61,22 @@ function normalizeCode(value: string): string {
 
 export function OpeningStockPage() {
   const { search } = useOutletContext<OutletContext>()
-  const [rows, setRows] = useState<OpeningStockRow[]>(initialRows)
+  const [rows, setRows] = useState<OpeningStockRow[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [draft, setDraft] = useState<DraftRow>(emptyDraft)
   const [notice, setNotice] = useState<string | null>(null)
   const [noticeTone, setNoticeTone] = useState<'success' | 'error'>('success')
+  const [loading, setLoading] = useState(false)
+  const [materialSuggestions, setMaterialSuggestions] = useState<MaterialRow[]>([])
+  const [selectedMaterial, setSelectedMaterial] = useState<MaterialRow | null>(null)
+  const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
+  const codeSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const codeSearchRequestRef = useRef(0)
+  const priceUnitRequestRef = useRef(0)
+  const lotInputRef = useRef<HTMLInputElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
-
-  const pageSize = 5
 
   const filteredRows = useMemo(() => {
     const q = search.trim()
@@ -124,13 +87,45 @@ export function OpeningStockPage() {
         row.tradeName,
         row.inciName,
         row.lot,
+        row.openingDate,
         row.expiryDate,
         String(row.quantityGram),
-        String(row.unitPricePerKg),
+        String(row.unitPriceValue),
+        String(row.lineAmount),
+        row.unitPriceUnitCode,
       ].join(' ')
       return containsInsensitive(searchable, q)
     })
   }, [rows, search])
+
+  const draftQuantityBase = useMemo(() => Number.parseFloat(draft.quantityGram || '0'), [draft.quantityGram])
+  const draftUnitPriceValue = useMemo(() => Number.parseFloat(draft.unitPriceValue || '0'), [draft.unitPriceValue])
+  const draftConversionToBase = useMemo(
+    () => Number.parseFloat(draft.unitPriceConversionToBase || '0'),
+    [draft.unitPriceConversionToBase],
+  )
+
+  const draftLineAmount = useMemo(() => {
+    if (!Number.isFinite(draftQuantityBase) || draftQuantityBase < 0) return 0
+    if (!Number.isFinite(draftUnitPriceValue) || draftUnitPriceValue < 0) return 0
+    if (!Number.isFinite(draftConversionToBase) || draftConversionToBase <= 0) return 0
+    return (draftQuantityBase / draftConversionToBase) * draftUnitPriceValue
+  }, [draftConversionToBase, draftQuantityBase, draftUnitPriceValue])
+
+  const canSaveDraftRow = useMemo(() => {
+    const code = normalizeCode(draft.code)
+    return Boolean(
+      selectedMaterial
+      && selectedMaterial.code === code
+      && draft.unitPriceUnitId
+      && Number.isFinite(draftQuantityBase)
+      && draftQuantityBase >= 0
+      && Number.isFinite(draftUnitPriceValue)
+      && draftUnitPriceValue >= 0
+      && Number.isFinite(draftConversionToBase)
+      && draftConversionToBase > 0,
+    )
+  }, [draft.code, draft.unitPriceUnitId, draftConversionToBase, draftQuantityBase, draftUnitPriceValue, selectedMaterial])
 
   const totalRows = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
@@ -140,26 +135,161 @@ export function OpeningStockPage() {
     if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, i) => i + 1)
     }
-
     const pages = new Set([1, totalPages])
-    for (let i = Math.max(1, safePage - 1); i <= Math.min(totalPages, safePage + 1); i += 1) {
+    for (let i = Math.max(1, safePage - 2); i <= Math.min(totalPages, safePage + 2); i += 1) {
       pages.add(i)
     }
     return [...pages].sort((a, b) => a - b)
-  }, [safePage, totalPages])
+  }, [totalPages, safePage])
 
   const pagedRows = useMemo(() => {
     const start = (safePage - 1) * pageSize
     return filteredRows.slice(start, start + pageSize)
-  }, [filteredRows, safePage])
+  }, [filteredRows, safePage, pageSize])
 
   const visibleIds = useMemo(() => pagedRows.map((row) => row.id), [pagedRows])
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))
+  const selectedRows = useMemo(() => pagedRows.filter((row) => selectedIds.includes(row.id)), [pagedRows, selectedIds])
+
+  const tableRows = useMemo(() => ([
+    ...pagedRows,
+    {
+      id: NEW_ROW_ID,
+      code: '',
+      tradeName: '',
+      inciName: '',
+      lot: '',
+      openingDate: '',
+      quantityGram: 0,
+      unitPricePerKg: 0,
+      unitPriceValue: 0,
+      unitPriceUnitId: null,
+      unitPriceUnitCode: '',
+      unitPriceConversionToBase: 0,
+      lineAmount: 0,
+      expiryDate: '',
+      hasCertificate: false,
+    } as OpeningStockRow,
+  ]), [pagedRows])
 
   const currentRangeStart = totalRows === 0 ? 0 : (safePage - 1) * pageSize + 1
   const currentRangeEnd = Math.min(totalRows, safePage * pageSize)
 
   const clearNotice = () => setNotice(null)
+
+  const parseApiErrorMessage = (error: unknown, fallback: string): string => {
+    if (!(error instanceof Error)) return fallback
+    const raw = error.message?.trim() ?? ''
+    return raw || fallback
+  }
+
+  useEffect(() => {
+    return () => {
+      if (codeSearchTimerRef.current) clearTimeout(codeSearchTimerRef.current)
+    }
+  }, [])
+
+  const clearMaterialLookup = (nextFields: Partial<DraftRow>) => {
+    setSelectedMaterial(null)
+    setDraft((prev) => ({
+      ...prev,
+      ...nextFields,
+      inciName: '',
+      unitPriceUnitId: '',
+      unitPriceUnitCode: '',
+      unitPriceConversionToBase: '',
+    }))
+  }
+
+  const handleCodeSearch = (e: AutoCompleteCompleteEvent) => {
+    if (codeSearchTimerRef.current) clearTimeout(codeSearchTimerRef.current)
+
+    const q = e.query.trim()
+    if (!q) {
+      setMaterialSuggestions([])
+      return
+    }
+
+    codeSearchTimerRef.current = setTimeout(async () => {
+      const reqId = ++codeSearchRequestRef.current
+      try {
+        const results = await fetchMaterials(q)
+        if (reqId !== codeSearchRequestRef.current) return
+        setMaterialSuggestions(results.slice(0, 10))
+      } catch {
+        if (reqId !== codeSearchRequestRef.current) return
+        setMaterialSuggestions([])
+      }
+    }, 250)
+  }
+
+  const handleSelectMaterial = async (mat: MaterialRow) => {
+    clearNotice()
+    if (codeSearchTimerRef.current) clearTimeout(codeSearchTimerRef.current)
+    codeSearchRequestRef.current += 1
+    setMaterialSuggestions([])
+    const requestId = ++priceUnitRequestRef.current
+    setSelectedMaterial(mat)
+    setLoadingPriceUnits(true)
+    setDraft((prev) => ({
+      ...prev,
+      code: mat.code,
+      tradeName: mat.materialName,
+      inciName: mat.inciName,
+      unitPriceUnitId: '',
+      unitPriceUnitCode: '',
+      unitPriceConversionToBase: '',
+    }))
+
+    try {
+      const units = await fetchOpeningStockPriceUnits(mat.code)
+      if (requestId !== priceUnitRequestRef.current) return
+      const preferredUnit = units.find((unit) => unit.isPurchaseUnit) ?? units[0] ?? null
+      setDraft((prev) => ({
+        ...prev,
+        unitPriceUnitId: preferredUnit?.id ?? '',
+        unitPriceUnitCode: preferredUnit?.code || preferredUnit?.name || '',
+        unitPriceConversionToBase: preferredUnit ? String(preferredUnit.conversionToBase) : '',
+      }))
+    } catch (error) {
+      if (requestId !== priceUnitRequestRef.current) return
+      setDraft((prev) => ({
+        ...prev,
+        unitPriceUnitId: '',
+        unitPriceUnitCode: '',
+        unitPriceConversionToBase: '',
+      }))
+      showNotice(parseApiErrorMessage(error, 'Không tải được danh sách đơn vị đơn giá.'), 'error')
+    } finally {
+      if (requestId === priceUnitRequestRef.current) setLoadingPriceUnits(false)
+    }
+
+    // Shift focus to lot input for faster row entry flow.
+    setTimeout(() => {
+      lotInputRef.current?.focus()
+    }, 0)
+  }
+
+  const loadRows = async () => {
+    setLoading(true)
+    try {
+      const apiRows = await fetchOpeningStockRows()
+      setRows(apiRows)
+    } catch (error) {
+      showNotice(parseApiErrorMessage(error, 'Không tải được dữ liệu tồn kho đầu kỳ.'), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadRows()
+  }, [])
+
+  useEffect(() => {
+    setPage(1)
+    setSelectedIds([])
+  }, [search, pageSize])
 
   const showNotice = (message: string, tone: 'success' | 'error') => {
     setNotice(message)
@@ -185,9 +315,94 @@ export function OpeningStockPage() {
     })
   }
 
-  const handleDeleteRow = (id: string) => {
-    setRows((prev) => prev.filter((row) => row.id !== id))
-    setSelectedIds((prev) => prev.filter((item) => item !== id))
+  const syncSelectionByVisibleRows = (nextSelectedIds: string[], nextVisibleIds: string[]) => {
+    const nextSet = new Set(nextSelectedIds)
+    for (const id of nextVisibleIds) {
+      const shouldBeChecked = nextSet.has(id)
+      const isChecked = selectedIds.includes(id)
+      if (shouldBeChecked !== isChecked) {
+        handleToggleRow(id, shouldBeChecked)
+      }
+    }
+  }
+
+  const handleSelectionChange = (nextRows: OpeningStockRow[]) => {
+    const nextSelectedIds = nextRows.map((row) => row.id)
+    syncSelectionByVisibleRows(nextSelectedIds, visibleIds)
+  }
+
+  const handleDeleteRow = async (id: string) => {
+    try {
+      await deleteOpeningStockRow(id)
+      setRows((prev) => prev.filter((row) => row.id !== id))
+      setSelectedIds((prev) => prev.filter((item) => item !== id))
+    } catch (error) {
+      showNotice(parseApiErrorMessage(error, 'Không thể xóa dòng tồn kho đầu kỳ.'), 'error')
+    }
+  }
+
+  const preventEditOnNewRow = (event: ColumnEvent) => {
+    if ((event.rowData as OpeningStockRow)?.id === NEW_ROW_ID) {
+      event.originalEvent.preventDefault()
+    }
+  }
+
+  const handleCellEditComplete = (event: ColumnEvent) => {
+    const rowData = event.rowData as OpeningStockRow
+    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'quantityGram' | 'unitPriceValue' | 'expiryDate'
+    if (!field || rowData.id === NEW_ROW_ID) return
+
+    const raw = event.newValue
+    const next: {
+      lot?: string
+      openingDate?: string | null
+      quantityBase?: number
+      unitPriceValue?: number
+      expiryDate?: string | null
+    } = {}
+
+    if (field === 'lot') {
+      next.lot = String(raw ?? '').trim()
+    }
+
+    if (field === 'openingDate') {
+      const value = String(raw ?? '').trim()
+      next.openingDate = value || null
+    }
+
+    if (field === 'expiryDate') {
+      const value = String(raw ?? '').trim()
+      next.expiryDate = value || null
+    }
+
+    if (field === 'quantityGram') {
+      const value = Number.parseFloat(String(raw ?? '0'))
+      if (!Number.isFinite(value) || value < 0) {
+        event.originalEvent.preventDefault()
+        showNotice('SL (GRAM) phải là số hợp lệ >= 0.', 'error')
+        return
+      }
+      next.quantityBase = value
+    }
+
+    if (field === 'unitPriceValue') {
+      const value = Number.parseFloat(String(raw ?? '0'))
+      if (!Number.isFinite(value) || value < 0) {
+        event.originalEvent.preventDefault()
+        showNotice('Đơn giá phải là số hợp lệ >= 0.', 'error')
+        return
+      }
+      next.unitPriceValue = value
+    }
+
+    void (async () => {
+      try {
+        const updated = await updateOpeningStockRow(rowData.id, next)
+        setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      } catch (error) {
+        showNotice(parseApiErrorMessage(error, 'Không thể cập nhật dòng tồn kho đầu kỳ.'), 'error')
+      }
+    })()
   }
 
   const handleExportAll = () => {
@@ -196,8 +411,11 @@ export function OpeningStockPage() {
       'TEN THUONG MAI',
       'TEN INCI',
       'SO LO',
+      'NGAY TD',
       'SL (GRAM)',
-      'DON GIA/KG',
+      'DON GIA',
+      'DON VI GIA',
+      'THANH TIEN',
       'HAN SD',
       'CHUNG TU',
     ]
@@ -207,8 +425,10 @@ export function OpeningStockPage() {
       row.tradeName,
       row.inciName,
       row.lot,
+      row.openingDate,
       String(row.quantityGram),
-      String(row.unitPricePerKg),
+      String(row.unitPriceValue),
+      row.unitPriceUnitCode,
       row.expiryDate,
       row.hasCertificate ? 'CO' : 'KHONG',
     ])
@@ -219,8 +439,8 @@ export function OpeningStockPage() {
 
   const handleDownloadTemplate = () => {
     const template = [
-      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,SL (GRAM),DON GIA/KG,HAN SD,CHUNG TU',
-      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,1000,25000,2028-12-31,CO',
+      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,CHUNG TU',
+      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,1000,25000,kg,25000,2028-12-31,CO',
     ].join('\n')
 
     downloadTextFile(template, 'mau-khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
@@ -243,282 +463,491 @@ export function OpeningStockPage() {
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
-  const handleAddRow = () => {
-    const code = normalizeCode(draft.code)
-    const tradeName = draft.tradeName.trim()
-    const inciName = draft.inciName.trim()
-
-    if (!code || !tradeName || !inciName) {
-      showNotice('Cần nhập đầy đủ Mã NVL, Tên thương mại và Tên INCI.', 'error')
-      return
-    }
-
-    const duplicated = rows.some((row) => row.code === code)
-    if (duplicated) {
-      showNotice('Mã NVL đã tồn tại trong danh sách.', 'error')
-      return
-    }
-
-    const quantityGram = Number.parseFloat(draft.quantityGram || '0')
-    const unitPricePerKg = Number.parseFloat(draft.unitPricePerKg || '0')
-
-    if (!Number.isFinite(quantityGram) || quantityGram < 0 || !Number.isFinite(unitPricePerKg) || unitPricePerKg < 0) {
-      showNotice('SL (GRAM) và Đơn giá/Kg phải là số hợp lệ >= 0.', 'error')
-      return
-    }
-
-    const newRow: OpeningStockRow = {
-      id: `${code}-${Date.now()}`,
-      code,
-      tradeName,
-      inciName,
-      lot: draft.lot.trim(),
-      quantityGram,
-      unitPricePerKg,
-      expiryDate: draft.expiryDate || '',
-      hasCertificate: false,
-    }
-
-    setRows((prev) => [...prev, newRow])
+  const clearDraftRow = () => {
+    clearNotice()
     setDraft(emptyDraft)
-    showNotice('Đã thêm dòng tồn kho đầu kỳ mới.', 'success')
+    setSelectedMaterial(null)
+    setMaterialSuggestions([])
+    setLoadingPriceUnits(false)
+  }
 
-    const nextTotalRows = totalRows + 1
-    setPage(Math.max(1, Math.ceil(nextTotalRows / pageSize)))
+  const handleAddRow = async () => {
+    const code = normalizeCode(draft.code)
+
+    if (!code) {
+      showNotice('Cần nhập Mã NVL.', 'error')
+      return
+    }
+
+    if (!selectedMaterial || selectedMaterial.code !== code) {
+      showNotice('Vui lòng chọn Mã NVL từ danh sách gợi ý.', 'error')
+      return
+    }
+
+    const normalizedLot = draft.lot.trim()
+
+    const quantityBase = Number.parseFloat(draft.quantityGram || '0')
+    const unitPriceValue = Number.parseFloat(draft.unitPriceValue || '0')
+
+    if (!Number.isFinite(quantityBase) || quantityBase < 0 || !Number.isFinite(unitPriceValue) || unitPriceValue < 0) {
+      showNotice('SL (GRAM) và Đơn giá phải là số hợp lệ >= 0.', 'error')
+      return
+    }
+
+    if (!draft.openingDate) {
+      showNotice('Ngày tồn đầu không được để trống.', 'error')
+      return
+    }
+
+    if (!draft.unitPriceUnitId || !Number.isFinite(draftConversionToBase) || draftConversionToBase <= 0) {
+      showNotice('Không xác định được đơn vị quy đổi của Mã NVL đã chọn.', 'error')
+      return
+    }
+
+    try {
+      const newRow = await createOpeningStockRow({
+        code,
+        lot: normalizedLot,
+        openingDate: draft.openingDate || undefined,
+        quantityBase,
+        unitPriceValue,
+        unitPriceUnitId: draft.unitPriceUnitId,
+        expiryDate: draft.expiryDate || undefined,
+      })
+
+      setRows((prev) => [newRow, ...prev])
+      setDraft(emptyDraft)
+      setSelectedMaterial(null)
+      setMaterialSuggestions([])
+      setPage(1)
+    } catch (error) {
+      showNotice(parseApiErrorMessage(error, 'Không thể lưu dòng tồn kho đầu kỳ.'), 'error')
+    }
   }
 
   return (
     <div className="catalog-page-shell opening-stock-shell">
-      <section className="title-bar">
-        <div>
-          <h2>Khai báo tồn kho đầu kỳ</h2>
-          <p>Quản trị dữ liệu gốc cho toàn bộ hệ thống ZencosMS.</p>
-        </div>
-        <div className="title-actions">
-          <button type="button" className="btn btn-ghost" onClick={handleExportAll}>
-            <i className="pi pi-download" /> Xuất Tất Cả (Excel)
-          </button>
-          <button type="button" className="btn btn-primary" onClick={handleOpenUpload}>
-            <i className="pi pi-upload" /> Tải lên dữ liệu (Excel)
-          </button>
-          <input
-            ref={uploadInputRef}
-            className="hidden-input"
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={handleUploadChange}
-          />
-        </div>
-      </section>
+      <div className="catalog-page-top">
+        <section className="title-bar">
+          <div>
+            <h2>Khai báo tồn kho đầu kỳ</h2>
+            <p>Quản trị dữ liệu gốc cho toàn bộ hệ thống ZencosMS.</p>
+          </div>
+          <div className="title-actions">
+            <button type="button" className="btn btn-ghost" onClick={handleExportAll}>
+              <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleOpenUpload}>
+              <i className="pi pi-upload" /> Tải lên dữ liệu (Excel)
+            </button>
+            <input
+              ref={uploadInputRef}
+              className="hidden-input"
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleUploadChange}
+            />
+          </div>
+        </section>
 
-      <section className="mapping-card opening-stock-mapping-card">
-        <div className="mapping-icon"><i className="pi pi-file-excel" /></div>
-        <div className="mapping-content">
-          <strong>Quy tắc Mapping Excel (Bắt buộc)</strong>
-          <p>
-            Hệ thống tự động nhận diện dữ liệu dựa trên tiêu đề cột. Đảm bảo file Excel của bạn chứa các cột chính xác sau:
-            <span> MÃ NVL</span>
-            <span> TÊN THƯƠNG MẠI</span>
-            <span> TÊN INCI</span>
-            <span> SỐ LÔ</span>
-            <span> SL (GRAM)</span>
-            <span> ĐƠN GIÁ/KG</span>
-            <span> HẠN SD</span>
-          </p>
-        </div>
-        <button type="button" className="btn btn-ghost compact" onClick={handleDownloadTemplate}>
-          <i className="pi pi-download" /> Tải mẫu Excel
-        </button>
-      </section>
-
-      {notice && (
-        <section className={`catalog-inline-notice ${noticeTone}`}>
-          <span>{notice}</span>
-          <button type="button" className="catalog-inline-notice-close" onClick={clearNotice} aria-label="Đóng thông báo">
-            x
+        <section className="mapping-card opening-stock-mapping-card">
+          <div className="mapping-icon"><i className="pi pi-file-excel" /></div>
+          <div className="mapping-content">
+            <strong>Quy tắc Mapping Excel (Bắt buộc)</strong>
+            <p>
+              Hệ thống tự động nhận diện dữ liệu dựa trên tiêu đề cột. Đảm bảo file Excel của bạn chứa các cột chính xác sau:
+              <span> MÃ NVL</span>
+              <span> TÊN THƯƠNG MẠI</span>
+              <span> TÊN INCI</span>
+              <span> SỐ LÔ</span>
+              <span> NGÀY TD</span>
+              <span> SL (GRAM)</span>
+              <span> ĐƠN GIÁ/KG</span>
+              <span> HẠN SD</span>
+            </p>
+          </div>
+          <button type="button" className="btn btn-ghost compact" onClick={handleDownloadTemplate}>
+            <i className="pi pi-download" /> Tải mẫu Excel
           </button>
         </section>
-      )}
 
-      <section className="catalog-page-table">
+        {notice && (
+          <section className={`catalog-inline-notice ${noticeTone}`}>
+            <span>{notice}</span>
+            <button type="button" className="catalog-inline-notice-close" onClick={clearNotice} aria-label="Đóng thông báo">
+              x
+            </button>
+          </section>
+        )}
+      </div>
+
+      <div className="catalog-page-table">
         <div className="data-grid-wrap opening-stock-grid-wrap">
-          <table className="catalog-table opening-stock-table">
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={(event) => handleToggleSelectAll(event.target.checked)}
-                    aria-label="Chọn tất cả"
-                  />
-                </th>
-                <th>MA NVL</th>
-                <th>TEN THUONG MAI</th>
-                <th>TEN INCI *</th>
-                <th>SO LO (LOT)</th>
-                <th className="opening-stock-number-col">SL (GRAM)</th>
-                <th className="opening-stock-number-col">DON GIA/KG</th>
-                <th>HAN SD</th>
-                <th className="opening-stock-center-col">CHUNG TU</th>
-                <th className="actions">THAO TAC</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedRows.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(row.id)}
-                      onChange={(event) => handleToggleRow(row.id, event.target.checked)}
-                      aria-label={`Chọn dòng ${row.code}`}
+          <DataTable
+            value={tableRows}
+            dataKey="id"
+            selectionMode="checkbox"
+            selection={selectedRows}
+            onSelectionChange={(event) => handleSelectionChange((event.value ?? []) as OpeningStockRow[])}
+            editMode="cell"
+            selectAll={allVisibleSelected}
+            onSelectAllChange={(event) => handleToggleSelectAll(Boolean(event.checked))}
+            isDataSelectable={(event) => event.data?.id !== NEW_ROW_ID}
+            stripedRows
+            loading={loading}
+            cellMemo={false}
+            emptyMessage="Chưa có dữ liệu tồn kho đầu kỳ."
+            className="catalog-table opening-stock-table prime-catalog-table"
+            rowClassName={(rowData) => (rowData.id === NEW_ROW_ID ? 'new-row opening-stock-add-row' : 'data-row')}
+          >
+            <Column selectionMode="multiple" headerStyle={{ width: '38px' }} style={{ width: '38px' }} body={(rowData: OpeningStockRow) => (
+              rowData.id === NEW_ROW_ID ? <span className="new-row-marker">+</span> : undefined
+            )}
+            />
+            <Column
+              field="code"
+              header="MÃ NVL"
+              style={{ width: '120px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              headerClassName="opening-stock-readonly-column-header"
+              bodyClassName="opening-stock-readonly-column"
+              body={(rowData: OpeningStockRow) => {
+                if (rowData.id !== NEW_ROW_ID) return <span className="opening-stock-code">{rowData.code}</span>
+                return (
+                  <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                    <AutoComplete
+                      value={draft.code}
+                      suggestions={materialSuggestions}
+                      completeMethod={(e) => void handleCodeSearch(e)}
+                      field="code"
+                      appendTo={document.body}
+                      itemTemplate={(mat: MaterialRow) => (
+                        <div className="opening-stock-code-suggestion-item">
+                          <span className="suggestion-code">{mat.code}</span>
+                          <span className="suggestion-name">{mat.materialName}</span>
+                          <span className="suggestion-inci">INCI: {mat.inciName || '---'}</span>
+                        </div>
+                      )}
+                      onChange={(e) => {
+                        if (typeof e.value === 'string') {
+                          clearMaterialLookup({ code: e.value, tradeName: '' })
+                          return
+                        }
+                        if (!e.value) clearMaterialLookup({ code: '', tradeName: '' })
+                      }}
+                      onSelect={(e) => void handleSelectMaterial(e.value as MaterialRow)}
+                      placeholder="Mã NVL"
+                      aria-label="Mã NVL"
+                      className="opening-stock-autocomplete"
+                      inputClassName="opening-stock-autocomplete-input"
                     />
-                  </td>
-                  <td className="opening-stock-code">{row.code}</td>
-                  <td>{row.tradeName}</td>
-                  <td className="opening-stock-inci">{row.inciName}</td>
-                  <td>{row.lot}</td>
-                  <td className="opening-stock-number-col">{formatNumber(row.quantityGram)}</td>
-                  <td className="opening-stock-number-col">{formatNumber(row.unitPricePerKg)}</td>
-                  <td>
-                    {row.expiryDate ? <span className="status-pill">{row.expiryDate}</span> : '---'}
-                  </td>
-                  <td className="opening-stock-center-col">
-                    <button
-                      type="button"
-                      className={`icon-btn${row.hasCertificate ? ' is-linked' : ''}`}
-                      aria-label="Đính kèm chứng từ"
-                    >
-                      <i className="pi pi-paperclip" />
-                    </button>
-                  </td>
-                  <td className="actions">
+                  </div>
+                )
+              }}
+            />
+            <Column
+              field="tradeName"
+              header="TÊN THƯƠNG MẠI"
+              style={{ width: '250px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              headerClassName="opening-stock-readonly-column-header"
+              bodyClassName="opening-stock-readonly-column"
+              body={(rowData: OpeningStockRow) => {
+                if (rowData.id !== NEW_ROW_ID) return rowData.tradeName
+                return (
+                  <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                    <AutoComplete
+                      value={draft.tradeName}
+                      suggestions={materialSuggestions}
+                      completeMethod={(e) => void handleCodeSearch(e)}
+                      field="materialName"
+                      appendTo={document.body}
+                      itemTemplate={(mat: MaterialRow) => (
+                        <div className="opening-stock-code-suggestion-item">
+                          <span className="suggestion-code">{mat.code}</span>
+                          <span className="suggestion-name">{mat.materialName}</span>
+                          <span className="suggestion-inci">INCI: {mat.inciName || '---'}</span>
+                        </div>
+                      )}
+                      onChange={(e) => {
+                        if (typeof e.value === 'string') {
+                          clearMaterialLookup({ code: '', tradeName: e.value })
+                          return
+                        }
+                        if (!e.value) clearMaterialLookup({ code: '', tradeName: '' })
+                      }}
+                      onSelect={(e) => void handleSelectMaterial(e.value as MaterialRow)}
+                      placeholder="Tên hàng"
+                      aria-label="Tên thương mại"
+                      className="opening-stock-autocomplete"
+                      inputClassName="opening-stock-autocomplete-input"
+                    />
+                  </div>
+                )
+              }}
+            />
+            <Column
+              field="inciName"
+              style={{ width: '220px' }}
+              header="TÊN INCI *"
+              headerClassName="opening-stock-readonly-column-header"
+              bodyClassName="opening-stock-readonly-column"
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? <span className="opening-stock-inci">{rowData.inciName}</span>
+                  : <input className="opening-stock-readonly-input" value={draft.inciName} readOnly placeholder="Tên INCI" aria-label="Tên INCI" />
+              )}
+            />
+            <Column
+              field="lot"
+              header="SỐ LÔ (LOT)"
+              style={{ width: '110px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Số lô"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? rowData.lot
+                  : (
+                    <input
+                      ref={lotInputRef}
+                      value={draft.lot}
+                      onChange={(event) => handleDraftChange('lot', event.target.value)}
+                      placeholder="Số lô"
+                      aria-label="Số lô"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="openingDate"
+              header="NGÀY TD"
+              style={{ width: '120px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  type="date"
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Ngày tồn đầu"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.openingDate ? <span className="status-pill">{rowData.openingDate}</span> : '---')
+                  : (
+                    <input
+                      type="date"
+                      value={draft.openingDate}
+                      onChange={(event) => handleDraftChange('openingDate', event.target.value)}
+                      aria-label="Ngày tồn đầu"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="quantityGram"
+              header="SL (GRAM)"
+              style={{ width: '110px' }}
+              bodyClassName="opening-stock-number-col"
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  inputMode="decimal"
+                  aria-label="Số lượng gram"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? formatNumber(rowData.quantityGram)
+                  : (
+                    <input
+                      value={draft.quantityGram}
+                      onChange={(event) => handleDraftChange('quantityGram', event.target.value)}
+                      placeholder="0"
+                      inputMode="decimal"
+                      aria-label="Số lượng gram"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="unitPriceValue"
+              header="ĐƠN GIÁ"
+              style={{ width: '115px' }}
+              bodyClassName="opening-stock-number-col"
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  inputMode="decimal"
+                  aria-label="Đơn giá"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? formatNumber(rowData.unitPriceValue)
+                  : (
+                    <input
+                      value={draft.unitPriceValue}
+                      onChange={(event) => handleDraftChange('unitPriceValue', event.target.value)}
+                      placeholder="0"
+                      inputMode="decimal"
+                      aria-label="Đơn giá"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="unitPriceUnitCode"
+              header="ĐV ĐƠN GIÁ"
+              style={{ width: '130px' }}
+              headerClassName="opening-stock-readonly-column-header"
+              bodyClassName="opening-stock-readonly-column"
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.unitPriceUnitCode || '---')
+                  : (
+                    <input
+                      className="opening-stock-readonly-input"
+                      value={
+                        loadingPriceUnits
+                          ? 'Đang tải...'
+                          : draft.unitPriceUnitCode
+                            ? `${draft.unitPriceUnitCode} (x${formatNumber(draftConversionToBase || 0)})`
+                            : '---'
+                      }
+                      readOnly
+                      aria-label="Đơn vị đơn giá"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="lineAmount"
+              header="THÀNH TIỀN"
+              style={{ width: '120px' }}
+              headerClassName="opening-stock-readonly-column-header"
+              bodyClassName="opening-stock-number-col opening-stock-readonly-column"
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? formatNumber(rowData.lineAmount)
+                  : <input className="opening-stock-readonly-input" value={formatNumber(draftLineAmount)} readOnly aria-label="Thành tiền" />
+              )}
+            />
+            <Column
+              field="expiryDate"
+              header="HẠN SD"
+              style={{ width: '120px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  type="date"
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Hạn sử dụng"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.expiryDate ? <span className="status-pill">{rowData.expiryDate}</span> : '---')
+                  : (
+                    <input
+                      type="date"
+                      value={draft.expiryDate}
+                      onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
+                      aria-label="Hạn sử dụng"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="hasCertificate"
+              header="CHỨNG TỪ"
+              style={{ width: '90px' }}
+              bodyClassName="opening-stock-center-col"
+              body={(rowData: OpeningStockRow) => (
+                <button
+                  type="button"
+                  className={`icon-btn${rowData.hasCertificate ? ' is-linked' : ''}`}
+                  aria-label={rowData.id === NEW_ROW_ID ? 'Đính kèm cho dòng mới' : 'Đính kèm chứng từ'}
+                >
+                  <i className="pi pi-paperclip" />
+                </button>
+              )}
+            />
+            <Column
+              header="THAO TÁC"
+              bodyClassName="actions"
+              body={(rowData: OpeningStockRow) => {
+                if (rowData.id !== NEW_ROW_ID) {
+                  return (
                     <button
                       type="button"
                       className="icon-btn danger"
-                      aria-label={`Xóa dòng ${row.code}`}
-                      onClick={() => handleDeleteRow(row.id)}
+                      aria-label={`Xóa dòng ${rowData.code}`}
+                      onClick={() => void handleDeleteRow(rowData.id)}
                     >
                       <i className="pi pi-trash" />
                     </button>
-                  </td>
-                </tr>
-              ))}
+                  )
+                }
 
-              <tr className="opening-stock-add-row">
-                <td className="new-row-marker">+</td>
-                <td>
-                  <input
-                    value={draft.code}
-                    onChange={(event) => handleDraftChange('code', event.target.value)}
-                    placeholder="Mã NVL"
-                    aria-label="Mã NVL"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={draft.tradeName}
-                    onChange={(event) => handleDraftChange('tradeName', event.target.value)}
-                    placeholder="Tên hàng"
-                    aria-label="Tên thương mại"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={draft.inciName}
-                    onChange={(event) => handleDraftChange('inciName', event.target.value)}
-                    placeholder="Tên INCI"
-                    aria-label="Tên INCI"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={draft.lot}
-                    onChange={(event) => handleDraftChange('lot', event.target.value)}
-                    placeholder="Số lô"
-                    aria-label="Số lô"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={draft.quantityGram}
-                    onChange={(event) => handleDraftChange('quantityGram', event.target.value)}
-                    placeholder="0"
-                    inputMode="decimal"
-                    aria-label="Số lượng gram"
-                  />
-                </td>
-                <td>
-                  <input
-                    value={draft.unitPricePerKg}
-                    onChange={(event) => handleDraftChange('unitPricePerKg', event.target.value)}
-                    placeholder="0"
-                    inputMode="decimal"
-                    aria-label="Đơn giá"
-                  />
-                </td>
-                <td>
-                  <input
-                    type="date"
-                    value={draft.expiryDate}
-                    onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
-                    aria-label="Hạn sử dụng"
-                  />
-                </td>
-                <td className="opening-stock-center-col">
-                  <button type="button" className="icon-btn" aria-label="Đính kèm cho dòng mới">
-                    <i className="pi pi-paperclip" />
-                  </button>
-                </td>
-                <td className="actions">
-                  <button type="button" className="btn btn-primary opening-stock-add-btn" onClick={handleAddRow}>
-                    THÊM MỚI
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                return (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="icon-btn save-btn"
+                      aria-label="Lưu dòng mới"
+                      title="Lưu"
+                      onClick={() => void handleAddRow()}
+                      disabled={!canSaveDraftRow}
+                    >
+                      <i className="pi pi-save" />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label="Xóa nháp dòng mới"
+                      title="Xóa nháp"
+                      onClick={clearDraftRow}
+                    >
+                      x
+                    </button>
+                  </div>
+                )
+              }}
+              style={{ width: '90px' }}
+            />
+          </DataTable>
         </div>
-      </section>
+      </div>
 
-      <section className="opening-stock-footer">
-        <p>
-          Hiển thị {currentRangeStart}-{currentRangeEnd} trong tổng số {totalRows} bản ghi
-        </p>
-
-        <div className="pagination">
-          <button
-            type="button"
-            className="page-btn"
-            disabled={safePage <= 1}
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            aria-label="Trang trước"
-          >
-            <i className="pi pi-chevron-left" />
-          </button>
-
-          {pageButtons.map((pageNumber) => (
-            <button
-              key={pageNumber}
-              type="button"
-              className={`page-btn${safePage === pageNumber ? ' active' : ''}`}
-              onClick={() => setPage(pageNumber)}
-            >
-              {pageNumber}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            className="page-btn"
-            disabled={safePage >= totalPages}
-            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            aria-label="Trang sau"
-          >
-            <i className="pi pi-chevron-right" />
-          </button>
-        </div>
+      <section className="catalog-page-bottom">
+        <CatalogGridFooter
+          currentRangeStart={currentRangeStart}
+          currentRangeEnd={currentRangeEnd}
+          totalRows={totalRows}
+          safePage={safePage}
+          totalPages={totalPages}
+          pageButtons={pageButtons}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </section>
     </div>
   )

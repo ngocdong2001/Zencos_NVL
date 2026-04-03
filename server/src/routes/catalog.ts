@@ -104,6 +104,7 @@ const materialSchema = z.object({
   inciName: z.string().optional().default(''),
   productType: z.union([z.string().min(1), z.coerce.number().int().positive()]).default('raw_material'),
   baseUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]),
+  orderUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]).optional(),
   minStockLevel: z.coerce.number().nonnegative().default(0),
   hasExpiry: z.boolean().default(true),
   useFefo: z.boolean().default(true),
@@ -211,12 +212,16 @@ router.get('/materials', async (req, res) => {
       p.product_type,
       pc.code AS product_type_code,
       p.base_unit,
-      pu.unit_code_name,
-      pu.unit_name,
+      pu.unit_code_name AS base_unit_code,
+      pu.unit_name AS base_unit_name,
+      p.order_unit,
+      pou.unit_code_name AS order_unit_code,
+      pou.unit_name AS order_unit_name,
       p.deleted_at
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
+    LEFT JOIN product_units pou ON pou.id = p.order_unit
     WHERE p.deleted_at IS NULL
       AND (${q} = '' OR p.code LIKE ${`%${q}%`} OR p.name LIKE ${`%${q}%`} OR p.inci_name LIKE ${`%${q}%`})
     ORDER BY p.created_at DESC
@@ -228,7 +233,8 @@ router.get('/materials', async (req, res) => {
     inciName: String(row.inci_name ?? ''),
     materialName: String(row.name ?? ''),
     category: String(row.product_type_code ?? row.product_type ?? ''),
-    unit: String(row.unit_code_name ?? row.unit_name ?? row.base_unit ?? ''),
+    unit: String(row.base_unit_code ?? row.base_unit_name ?? row.base_unit ?? ''),
+    orderUnit: String(row.order_unit_code ?? row.order_unit_name ?? row.base_unit_code ?? row.base_unit_name ?? row.order_unit ?? row.base_unit ?? ''),
     status: toStatusLabel(row.deleted_at),
   }))
 
@@ -250,10 +256,12 @@ router.post('/materials', async (req, res) => {
   const codeToInsert = data.code
   let productTypeId: number
   let baseUnitId: number
+  let orderUnitId: number
 
   try {
     productTypeId = await resolveProductTypeId(data.productType)
     baseUnitId = await resolveBaseUnitId(data.baseUnit)
+    orderUnitId = data.orderUnit === undefined ? baseUnitId : await resolveBaseUnitId(data.orderUnit)
   } catch (error) {
     if (error instanceof Error && error.message === 'INVALID_PRODUCT_TYPE') {
       return res.status(400).json({ message: 'Invalid productType' })
@@ -267,9 +275,9 @@ router.post('/materials', async (req, res) => {
   try {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO products
-        (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, min_stock_level, notes, created_at, updated_at)
+        (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, order_unit, min_stock_level, notes, created_at, updated_at)
       VALUES
-        (${codeToInsert}, ${data.name}, ${data.inciName}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
+        (${codeToInsert}, ${data.name}, ${data.inciName}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${orderUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (!isDuplicateCodeError(error)) throw error
@@ -296,12 +304,16 @@ router.post('/materials', async (req, res) => {
       p.product_type,
       pc.code AS product_type_code,
       p.base_unit,
-      pu.unit_code_name,
-      pu.unit_name,
+      pu.unit_code_name AS base_unit_code,
+      pu.unit_name AS base_unit_name,
+      p.order_unit,
+      pou.unit_code_name AS order_unit_code,
+      pou.unit_name AS order_unit_name,
       p.deleted_at
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
+    LEFT JOIN product_units pou ON pou.id = p.order_unit
     WHERE p.id = LAST_INSERT_ID()
   `)
 
@@ -322,6 +334,7 @@ router.put('/materials/:id', async (req, res) => {
   const data = parsed.data
   let productTypeId: number | null = null
   let baseUnitId: number | null = null
+  let orderUnitId: number | null = null
   if (data.productType !== undefined) {
     try {
       productTypeId = await resolveProductTypeId(data.productType)
@@ -344,6 +357,17 @@ router.put('/materials/:id', async (req, res) => {
     }
   }
 
+  if (data.orderUnit !== undefined) {
+    try {
+      orderUnitId = await resolveBaseUnitId(data.orderUnit)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVALID_BASE_UNIT') {
+        return res.status(400).json({ message: 'Invalid orderUnit' })
+      }
+      throw error
+    }
+  }
+
   try {
     await prisma.$executeRaw(Prisma.sql`
       UPDATE products
@@ -355,6 +379,7 @@ router.put('/materials/:id', async (req, res) => {
         has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
         use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
         base_unit = COALESCE(${baseUnitId}, base_unit),
+        order_unit = COALESCE(${orderUnitId}, order_unit),
         min_stock_level = COALESCE(${data.minStockLevel ?? null}, min_stock_level),
         notes = COALESCE(${data.notes ?? null}, notes),
         updated_at = NOW(3)
@@ -374,12 +399,16 @@ router.put('/materials/:id', async (req, res) => {
       p.product_type,
       pc.code AS product_type_code,
       p.base_unit,
-      pu.unit_code_name,
-      pu.unit_name,
+      pu.unit_code_name AS base_unit_code,
+      pu.unit_name AS base_unit_name,
+      p.order_unit,
+      pou.unit_code_name AS order_unit_code,
+      pou.unit_name AS order_unit_name,
       p.deleted_at
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
+    LEFT JOIN product_units pou ON pou.id = p.order_unit
     WHERE p.id = ${id}
   `)
 
