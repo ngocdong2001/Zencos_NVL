@@ -4,6 +4,7 @@ import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
 import { updateOpeningStockRow } from '../../lib/openingStockApi'
 import type { OpeningStockRow } from '../../lib/openingStockApi'
 import { fetchItemDocuments, getDocumentFileUrl } from '../../lib/openingStockDocApi'
+import { fetchMaterials } from '../../lib/catalogApi'
 import type { StockItemDoc } from '../../lib/openingStockDocApi'
 
 type SupplierOption = { id: string; code: string; name: string }
@@ -35,6 +36,7 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
   const [quantityGram, setQuantityGram] = useState(String(row.quantityGram))
   const [unitPriceValue, setUnitPriceValue] = useState(String(row.unitPriceValue))
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
+  const [baseUnitLabel, setBaseUnitLabel] = useState('g')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [docs, setDocs] = useState<StockItemDoc[]>([])
@@ -49,6 +51,23 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
       .finally(() => { if (!cancelled) setDocsLoading(false) })
     return () => { cancelled = true }
   }, [row.id])
+
+  useEffect(() => {
+    let cancelled = false
+    setBaseUnitLabel('g')
+
+    fetchMaterials(row.code)
+      .then((materials) => {
+        if (cancelled) return
+        const exact = materials.find((material) => material.code.toUpperCase() === row.code.toUpperCase())
+        setBaseUnitLabel(exact?.unit || 'g')
+      })
+      .catch(() => {
+        if (!cancelled) setBaseUnitLabel('g')
+      })
+
+    return () => { cancelled = true }
+  }, [row.code])
 
   const qtyNum = Number.parseFloat(quantityGram || '0')
   const priceNum = Number.parseFloat(unitPriceValue || '0')
@@ -84,6 +103,7 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
         unitPriceValue: Number.isFinite(uPrice) && uPrice >= 0 ? uPrice : undefined,
       })
       onSaved(updated)
+      onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu thay đổi.')
     } finally {
@@ -125,211 +145,214 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
         {/* Body */}
         <div className="sdm-body">
           <div className="sdm-grid">
-
-            {/* THÔNG TIN CHUNG */}
-            <div className="sdm-section">
-              <div className="sdm-section-title">
-                <i className="pi pi-box" />
-                <span>Thông tin chung</span>
-              </div>
-              <div className="sdm-card">
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Nhà cung cấp:</span>
-                  <div
-                    className="sdm-autocomplete-wrap"
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <AutoComplete
-                      value={supplierValue}
-                      suggestions={supplierSuggestions}
-                      completeMethod={handleSupplierSearch}
-                      field="name"
-                      itemTemplate={(s: SupplierOption) => `${s.code} - ${s.name}`}
-                      onChange={(e) => {
-                        setSupplierValue(e.value)
-                        if (typeof e.value === 'string') setSupplierId('')
-                      }}
-                      onSelect={(e) => {
-                        const s = e.value as SupplierOption
-                        setSupplierValue(s)
-                        setSupplierId(s.id)
-                      }}
-                      onClear={() => {
-                        setSupplierValue('')
-                        setSupplierId('')
-                      }}
-                      appendTo={document.body}
-                      placeholder="Chọn nhà cung cấp..."
-                      className="sdm-autocomplete"
-                      inputClassName="sdm-autocomplete-input"
-                    />
+            <div className="sdm-column">
+              {/* THÔNG TIN CHUNG */}
+              <div className="sdm-section">
+                <div className="sdm-section-title">
+                  <i className="pi pi-box" />
+                  <span>Thông tin chung</span>
+                </div>
+                <div className="sdm-card">
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Nhà cung cấp:</span>
+                    <div
+                      className="sdm-autocomplete-wrap"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <AutoComplete
+                        value={supplierValue}
+                        suggestions={supplierSuggestions}
+                        completeMethod={handleSupplierSearch}
+                        field="name"
+                        itemTemplate={(s: SupplierOption) => `${s.code} - ${s.name}`}
+                        onChange={(e) => {
+                          setSupplierValue(e.value)
+                          if (typeof e.value === 'string') setSupplierId('')
+                        }}
+                        onSelect={(e) => {
+                          const s = e.value as SupplierOption
+                          setSupplierValue(s)
+                          setSupplierId(s.id)
+                        }}
+                        onClear={() => {
+                          setSupplierValue('')
+                          setSupplierId('')
+                        }}
+                        appendTo={document.body}
+                        placeholder="Chọn nhà cung cấp..."
+                        className="sdm-autocomplete"
+                        inputClassName="sdm-autocomplete-input"
+                      />
+                    </div>
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Nguyên vật liệu:</span>
+                    <span className="sdm-value bold">{row.tradeName || '---'}</span>
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">INCI Name:</span>
+                    <span className="sdm-value muted italic">{row.inciName || '---'}</span>
                   </div>
                 </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Nguyên vật liệu:</span>
-                  <span className="sdm-value bold">{row.tradeName || '---'}</span>
+              </div>
+
+              {/* KHỐI LƯỢNG & TÀI CHÍNH */}
+              <div className="sdm-section">
+                <div className="sdm-section-title">
+                  <i className="pi pi-shield" />
+                  <span>{`Khối lượng & Tài chính`}</span>
                 </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">INCI Name:</span>
-                  <span className="sdm-value muted italic">{row.inciName || '---'}</span>
+                <div className="sdm-card sdm-card-accent">
+                  <div className="sdm-field-row sdm-qty-row">
+                    <span className="sdm-label sdm-qty-label">Số lượng nhập:</span>
+                    <div className="sdm-qty-input-wrap">
+                      <input
+                        className="sdm-input sdm-qty-input"
+                        value={quantityGram}
+                        onChange={(e) => setQuantityGram(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0"
+                        aria-label="Số lượng gram"
+                      />
+                      <span className="sdm-qty-unit">{baseUnitLabel}</span>
+                    </div>
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Đơn giá:</span>
+                    <div className="sdm-price-input-wrap">
+                      <input
+                        className="sdm-input"
+                        value={unitPriceValue}
+                        onChange={(e) => setUnitPriceValue(e.target.value)}
+                        inputMode="decimal"
+                        placeholder="0"
+                        aria-label="Đơn giá"
+                      />
+                      <span className="sdm-price-unit">đ/{row.unitPriceUnitCode || 'kg'}</span>
+                    </div>
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label bold">Tổng giá trị:</span>
+                    <span className="sdm-value accent underline">{formatNumber(lineAmount)} đ</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* CHI TIẾT LÔ HÀNG */}
-            <div className="sdm-section">
-              <div className="sdm-section-title">
-                <i className="pi pi-calendar" />
-                <span>Chi tiết Lô hàng</span>
-              </div>
-              <div className="sdm-card">
-                <div className="sdm-field-row">
-                  <span className="sdm-label">LOT NO:</span>
-                  <input
-                    className="sdm-input bold"
-                    value={lot}
-                    onChange={(e) => setLot(e.target.value)}
-                    placeholder="Số lô"
-                    aria-label="Số lô"
-                  />
+            <div className="sdm-column">
+              {/* CHI TIẾT LÔ HÀNG */}
+              <div className="sdm-section">
+                <div className="sdm-section-title">
+                  <i className="pi pi-calendar" />
+                  <span>Chi tiết Lô hàng</span>
                 </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Ngày tồn đầu:</span>
-                  <input
-                    className="sdm-input"
-                    type="date"
-                    value={openingDate}
-                    onChange={(e) => setOpeningDate(e.target.value)}
-                    aria-label="Ngày tồn đầu"
-                  />
-                </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Ngày sản xuất:</span>
-                  <input
-                    className="sdm-input"
-                    type="date"
-                    value={manufactureDate}
-                    onChange={(e) => setManufactureDate(e.target.value)}
-                    aria-label="Ngày sản xuất"
-                  />
-                </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Hạn sử dụng:</span>
-                  <input
-                    className="sdm-input sdm-expiry-input"
-                    type="date"
-                    value={expiryDate}
-                    onChange={(e) => setExpiryDate(e.target.value)}
-                    aria-label="Hạn sử dụng"
-                  />
-                </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Số hóa đơn:</span>
-                  <input
-                    className="sdm-input"
-                    value={invoiceNo}
-                    onChange={(e) => setInvoiceNo(e.target.value)}
-                    placeholder="---"
-                    aria-label="Số hóa đơn"
-                  />
-                </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Ngày hóa đơn:</span>
-                  <input
-                    className="sdm-input"
-                    type="date"
-                    value={invoiceDate}
-                    onChange={(e) => setInvoiceDate(e.target.value)}
-                    aria-label="Ngày hóa đơn"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* KHỐI LƯỢNG & TÀI CHÍNH */}
-            <div className="sdm-section">
-              <div className="sdm-section-title">
-                <i className="pi pi-shield" />
-                <span>{`Khối lượng & Tài chính`}</span>
-              </div>
-              <div className="sdm-card sdm-card-accent">
-                <div className="sdm-field-row sdm-qty-row">
-                  <span className="sdm-label sdm-qty-label">Số lượng nhập:</span>
-                  <div className="sdm-qty-input-wrap">
+                <div className="sdm-card">
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">LOT NO:</span>
                     <input
-                      className="sdm-input sdm-qty-input"
-                      value={quantityGram}
-                      onChange={(e) => setQuantityGram(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="0"
-                      aria-label="Số lượng gram"
+                      className="sdm-input bold"
+                      value={lot}
+                      onChange={(e) => setLot(e.target.value)}
+                      placeholder="Số lô"
+                      aria-label="Số lô"
                     />
-                    <span className="sdm-qty-unit">g</span>
                   </div>
-                </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label">Đơn giá:</span>
-                  <div className="sdm-price-input-wrap">
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Ngày tồn đầu:</span>
                     <input
                       className="sdm-input"
-                      value={unitPriceValue}
-                      onChange={(e) => setUnitPriceValue(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="0"
-                      aria-label="Đơn giá"
+                      type="date"
+                      value={openingDate}
+                      onChange={(e) => setOpeningDate(e.target.value)}
+                      aria-label="Ngày tồn đầu"
                     />
-                    <span className="sdm-price-unit">đ/{row.unitPriceUnitCode || 'kg'}</span>
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Ngày sản xuất:</span>
+                    <input
+                      className="sdm-input"
+                      type="date"
+                      value={manufactureDate}
+                      onChange={(e) => setManufactureDate(e.target.value)}
+                      aria-label="Ngày sản xuất"
+                    />
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Hạn sử dụng:</span>
+                    <input
+                      className="sdm-input sdm-expiry-input"
+                      type="date"
+                      value={expiryDate}
+                      onChange={(e) => setExpiryDate(e.target.value)}
+                      aria-label="Hạn sử dụng"
+                    />
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Số hóa đơn:</span>
+                    <input
+                      className="sdm-input"
+                      value={invoiceNo}
+                      onChange={(e) => setInvoiceNo(e.target.value)}
+                      placeholder="---"
+                      aria-label="Số hóa đơn"
+                    />
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Ngày hóa đơn:</span>
+                    <input
+                      className="sdm-input"
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                      aria-label="Ngày hóa đơn"
+                    />
                   </div>
                 </div>
-                <div className="sdm-divider" />
-                <div className="sdm-field-row">
-                  <span className="sdm-label bold">Tổng giá trị:</span>
-                  <span className="sdm-value accent underline">{formatNumber(lineAmount)} đ</span>
-                </div>
               </div>
-            </div>
 
-            {/* DANH SÁCH CHỨNG TỪ */}
-            <div className="sdm-section">
-              <div className="sdm-section-title">
-                <i className="pi pi-file" />
-                <span>Danh sách Chứng từ</span>
-              </div>
-              <div className="sdm-docs-list">
-                {docsLoading && <p className="sdm-docs-empty">Đang tải...</p>}
-                {!docsLoading && docs.length === 0 && (
-                  <p className="sdm-docs-empty">Chưa có chứng từ đính kèm.</p>
-                )}
-                {docs.map((doc) => (
-                  <div key={doc.id} className="sdm-doc-item">
-                    <i className="pi pi-file sdm-doc-icon" />
-                    <a
-                      className="sdm-doc-name"
-                      href={getDocumentFileUrl(row.id, doc.id, false)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {doc.originalName}
-                    </a>
-                    <span className="sdm-doc-badge">{doc.docType}</span>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="btn btn-ghost compact sdm-add-doc-btn"
-                  onClick={onOpenDocs}
-                >
-                  <i className="pi pi-paperclip" /> Quản lý chứng từ
-                </button>
+              {/* DANH SÁCH CHỨNG TỪ */}
+              <div className="sdm-section">
+                <div className="sdm-section-title">
+                  <i className="pi pi-file" />
+                  <span>Danh sách Chứng từ</span>
+                </div>
+                <div className="sdm-docs-list">
+                  {docsLoading && <p className="sdm-docs-empty">Đang tải...</p>}
+                  {!docsLoading && docs.length === 0 && (
+                    <p className="sdm-docs-empty">Chưa có chứng từ đính kèm.</p>
+                  )}
+                  {docs.map((doc) => (
+                    <div key={doc.id} className="sdm-doc-item">
+                      <i className="pi pi-file sdm-doc-icon" />
+                      <a
+                        className="sdm-doc-name"
+                        href={getDocumentFileUrl(row.id, doc.id, false)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {doc.originalName}
+                      </a>
+                      <span className="sdm-doc-badge">{doc.docType}</span>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-ghost compact sdm-add-doc-btn"
+                    onClick={onOpenDocs}
+                  >
+                    <i className="pi pi-paperclip" /> Quản lý chứng từ
+                  </button>
+                </div>
               </div>
             </div>
           </div>

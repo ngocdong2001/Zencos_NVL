@@ -144,6 +144,7 @@ export function OpeningStockPage() {
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [docModalItem, setDocModalItem] = useState<{ id: string; label: string } | null>(null)
   const [detailModalRow, setDetailModalRow] = useState<OpeningStockRow | null>(null)
+  const [detailModalReturnRow, setDetailModalReturnRow] = useState<OpeningStockRow | null>(null)
   const codeSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const codeSearchRequestRef = useRef(0)
   const priceUnitRequestRef = useRef(0)
@@ -524,7 +525,7 @@ export function OpeningStockPage() {
       const value = Number.parseFloat(String(raw ?? '0'))
       if (!Number.isFinite(value) || value < 0) {
         event.originalEvent.preventDefault()
-        showNotice('SL (GRAM) phải là số hợp lệ >= 0.', 'error')
+        showNotice('SL (GRAM/ml) phải là số hợp lệ >= 0.', 'error')
         return
       }
       next.quantityBase = value
@@ -560,7 +561,7 @@ export function OpeningStockPage() {
       'SO HOA DON',
       'NGAY HOA DON',
       'NHA CUNG CAP',
-      'SL (GRAM)',
+      'SL (gr/ml)',
       'DON GIA',
       'DON VI GIA',
       'THANH TIEN',
@@ -593,7 +594,7 @@ export function OpeningStockPage() {
 
   const handleDownloadTemplate = () => {
     const template = [
-      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,NGAY SX,CHUNG TU',
+      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (gr/ml),DON GIA,DON VI GIA,THANH TIEN,HAN SD,NGAY SX,CHUNG TU',
       'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,kg,25000,2028-12-31,2024-01-01,CO',
     ].join('\n')
 
@@ -646,7 +647,7 @@ export function OpeningStockPage() {
     const unitPriceValue = Number.parseFloat(draft.unitPriceValue || '0')
 
     if (!Number.isFinite(quantityBase) || quantityBase < 0 || !Number.isFinite(unitPriceValue) || unitPriceValue < 0) {
-      showNotice('SL (GRAM) và Đơn giá phải là số hợp lệ >= 0.', 'error')
+      showNotice('SL (gr/ml) và Đơn giá phải là số hợp lệ >= 0.', 'error')
       return
     }
 
@@ -673,6 +674,7 @@ export function OpeningStockPage() {
         unitPriceUnitId: draft.unitPriceUnitId,
         expiryDate: draft.expiryDate || undefined,
         manufactureDate: draft.manufactureDate || undefined,
+      })
 
       setRows((prev) => [...prev, newRow])
       setDraft(emptyDraft())
@@ -736,7 +738,7 @@ export function OpeningStockPage() {
               <span> TÊN INCI</span>
               <span> SỐ LÔ</span>
               <span> NGÀY TD</span>
-              <span> SL (GRAM)</span>
+              <span> SL (gr/ml)</span>
               <span> ĐƠN GIÁ/KG</span>
               <span> HẠN SD</span>
             </p>
@@ -1049,7 +1051,7 @@ export function OpeningStockPage() {
             />
             <Column
               field="quantityGram"
-              header="SL (GRAM)"
+              header="SL (gr/ml)"
               style={{ width: '110px' }}
               align="right"
               bodyClassName="opening-stock-number-col"
@@ -1313,9 +1315,11 @@ export function OpeningStockPage() {
           onSaved={(updated) => {
             setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
             setDetailModalRow(updated)
+            setDetailModalReturnRow((prev) => (prev?.id === updated.id ? updated : prev))
           }}
           onOpenDocs={() => {
             const r = detailModalRow
+            setDetailModalReturnRow(r)
             setDetailModalRow(null)
             setDocModalItem({ id: r.id, label: `${r.code} / ${r.lot || '---'}` })
           }}
@@ -1326,9 +1330,18 @@ export function OpeningStockPage() {
         <StockItemDocModal
           itemId={docModalItem.id}
           itemLabel={docModalItem.label}
-          onClose={() => setDocModalItem(null)}
+          onClose={() => {
+            const returnRow = detailModalReturnRow
+            setDocModalItem(null)
+            if (returnRow?.id === docModalItem.id) {
+              const latestRow = rows.find((row) => row.id === returnRow.id) ?? returnRow
+              setDetailModalRow(latestRow)
+              setDetailModalReturnRow(null)
+            }
+          }}
           onHasDocChanged={(id, hasDoc) => {
             setRows((prev) => prev.map((row) => (row.id === id ? { ...row, hasCertificate: hasDoc } : row)))
+            setDetailModalReturnRow((prev) => (prev?.id === id ? { ...prev, hasCertificate: hasDoc } : prev))
           }}
         />
       ) : null}
