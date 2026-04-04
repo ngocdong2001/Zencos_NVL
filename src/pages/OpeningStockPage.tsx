@@ -8,6 +8,8 @@ import { Column } from 'primereact/column'
 import type { ColumnEvent } from 'primereact/column'
 import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
+import { StockItemDocModal } from '../components/openingStock/StockItemDocModal'
+import { StockItemDetailModal } from '../components/openingStock/StockItemDetailModal'
 import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
 import {
   createOpeningStockRow,
@@ -86,6 +88,7 @@ type DraftRow = {
   unitPriceUnitCode: string
   unitPriceConversionToBase: string
   expiryDate: string
+  manufactureDate: string
 }
 
 const emptyDraft = (): DraftRow => ({
@@ -103,6 +106,7 @@ const emptyDraft = (): DraftRow => ({
   unitPriceUnitCode: '',
   unitPriceConversionToBase: '',
   expiryDate: '',
+  manufactureDate: '',
 })
 
 function formatNumber(value: number): string {
@@ -138,6 +142,8 @@ export function OpeningStockPage() {
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
   const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
   const [productModalOpen, setProductModalOpen] = useState(false)
+  const [docModalItem, setDocModalItem] = useState<{ id: string; label: string } | null>(null)
+  const [detailModalRow, setDetailModalRow] = useState<OpeningStockRow | null>(null)
   const codeSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const codeSearchRequestRef = useRef(0)
   const priceUnitRequestRef = useRef(0)
@@ -159,6 +165,7 @@ export function OpeningStockPage() {
         row.supplierCode,
         row.supplierName,
         row.expiryDate,
+        row.manufactureDate,
         String(row.quantityGram),
         String(row.unitPriceValue),
         String(row.lineAmount),
@@ -196,6 +203,16 @@ export function OpeningStockPage() {
       && draftConversionToBase > 0,
     )
   }, [draft.code, draft.unitPriceUnitId, draftConversionToBase, draftQuantityBase, draftUnitPriceValue, selectedMaterial])
+
+  const estimatedTotalAmount = useMemo(() => {
+    const persistedAmount = filteredRows.reduce((sum, row) => {
+      const amount = Number.isFinite(row.lineAmount) ? row.lineAmount : 0
+      return sum + amount
+    }, 0)
+
+    if (!canSaveDraftRow) return persistedAmount
+    return persistedAmount + draftLineAmount
+  }, [canSaveDraftRow, draftLineAmount, filteredRows])
 
   const totalRows = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
@@ -243,6 +260,7 @@ export function OpeningStockPage() {
       unitPriceConversionToBase: 0,
       lineAmount: 0,
       expiryDate: '',
+      manufactureDate: '',
       hasCertificate: false,
     } as OpeningStockRow,
   ]), [pagedRows])
@@ -453,7 +471,7 @@ export function OpeningStockPage() {
 
   const handleCellEditComplete = (event: ColumnEvent) => {
     const rowData = event.rowData as OpeningStockRow
-    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'invoiceNo' | 'invoiceDate' | 'supplierId' | 'quantityGram' | 'unitPriceValue' | 'expiryDate'
+    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'invoiceNo' | 'invoiceDate' | 'supplierId' | 'quantityGram' | 'unitPriceValue' | 'expiryDate' | 'manufactureDate'
     if (!field || rowData.id === NEW_ROW_ID) return
 
     const raw = event.newValue
@@ -466,6 +484,7 @@ export function OpeningStockPage() {
       quantityBase?: number
       unitPriceValue?: number
       expiryDate?: string | null
+      manufactureDate?: string | null
     } = {}
 
     if (field === 'lot') {
@@ -494,6 +513,11 @@ export function OpeningStockPage() {
     if (field === 'expiryDate') {
       const value = String(raw ?? '').trim()
       next.expiryDate = value || null
+    }
+
+    if (field === 'manufactureDate') {
+      const value = String(raw ?? '').trim()
+      next.manufactureDate = value || null
     }
 
     if (field === 'quantityGram') {
@@ -541,6 +565,7 @@ export function OpeningStockPage() {
       'DON VI GIA',
       'THANH TIEN',
       'HAN SD',
+      'NGAY SX',
       'CHUNG TU',
     ]
 
@@ -558,6 +583,7 @@ export function OpeningStockPage() {
       row.unitPriceUnitCode,
       String(row.lineAmount),
       row.expiryDate,
+      row.manufactureDate,
       row.hasCertificate ? 'CO' : 'KHONG',
     ])
 
@@ -567,8 +593,8 @@ export function OpeningStockPage() {
 
   const handleDownloadTemplate = () => {
     const template = [
-      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,CHUNG TU',
-      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,kg,25000,2028-12-31,CO',
+      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (GRAM),DON GIA,DON VI GIA,THANH TIEN,HAN SD,NGAY SX,CHUNG TU',
+      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,kg,25000,2028-12-31,2024-01-01,CO',
     ].join('\n')
 
     downloadTextFile(template, 'mau-khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
@@ -646,7 +672,7 @@ export function OpeningStockPage() {
         unitPriceValue,
         unitPriceUnitId: draft.unitPriceUnitId,
         expiryDate: draft.expiryDate || undefined,
-      })
+        manufactureDate: draft.manufactureDate || undefined,
 
       setRows((prev) => [...prev, newRow])
       setDraft(emptyDraft())
@@ -668,6 +694,14 @@ export function OpeningStockPage() {
             <p>Quản trị dữ liệu gốc cho toàn bộ hệ thống ZencosMS.</p>
           </div>
           <div className="title-actions">
+            <div className="opening-stock-estimated-total" aria-live="polite">
+              <p className="opening-stock-estimated-total-value">Tổng giá trị: </p> 
+              <p className="opening-stock-estimated-total-value">
+                <span/>
+                <strong>{formatNumber(estimatedTotalAmount)}</strong>
+                <span>VND</span>
+              </p>
+            </div>
             <button type="button" className="btn btn-ghost" onClick={handleExportAll}>
               <i className="pi pi-download" /> Xuất Tất Cả (Excel)
             </button>
@@ -761,7 +795,16 @@ export function OpeningStockPage() {
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-readonly-column"
               body={(rowData: OpeningStockRow) => {
-                if (rowData.id !== NEW_ROW_ID) return <span className="opening-stock-code">{rowData.code}</span>
+                if (rowData.id !== NEW_ROW_ID) return (
+                  <button
+                    type="button"
+                    className="opening-stock-code-btn"
+                    onClick={(e) => { e.stopPropagation(); setDetailModalRow(rowData) }}
+                    title="Xem chi tiết"
+                  >
+                    {rowData.code}
+                  </button>
+                )
                 return (
                   <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                     <AutoComplete
@@ -1138,18 +1181,64 @@ export function OpeningStockPage() {
               )}
             />
             <Column
+              field="manufactureDate"
+              header="NGÀY SX"
+              style={{ width: '120px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                  <input
+                    type="date"
+                    value={String(options.value ?? '')}
+                    onChange={(e) => options.editorCallback?.(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    aria-label="Ngày sản xuất"
+                  />
+                </div>
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.manufactureDate ? <span className="status-pill">{formatDate(rowData.manufactureDate)}</span> : '---')
+                  : (
+                    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={draft.manufactureDate}
+                        onChange={(event) => handleDraftChange('manufactureDate', event.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Ngày sản xuất"
+                      />
+                    </div>
+                  )
+              )}
+            />
+            <Column
               field="hasCertificate"
               header="CHỨNG TỪ"
               style={{ width: '90px' }}
               bodyClassName="opening-stock-center-col"
               body={(rowData: OpeningStockRow) => (
-                <button
-                  type="button"
-                  className={`icon-btn${rowData.hasCertificate ? ' is-linked' : ''}`}
-                  aria-label={rowData.id === NEW_ROW_ID ? 'Đính kèm cho dòng mới' : 'Đính kèm chứng từ'}
-                >
-                  <i className="pi pi-paperclip" />
-                </button>
+                rowData.id === NEW_ROW_ID ? null : (
+                  <button
+                    type="button"
+                    className={`icon-btn${rowData.hasCertificate ? ' is-linked' : ''}`}
+                    aria-label="Đính kèm chứng từ"
+                    title="Quản lý chứng từ"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDocModalItem({
+                        id: rowData.id,
+                        label: `${rowData.code} / ${rowData.lot || '---'}`,
+                      })
+                    }}
+                  >
+                    <i className="pi pi-paperclip" />
+                    {rowData.hasCertificate && <span className="doc-badge" />}
+                  </button>
+                )
               )}
             />
             <Column
@@ -1215,6 +1304,34 @@ export function OpeningStockPage() {
           onPageSizeChange={setPageSize}
         />
       </section>
+
+      {detailModalRow ? (
+        <StockItemDetailModal
+          row={detailModalRow}
+          supplierOptions={supplierOptions}
+          onClose={() => setDetailModalRow(null)}
+          onSaved={(updated) => {
+            setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+            setDetailModalRow(updated)
+          }}
+          onOpenDocs={() => {
+            const r = detailModalRow
+            setDetailModalRow(null)
+            setDocModalItem({ id: r.id, label: `${r.code} / ${r.lot || '---'}` })
+          }}
+        />
+      ) : null}
+
+      {docModalItem ? (
+        <StockItemDocModal
+          itemId={docModalItem.id}
+          itemLabel={docModalItem.label}
+          onClose={() => setDocModalItem(null)}
+          onHasDocChanged={(id, hasDoc) => {
+            setRows((prev) => prev.map((row) => (row.id === id ? { ...row, hasCertificate: hasDoc } : row)))
+          }}
+        />
+      ) : null}
 
       {productModalOpen ? (
         <div className="product-create-overlay" role="presentation" onClick={() => setProductModalOpen(false)}>

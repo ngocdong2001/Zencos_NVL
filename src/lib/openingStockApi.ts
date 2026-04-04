@@ -45,6 +45,7 @@ export type OpeningStockRow = {
   unitPriceConversionToBase: number
   lineAmount: number
   expiryDate: string
+  manufactureDate: string
   hasCertificate: boolean
 }
 
@@ -71,6 +72,7 @@ export async function createOpeningStockRow(payload: {
   unitPriceValue: number
   unitPriceUnitId: string
   expiryDate?: string
+  manufactureDate?: string
 }): Promise<OpeningStockRow> {
   return http<OpeningStockRow>('/api/inventory-opening/rows', {
     method: 'POST',
@@ -87,6 +89,7 @@ export async function updateOpeningStockRow(id: string, payload: {
   quantityBase?: number
   unitPriceValue?: number
   expiryDate?: string | null
+  manufactureDate?: string | null
 }): Promise<OpeningStockRow> {
   return http<OpeningStockRow>(`/api/inventory-opening/rows/${encodeURIComponent(id)}`, {
     method: 'PUT',

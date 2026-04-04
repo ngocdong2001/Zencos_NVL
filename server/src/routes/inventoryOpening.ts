@@ -2,6 +2,10 @@ import { Router } from 'express'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
+import multer from 'multer'
+import path from 'path'
+import { randomUUID } from 'crypto'
+import fs from 'fs'
 
 const router = Router()
 
@@ -72,6 +76,7 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     unitPriceUnitCode: String(row.unit_price_unit_code ?? 'kg'),
     unitPriceConversionToBase: conversionToBase,
     lineAmount: Number(row.line_amount ?? fallbackLineAmount),
+    manufactureDate: formatDateOnly(row.manufacture_date),
     expiryDate: formatDateOnly(row.expiry_date),
     hasCertificate: Boolean(row.has_document),
   }
@@ -163,6 +168,7 @@ const addRowSchema = z.object({
   unitPriceValue: z.coerce.number().nonnegative().optional(),
   unitPriceUnitId: z.coerce.bigint().positive().optional(),
   unitPricePerKg: z.coerce.number().nonnegative().optional(),
+  manufactureDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
 })
 
@@ -174,6 +180,7 @@ const updateRowSchema = z.object({
   supplierId: z.union([z.coerce.bigint().positive(), z.literal(''), z.null()]).optional(),
   quantityBase: z.coerce.number().nonnegative().optional(),
   unitPriceValue: z.coerce.number().nonnegative().optional(),
+  manufactureDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
 })
 
@@ -257,6 +264,7 @@ router.get('/rows', async (_req, res) => {
           osi.unit_price_conversion_to_base,
           osi.line_amount,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -282,6 +290,7 @@ router.get('/rows', async (_req, res) => {
           s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -435,13 +444,14 @@ router.post('/rows', async (req, res) => {
 
   const openingDate = data.openingDate?.trim() || null
   const expiryDate = data.expiryDate?.trim() || null
+  const manufactureDate = data.manufactureDate?.trim() || null
   const quantityDisplay = quantityBase
   const hasAmountFields = await hasOpeningStockAmountFields()
 
   if (hasAmountFields) {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
-        (declaration_id, product_id, lot_no, opening_date, expiry_date,
+        (declaration_id, product_id, lot_no, opening_date, manufacture_date, expiry_date,
          invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg,
          unit_price_value, unit_price_unit_id, unit_price_conversion_to_base, line_amount,
@@ -450,6 +460,7 @@ router.post('/rows', async (req, res) => {
       VALUES
         (${declarationId}, ${productId}, ${lotNo},
          ${openingDate ? new Date(openingDate) : null},
+         ${manufactureDate ? new Date(manufactureDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
          ${invoiceNo}, ${invoiceDate ? new Date(invoiceDate) : null}, ${supplierId},
          ${quantityBase}, ${unitUsed}, ${quantityDisplay},
@@ -461,13 +472,14 @@ router.post('/rows', async (req, res) => {
   } else {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
-        (declaration_id, product_id, lot_no, opening_date, expiry_date,
+        (declaration_id, product_id, lot_no, opening_date, manufacture_date, expiry_date,
          invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg, has_document,
          created_at, updated_at)
       VALUES
         (${declarationId}, ${productId}, ${lotNo},
          ${openingDate ? new Date(openingDate) : null},
+         ${manufactureDate ? new Date(manufactureDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
          ${invoiceNo}, ${invoiceDate ? new Date(invoiceDate) : null}, ${supplierId},
          ${quantityBase}, ${unitUsed}, ${quantityDisplay}, ${unitPriceValue}, 0,
@@ -496,6 +508,7 @@ router.post('/rows', async (req, res) => {
           osi.unit_price_conversion_to_base,
           osi.line_amount,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -519,6 +532,7 @@ router.post('/rows', async (req, res) => {
           s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -588,6 +602,7 @@ router.put('/rows/:id', async (req, res) => {
     ? toBigInt(current.supplier_id)
     : (typeof data.supplierId === 'bigint' ? data.supplierId : null)
   const expiryDate = data.expiryDate === undefined ? current.expiry_date : (data.expiryDate?.trim() || null)
+  const manufactureDate = data.manufactureDate === undefined ? current.manufacture_date : (data.manufactureDate?.trim() || null)
 
   const supplier = await ensureSupplierExists(supplierId)
   if (supplierId !== null && !supplier) {
@@ -607,6 +622,7 @@ router.put('/rows/:id', async (req, res) => {
         invoice_no = ${invoiceNo || null},
         invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
         supplier_id = ${supplierId},
+        manufacture_date = ${manufactureDate ? new Date(String(manufactureDate)) : null},
         expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
         quantity_base = ${quantityBase},
         quantity_display = ${quantityBase},
@@ -625,6 +641,7 @@ router.put('/rows/:id', async (req, res) => {
         invoice_no = ${invoiceNo || null},
         invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
         supplier_id = ${supplierId},
+        manufacture_date = ${manufactureDate ? new Date(String(manufactureDate)) : null},
         expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
         quantity_base = ${quantityBase},
         quantity_display = ${quantityBase},
@@ -655,6 +672,7 @@ router.put('/rows/:id', async (req, res) => {
           osi.unit_price_conversion_to_base,
           osi.line_amount,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -679,6 +697,7 @@ router.put('/rows/:id', async (req, res) => {
           s.name AS supplier_name,
           osi.quantity_base,
           osi.unit_price_per_kg,
+          osi.manufacture_date,
           osi.expiry_date,
           osi.has_document
         FROM opening_stock_items osi
@@ -721,6 +740,212 @@ router.delete('/rows/:id', async (req, res) => {
   `)
 
   return res.status(204).send()
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// File upload setup for chứng từ (documents attached to stock items)
+// ──────────────────────────────────────────────────────────────────────
+const UPLOAD_DIR = path.resolve('uploads/opening-stock')
+fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+])
+
+const docStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    cb(null, `${randomUUID()}${ext}`)
+  },
+})
+
+const uploadDoc = multer({
+  storage: docStorage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Định dạng file không được hỗ trợ. Chỉ chấp nhận PDF, ảnh (JPG/PNG/WebP) và Excel.'))
+    }
+  },
+})
+
+const VALID_DOC_TYPES = ['Invoice', 'COA', 'MSDS', 'Other'] as const
+
+// ──────────────────────────────────────────────────────────────────────
+// GET /rows/:id/documents — danh sách chứng từ của một item
+// ──────────────────────────────────────────────────────────────────────
+router.get('/rows/:id/documents', async (req, res) => {
+  const itemId = Number(req.params.id)
+  if (!Number.isFinite(itemId)) {
+    return res.status(400).json({ message: 'Invalid item id' })
+  }
+
+  const docs = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, doc_type, original_name, mime_type, file_size, created_at
+    FROM opening_stock_item_documents
+    WHERE item_id = ${itemId}
+    ORDER BY created_at ASC
+  `)
+
+  return res.json(docs.map((doc) => ({
+    id: String(doc.id),
+    docType: String(doc.doc_type),
+    originalName: String(doc.original_name),
+    mimeType: String(doc.mime_type),
+    fileSize: Number(doc.file_size),
+    createdAt: doc.created_at instanceof Date ? doc.created_at.toISOString() : String(doc.created_at),
+  })))
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// POST /rows/:id/documents — upload chứng từ mới
+// ──────────────────────────────────────────────────────────────────────
+router.post('/rows/:id/documents', uploadDoc.single('file'), async (req, res) => {
+  const itemId = Number(req.params.id)
+  if (!Number.isFinite(itemId)) {
+    return res.status(400).json({ message: 'Invalid item id' })
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ message: 'Không có file được gửi lên.' })
+  }
+
+  // Kiểm tra item tồn tại và còn trong draft
+  const items = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT osi.id
+    FROM opening_stock_items osi
+    JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
+    WHERE osi.id = ${itemId} AND osd.status = 'draft'
+    LIMIT 1
+  `)
+  if (!items[0]) {
+    fs.unlink(req.file.path, () => undefined)
+    return res.status(404).json({ message: 'Không tìm thấy lô hàng hoặc phiếu đã được xác nhận.' })
+  }
+
+  const docType = String(req.body.docType ?? 'Other')
+  if (!(VALID_DOC_TYPES as ReadonlyArray<string>).includes(docType)) {
+    fs.unlink(req.file.path, () => undefined)
+    return res.status(400).json({ message: 'Loại chứng từ không hợp lệ.' })
+  }
+
+  const systemUser = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id FROM users WHERE is_active = 1 ORDER BY id ASC LIMIT 1
+  `)
+  if (!systemUser[0]) {
+    fs.unlink(req.file.path, () => undefined)
+    return res.status(500).json({ message: 'Không tìm thấy user hệ thống.' })
+  }
+
+  const relativePath = path.relative(process.cwd(), req.file.path).replace(/\\/g, '/')
+
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO opening_stock_item_documents
+      (item_id, doc_type, file_path, original_name, mime_type, file_size, uploaded_by, created_at, updated_at)
+    VALUES
+      (${itemId}, ${docType}, ${relativePath}, ${req.file.originalname}, ${req.file.mimetype}, ${req.file.size}, ${systemUser[0].id}, NOW(3), NOW(3))
+  `)
+
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE opening_stock_items SET has_document = 1, updated_at = NOW(3) WHERE id = ${itemId}
+  `)
+
+  const inserted = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, doc_type, original_name, mime_type, file_size, created_at
+    FROM opening_stock_item_documents
+    WHERE id = LAST_INSERT_ID()
+  `)
+
+  const doc = inserted[0]
+  return res.status(201).json({
+    id: String(doc?.id),
+    docType: String(doc?.doc_type),
+    originalName: String(doc?.original_name),
+    mimeType: String(doc?.mime_type),
+    fileSize: Number(doc?.file_size),
+    createdAt: doc?.created_at instanceof Date ? doc.created_at.toISOString() : String(doc?.created_at),
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// DELETE /rows/:itemId/documents/:docId — xóa chứng từ + file trên disk
+// ──────────────────────────────────────────────────────────────────────
+router.delete('/rows/:itemId/documents/:docId', async (req, res) => {
+  const itemId = Number(req.params.itemId)
+  const docId = Number(req.params.docId)
+  if (!Number.isFinite(itemId) || !Number.isFinite(docId)) {
+    return res.status(400).json({ message: 'Invalid id' })
+  }
+
+  const docs = await prisma.$queryRaw<Array<{ id: bigint; file_path: string }>>(Prisma.sql`
+    SELECT d.id, d.file_path
+    FROM opening_stock_item_documents d
+    JOIN opening_stock_items osi ON osi.id = d.item_id
+    JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
+    WHERE d.id = ${docId} AND d.item_id = ${itemId} AND osd.status = 'draft'
+    LIMIT 1
+  `)
+  if (!docs[0]) {
+    return res.status(404).json({ message: 'Không tìm thấy chứng từ hoặc phiếu đã được xác nhận.' })
+  }
+
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM opening_stock_item_documents WHERE id = ${docId}`)
+
+  const absPath = path.resolve(docs[0].file_path)
+  fs.unlink(absPath, () => undefined)
+
+  const remaining = await prisma.$queryRaw<Array<{ cnt: bigint }>>(Prisma.sql`
+    SELECT COUNT(*) AS cnt FROM opening_stock_item_documents WHERE item_id = ${itemId}
+  `)
+  const hasDoc = Number(remaining[0]?.cnt ?? 0) > 0 ? 1 : 0
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE opening_stock_items SET has_document = ${hasDoc}, updated_at = NOW(3) WHERE id = ${itemId}
+  `)
+
+  return res.status(204).send()
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// GET /rows/:itemId/documents/:docId/file — serve file (inline hoặc download)
+// ──────────────────────────────────────────────────────────────────────
+router.get('/rows/:itemId/documents/:docId/file', async (req, res) => {
+  const itemId = Number(req.params.itemId)
+  const docId = Number(req.params.docId)
+  if (!Number.isFinite(itemId) || !Number.isFinite(docId)) {
+    return res.status(400).json({ message: 'Invalid id' })
+  }
+
+  const docs = await prisma.$queryRaw<Array<{ file_path: string; original_name: string; mime_type: string }>>(Prisma.sql`
+    SELECT file_path, original_name, mime_type
+    FROM opening_stock_item_documents
+    WHERE id = ${docId} AND item_id = ${itemId}
+    LIMIT 1
+  `)
+  if (!docs[0]) {
+    return res.status(404).json({ message: 'Không tìm thấy chứng từ.' })
+  }
+
+  const absPath = path.resolve(docs[0].file_path)
+  const forceDownload = req.query.download === 'true'
+
+  if (forceDownload) {
+    return res.download(absPath, docs[0].original_name)
+  }
+
+  return res.sendFile(absPath, {
+    headers: {
+      'Content-Type': docs[0].mime_type,
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(docs[0].original_name)}`,
+    },
+  })
 })
 
 export default router

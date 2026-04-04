@@ -26,6 +26,13 @@ enum BatchDocType {
   Other
 }
 
+enum OpeningStockDocType {
+  Invoice
+  COA
+  MSDS
+  Other
+}
+
 enum ExportOrderStatus {
   pending
   fulfilled
@@ -69,6 +76,7 @@ model User {
   updatedAt    DateTime         @updatedAt @map("updated_at")
   productDocuments ProductDocument[]
   batchDocuments   BatchDocument[]
+  openingStockItemDocuments OpeningStockItemDocument[]
   exportOrders     ExportOrder[]
   inventoryTransactions InventoryTransaction[]
   requestedPurchaseRequests PurchaseRequest[] @relation("PurchaseRequestRequestedBy")
@@ -418,6 +426,7 @@ model OpeningStockItem {
   supplier        Supplier?               @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   unitPriceUnit   ProductUnit?            @relation(fields: [unitPriceUnitId], references: [id], onDelete: Restrict)
   location        CatalogLocation?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  documents       OpeningStockItemDocument[]
 
   @@index([productId])
   @@index([expiryDate])
@@ -425,4 +434,22 @@ model OpeningStockItem {
   @@index([unitPriceUnitId])
   @@unique([declarationId, productId, lotNo])
   @@map("opening_stock_items")
+}
+
+model OpeningStockItemDocument {
+  id           BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  itemId       BigInt              @map("item_id") @db.UnsignedBigInt
+  docType      OpeningStockDocType @map("doc_type")
+  filePath     String              @map("file_path") @db.VarChar(500)
+  originalName String              @map("original_name") @db.VarChar(255)
+  mimeType     String              @map("mime_type") @db.VarChar(100)
+  fileSize     BigInt              @map("file_size") @db.UnsignedBigInt
+  uploadedBy   BigInt              @map("uploaded_by") @db.UnsignedBigInt
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  item         OpeningStockItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uploader     User                @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([itemId])
+  @@map("opening_stock_item_documents")
 }
