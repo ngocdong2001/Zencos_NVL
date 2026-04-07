@@ -37,3 +37,6 @@ server/.env.*
 *.swo
 *.cache
 Thumbs.db
+
+# Upload directories
+server/uploads/

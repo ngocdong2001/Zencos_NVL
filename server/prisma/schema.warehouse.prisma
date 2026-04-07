@@ -200,6 +200,7 @@ model Batch {
   invoiceDate      DateTime?   @map("invoice_date") @db.Date
   unitPricePerKg   Decimal     @default(0) @map("unit_price_per_kg") @db.Decimal(15, 2)
   receivedQtyBase  Decimal     @map("received_qty_base") @db.Decimal(15, 4)
+  currentQtyBase   Decimal     @default(0) @map("current_qty_base") @db.Decimal(15, 4)
   purchaseUnit     String?     @map("purchase_unit") @db.VarChar(50)
   purchaseQty      Decimal?    @map("purchase_qty") @db.Decimal(15, 4)
   manufactureDate  DateTime?   @map("manufacture_date") @db.Date

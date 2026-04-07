@@ -121,15 +121,74 @@ router.patch('/:id/approve', requireAuth, requirePermission('purchases.write'), 
 })
 
 router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
-  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: BigInt(req.params.id) },
+    include: {
+      items: {
+        include: {
+          product: { select: { id: true, code: true } },
+        },
+      },
+    },
+  })
   if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
   if (pr.status !== PurchaseRequestStatus.approved && pr.status !== PurchaseRequestStatus.ordered) {
     res.status(409).json({ error: 'Request must be approved or ordered before marking received' }); return
   }
-  const updated = await prisma.purchaseRequest.update({
-    where: { id: pr.id },
-    data: { status: PurchaseRequestStatus.received, receivedAt: new Date() },
+
+  if (pr.items.length === 0) {
+    res.status(409).json({ error: 'Cannot receive a request without items' })
+    return
+  }
+
+  const receivedAt = new Date()
+  const userId = BigInt(req.auth!.sub)
+
+  const updated = await prisma.$transaction(async (db) => {
+    const request = await db.purchaseRequest.update({
+      where: { id: pr.id },
+      data: { status: PurchaseRequestStatus.received, receivedAt },
+    })
+
+    for (let idx = 0; idx < pr.items.length; idx++) {
+      const item = pr.items[idx]
+      const lotNo = `${request.requestRef}-${item.product.code}-${Date.now().toString().slice(-6)}-${idx + 1}`
+
+      const batch = await db.batch.create({
+        data: {
+          productId: item.productId,
+          supplierId: request.supplierId ?? undefined,
+          lotNo,
+          receivedQtyBase: item.quantityNeededBase,
+          currentQtyBase: 0,
+          purchaseUnit: item.unitDisplay,
+          purchaseQty: item.quantityDisplay,
+          invoiceDate: receivedAt,
+          status: 'available',
+          notes: `Auto-created from purchase request ${request.requestRef}`,
+        },
+      })
+
+      await db.inventoryTransaction.create({
+        data: {
+          batchId: batch.id,
+          userId,
+          type: 'import',
+          quantityBase: item.quantityNeededBase,
+          notes: `Goods received from purchase request ${request.requestRef}`,
+          transactionDate: receivedAt,
+        },
+      })
+
+      await db.batch.update({
+        where: { id: batch.id },
+        data: { currentQtyBase: { increment: item.quantityNeededBase } },
+      })
+    }
+
+    return request
   })
+
   res.json(updated)
 })
 

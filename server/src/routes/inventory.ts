@@ -61,19 +61,48 @@ router.post('/transactions', requireAuth, requirePermission('inventory.write'), 
   const parsed = transactionSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
 
-  const batch = await prisma.batch.findUnique({ where: { id: BigInt(parsed.data.batchId) } })
+  const batchId = BigInt(parsed.data.batchId)
+  const batch = await prisma.batch.findUnique({
+    where: { id: batchId },
+    select: { id: true, currentQtyBase: true },
+  })
   if (!batch) { res.status(404).json({ error: 'Batch not found' }); return }
 
-  const tx = await prisma.inventoryTransaction.create({
-    data: {
-      batchId: BigInt(parsed.data.batchId),
-      userId: BigInt(req.auth!.sub),
-      type: parsed.data.type,
-      quantityBase: parsed.data.quantityBase,
-      notes: parsed.data.notes,
-      transactionDate: parsed.data.transactionDate ? new Date(parsed.data.transactionDate) : new Date(),
-    },
+  if (parsed.data.type === InventoryTransactionType.export) {
+    const availableQty = Number(batch.currentQtyBase)
+    if (availableQty < parsed.data.quantityBase) {
+      res.status(409).json({ error: 'Insufficient stock in selected batch' })
+      return
+    }
+  }
+
+  const delta =
+    parsed.data.type === InventoryTransactionType.import
+      ? parsed.data.quantityBase
+      : parsed.data.type === InventoryTransactionType.export
+        ? -parsed.data.quantityBase
+        : parsed.data.quantityBase
+
+  const tx = await prisma.$transaction(async (db) => {
+    const createdTx = await db.inventoryTransaction.create({
+      data: {
+        batchId,
+        userId: BigInt(req.auth!.sub),
+        type: parsed.data.type,
+        quantityBase: parsed.data.quantityBase,
+        notes: parsed.data.notes,
+        transactionDate: parsed.data.transactionDate ? new Date(parsed.data.transactionDate) : new Date(),
+      },
+    })
+
+    await db.batch.update({
+      where: { id: batchId },
+      data: { currentQtyBase: { increment: delta } },
+    })
+
+    return createdTx
   })
+
   res.status(201).json(tx)
 })
 

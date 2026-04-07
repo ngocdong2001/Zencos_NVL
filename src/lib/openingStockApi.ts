@@ -70,7 +70,7 @@ export async function createOpeningStockRow(payload: {
   supplierId?: string | null
   quantityBase: number
   unitPriceValue: number
-  unitPriceUnitId: string
+  unitPriceUnitId?: string
   expiryDate?: string
   manufactureDate?: string
 }): Promise<OpeningStockRow> {

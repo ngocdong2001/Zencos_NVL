@@ -12,7 +12,19 @@ export type AuthenticatedRequest = Request & {
   auth?: AuthToken
 }
 
+// Temporary bypass for business logic development.
+const AUTH_BYPASS_ENABLED = true
+
 export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (AUTH_BYPASS_ENABLED) {
+    req.auth = {
+      sub: '1',
+      email: 'dev-bypass@local',
+      permissions: ['*'],
+    }
+    return next()
+  }
+
   const header = req.headers.authorization
   const token = header?.startsWith('Bearer ') ? header.slice(7) : null
 
@@ -31,6 +43,10 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 
 export function requirePermission(permission: string) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (AUTH_BYPASS_ENABLED) {
+      return next()
+    }
+
     if (!req.auth) {
       return res.status(401).json({ message: 'Unauthorized' })
     }

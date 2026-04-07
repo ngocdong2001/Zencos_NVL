@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
 import { useLocation, useOutletContext } from 'react-router-dom'
 import { AutoComplete } from 'primereact/autocomplete'
 import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
@@ -10,7 +9,11 @@ import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { StockItemDocModal } from '../components/openingStock/StockItemDocModal'
 import { StockItemDetailModal } from '../components/openingStock/StockItemDetailModal'
-import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
+import { OpeningStockImportModal } from '../components/openingStock/OpeningStockImportModal'
+import { parseOpeningStockExcel } from '../components/openingStock/openingStockExcelImport'
+import type { ImportDocType } from '../components/openingStock/openingStockExcelImport'
+import type { OpeningStockImportParseResult } from '../components/openingStock/openingStockExcelImport'
+import { containsInsensitive, downloadTextFile } from '../components/catalog/utils'
 import {
   createOpeningStockRow,
   deleteOpeningStockRow,
@@ -19,6 +22,7 @@ import {
   updateOpeningStockRow,
 } from '../lib/openingStockApi'
 import type { OpeningStockRow } from '../lib/openingStockApi'
+import { uploadItemDocument } from '../lib/openingStockDocApi'
 import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
 import type { BasicRow, MaterialRow } from '../components/catalog/types'
 
@@ -113,6 +117,11 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value)
 }
 
+function roundAmountForDisplay(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Number(value.toFixed(3))
+}
+
 function formatDate(value: string | null | undefined): string {
   if (!value) return '---'
   const [y, m, d] = value.split('-')
@@ -122,6 +131,53 @@ function formatDate(value: string | null | undefined): string {
 
 function normalizeCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, '-')
+}
+
+function normalizeLookup(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replaceAll('đ', 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+function normalizeImportFileName(value: string): string {
+  return value
+    .replace(/[\uFEFF\u200B-\u200D\u2060]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .normalize('NFKC')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .toLocaleLowerCase()
+}
+
+function hasPathSegment(value: string): boolean {
+  return /[\\/]/.test(value)
+}
+
+function parseIsoDate(value: string): Date | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (!match) return null
+
+  const year = Number.parseInt(match[1], 10)
+  const month = Number.parseInt(match[2], 10)
+  const day = Number.parseInt(match[3], 10)
+  const date = new Date(year, month - 1, day)
+
+  if (
+    Number.isNaN(date.getTime())
+    || date.getFullYear() !== year
+    || date.getMonth() !== month - 1
+    || date.getDate() !== day
+  ) {
+    return null
+  }
+
+  return date
 }
 
 export function OpeningStockPage() {
@@ -141,6 +197,14 @@ export function OpeningStockPage() {
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
   const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
+  const [importingExcel, setImportingExcel] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importParsing, setImportParsing] = useState(false)
+  const [importParseError, setImportParseError] = useState<string | null>(null)
+  const [selectedImportFileName, setSelectedImportFileName] = useState('')
+  const [parsedImportResult, setParsedImportResult] = useState<OpeningStockImportParseResult | null>(null)
+  const [importSummary, setImportSummary] = useState<string | null>(null)
+  const [importAttachmentFiles, setImportAttachmentFiles] = useState<File[]>([])
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [docModalItem, setDocModalItem] = useState<{ id: string; label: string } | null>(null)
   const [detailModalRow, setDetailModalRow] = useState<OpeningStockRow | null>(null)
@@ -149,7 +213,6 @@ export function OpeningStockPage() {
   const codeSearchRequestRef = useRef(0)
   const priceUnitRequestRef = useRef(0)
   const lotInputRef = useRef<HTMLInputElement>(null)
-  const uploadInputRef = useRef<HTMLInputElement>(null)
 
   const filteredRows = useMemo(() => {
     const q = search.trim()
@@ -207,12 +270,12 @@ export function OpeningStockPage() {
 
   const estimatedTotalAmount = useMemo(() => {
     const persistedAmount = filteredRows.reduce((sum, row) => {
-      const amount = Number.isFinite(row.lineAmount) ? row.lineAmount : 0
+      const amount = roundAmountForDisplay(row.lineAmount)
       return sum + amount
     }, 0)
 
     if (!canSaveDraftRow) return persistedAmount
-    return persistedAmount + draftLineAmount
+    return persistedAmount + roundAmountForDisplay(draftLineAmount)
   }, [canSaveDraftRow, draftLineAmount, filteredRows])
 
   const totalRows = filteredRows.length
@@ -551,13 +614,14 @@ export function OpeningStockPage() {
     })()
   }
 
-  const handleExportAll = () => {
+  const handleExportAll = async () => {
+    const ExcelJS = await import('exceljs')
+
     const header = [
       'MA NVL',
       'TEN THUONG MAI',
       'TEN INCI',
       'SO LO',
-      'NGAY TD',
       'SO HOA DON',
       'NGAY HOA DON',
       'NHA CUNG CAP',
@@ -565,52 +629,406 @@ export function OpeningStockPage() {
       'DON GIA',
       'DON VI GIA',
       'THANH TIEN',
-      'HAN SD',
       'NGAY SX',
+      'NGAY TD',
+      'HAN SD',
       'CHUNG TU',
     ]
 
-    const body = rows.map((row) => [
-      row.code,
-      row.tradeName,
-      row.inciName,
-      row.lot,
-      row.openingDate,
-      row.invoiceNo,
-      row.invoiceDate,
-      row.supplierName || row.supplierCode,
-      String(row.quantityGram),
-      String(row.unitPriceValue),
-      row.unitPriceUnitCode,
-      String(row.lineAmount),
-      row.expiryDate,
-      row.manufactureDate,
-      row.hasCertificate ? 'CO' : 'KHONG',
-    ])
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Ton dau ky', {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    })
 
-    const csv = [toCsvRow(header), ...body.map((line) => toCsvRow(line))].join('\n')
-    downloadTextFile(csv, 'khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
+    worksheet.addRow(header)
+
+    const headerRow = worksheet.getRow(1)
+    headerRow.height = 22
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1F4E78' },
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD0D7DE' } },
+        left: { style: 'thin', color: { argb: 'FFD0D7DE' } },
+        bottom: { style: 'thin', color: { argb: 'FFD0D7DE' } },
+        right: { style: 'thin', color: { argb: 'FFD0D7DE' } },
+      }
+    })
+
+    for (const row of rows) {
+      worksheet.addRow([
+        row.code,
+        row.tradeName,
+        row.inciName,
+        row.lot,
+        row.invoiceNo,
+        parseIsoDate(row.invoiceDate),
+        row.supplierName || row.supplierCode,
+        row.quantityGram,
+        row.unitPriceValue,
+        row.unitPriceUnitCode,
+        row.lineAmount,
+        parseIsoDate(row.manufactureDate),
+        parseIsoDate(row.openingDate),
+        parseIsoDate(row.expiryDate),
+        row.hasCertificate ? 'CO' : 'KHONG',
+      ])
+    }
+
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: header.length },
+    }
+
+    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+      worksheet.getCell(`F${rowNumber}`).numFmt = 'dd/mm/yyyy'
+      worksheet.getCell(`H${rowNumber}`).numFmt = '#,##0.###'
+      worksheet.getCell(`I${rowNumber}`).numFmt = '#,##0.###'
+      worksheet.getCell(`K${rowNumber}`).numFmt = '#,##0.###'
+      worksheet.getCell(`L${rowNumber}`).numFmt = 'dd/mm/yyyy'
+      worksheet.getCell(`M${rowNumber}`).numFmt = 'dd/mm/yyyy'
+      worksheet.getCell(`N${rowNumber}`).numFmt = 'dd/mm/yyyy'
+    }
+
+    worksheet.columns.forEach((column) => {
+      if (!column.eachCell) return
+      let maxLength = 10
+
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        let cellLength = 0
+        const value = cell.value
+
+        if (value == null) {
+          cellLength = 0
+        } else if (value instanceof Date) {
+          cellLength = 10
+        } else if (typeof value === 'number') {
+          cellLength = formatNumber(value).length
+        } else {
+          cellLength = `${value}`.length
+        }
+
+        if (cellLength > maxLength) maxLength = cellLength
+      })
+
+      column.width = Math.min(Math.max(maxLength + 2, 10), 40)
+    })
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob(
+      [buffer],
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    )
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = 'khai-bao-ton-kho-dau-ky.xlsx'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
   }
 
   const handleDownloadTemplate = () => {
     const template = [
-      'MA NVL,TEN THUONG MAI,TEN INCI,SO LO,NGAY TD,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (gr/ml),DON GIA,DON VI GIA,THANH TIEN,HAN SD,NGAY SX,CHUNG TU',
-      'RAW-NEW-001,Ten thuong mai,INCI Name,LOT-001,2026-01-01,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,kg,25000,2028-12-31,2024-01-01,CO',
+      'MA NVL,SO LO,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (gr/ml),DON GIA,NGAY TD,NGAY SX,HAN SD,FILE MSDS,FILE COA,FILE HOA DON,FILE KHAC',
+      'RAW-NEW-001,LOT-001,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,2026-01-01,2024-01-01,2028-12-31,msds-raw-new-001.pdf,coa-raw-new-001.pdf,invoice-raw-new-001.pdf,hinh-anh-lot-001.jpg',
     ].join('\n')
 
     downloadTextFile(template, 'mau-khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
   }
 
   const handleOpenUpload = () => {
-    uploadInputRef.current?.click()
+    if (importingExcel) return
+    setImportModalOpen(true)
+    setImportSummary(null)
+    setImportParseError(null)
   }
 
-  const handleUploadChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+  const resetImportState = () => {
+    setImportParsing(false)
+    setImportParseError(null)
+    setSelectedImportFileName('')
+    setParsedImportResult(null)
+    setImportSummary(null)
+    setImportAttachmentFiles([])
+  }
 
-    showNotice(`Đã nhận file ${file.name}. Chức năng import chi tiết sẽ được kết nối API ở bước tiếp theo.`, 'success')
-    event.target.value = ''
+  const handleCloseImportModal = () => {
+    if (importingExcel) return
+    setImportModalOpen(false)
+    resetImportState()
+  }
+
+  const resolveSupplierOptionByImportValue = (rawSupplier: string): SupplierOption | null => {
+    const normalized = normalizeLookup(rawSupplier)
+    if (!normalized) return null
+
+    const codeCandidate = normalizeLookup(rawSupplier.split('-')[0] ?? rawSupplier)
+    const byCode = supplierOptions.find((supplier) => normalizeLookup(supplier.code) === codeCandidate)
+    if (byCode) return byCode
+
+    const byName = supplierOptions.find((supplier) => normalizeLookup(supplier.name) === normalized)
+    if (byName) return byName
+
+    const byContains = supplierOptions.find((supplier) => {
+      const normalizedCode = normalizeLookup(supplier.code)
+      const normalizedName = normalizeLookup(supplier.name)
+      return normalized.includes(normalizedCode) || normalized.includes(normalizedName)
+    })
+
+    return byContains ?? null
+  }
+
+  const enrichImportPreviewRows = async (
+    sourceRows: OpeningStockImportParseResult['rows'],
+  ): Promise<OpeningStockImportParseResult['rows']> => {
+    const materialCache = new Map<string, Promise<MaterialRow | null>>()
+    const unitCache = new Map<string, Promise<{ id: string; code: string; conversionToBase: number } | null>>()
+
+    const getExactMaterial = (code: string): Promise<MaterialRow | null> => {
+      const normalizedCode = normalizeCode(code)
+      const cached = materialCache.get(normalizedCode)
+      if (cached) return cached
+
+      const request = (async () => {
+        if (!normalizedCode) return null
+        const candidates = await fetchMaterials(normalizedCode)
+        return candidates.find((item) => normalizeCode(item.code) === normalizedCode) ?? null
+      })().catch(() => null)
+
+      materialCache.set(normalizedCode, request)
+      return request
+    }
+
+    const getPreferredUnit = (code: string): Promise<{ id: string; code: string; conversionToBase: number } | null> => {
+      const normalizedCode = normalizeCode(code)
+      const cached = unitCache.get(normalizedCode)
+      if (cached) return cached
+
+      const request = (async () => {
+        if (!normalizedCode) return null
+        const units = await fetchOpeningStockPriceUnits(normalizedCode)
+        const preferred = units.find((unit) => unit.isPurchaseUnit) ?? units[0] ?? null
+        if (!preferred || !Number.isFinite(preferred.conversionToBase) || preferred.conversionToBase <= 0) return null
+        return {
+          id: preferred.id,
+          code: preferred.code || preferred.name || '',
+          conversionToBase: preferred.conversionToBase,
+        }
+      })().catch(() => null)
+
+      unitCache.set(normalizedCode, request)
+      return request
+    }
+
+    return Promise.all(sourceRows.map(async (row) => {
+      const material = await getExactMaterial(row.code)
+      const preferredUnit = await getPreferredUnit(row.code)
+      const supplier = resolveSupplierOptionByImportValue(row.supplierText)
+
+      const nextWarnings = [...row.warnings]
+      if (row.code && !material) {
+        nextWarnings.push('Không lookup được Mã NVL để lấy Tên thương mại/Tên INCI.')
+      }
+      if (row.code && !preferredUnit) {
+        nextWarnings.push('Không lookup được đơn vị đơn giá để tính Thành tiền.')
+      }
+      if (row.supplierText && !supplier) {
+        nextWarnings.push('Không lookup được nhà cung cấp từ dữ liệu import.')
+      }
+
+      // Import quantity in template is already base quantity (gr/ml), keep it as base.
+      const convertedQuantityBase = Number.isFinite(row.importedQuantity)
+        ? (row.importedQuantity || 0)
+        : (row.quantityBase || 0)
+
+      const calculatedLineAmount = (
+        preferredUnit
+        && Number.isFinite(convertedQuantityBase)
+        && Number.isFinite(row.unitPriceValue)
+        && preferredUnit.conversionToBase > 0
+      )
+        ? (convertedQuantityBase / preferredUnit.conversionToBase) * row.unitPriceValue
+        : 0
+
+      const hasAnyDocument = Object.values(row.docsByType).some((items) => items.length > 0)
+
+      return {
+        ...row,
+        warnings: nextWarnings,
+        lookupTradeName: material?.materialName || '',
+        lookupInciName: material?.inciName || '',
+        resolvedSupplierCode: supplier?.code || '',
+        resolvedSupplierName: supplier?.name || '',
+        lookupUnitPriceUnitId: preferredUnit?.id,
+        lookupUnitPriceUnitCode: preferredUnit?.code || '',
+        lookupUnitPriceConversionToBase: preferredUnit?.conversionToBase,
+        convertedQuantityBase,
+        quantityBase: convertedQuantityBase,
+        calculatedLineAmount,
+        hasAnyDocument,
+      }
+    }))
+  }
+
+  const handlePickImportFile = async (file: File) => {
+    try {
+      setImportParsing(true)
+      setImportParseError(null)
+      setImportSummary(null)
+      setSelectedImportFileName(file.name)
+      const parsed = await parseOpeningStockExcel(file)
+      const enrichedRows = await enrichImportPreviewRows(parsed.rows)
+      setParsedImportResult({
+        ...parsed,
+        rows: enrichedRows,
+      })
+    } catch (error) {
+      setImportParseError(parseApiErrorMessage(error, 'Không thể đọc file import.'))
+      setParsedImportResult(null)
+    } finally {
+      setImportParsing(false)
+    }
+  }
+
+  const handlePickAttachmentFiles = (files: File[]) => {
+    setImportAttachmentFiles((prev) => {
+      const nextByName = new Map<string, File>()
+      for (const item of [...prev, ...files]) {
+        const key = normalizeImportFileName(item.name)
+        if (!key) continue
+        nextByName.set(key, item)
+      }
+      return [...nextByName.values()]
+    })
+  }
+
+  const resolveSupplierIdByImportValue = (rawSupplier: string): string | null => {
+    return resolveSupplierOptionByImportValue(rawSupplier)?.id ?? null
+  }
+
+  const buildAttachmentLookup = (files: File[]) => {
+    const byExactName = new Map<string, File>()
+
+    for (const file of files) {
+      const exactKey = normalizeImportFileName(file.name)
+      if (!exactKey) continue
+      byExactName.set(exactKey, file)
+    }
+
+    return { byExactName }
+  }
+
+  const resolveAttachmentFile = (
+    requestedName: string,
+    lookup: ReturnType<typeof buildAttachmentLookup>,
+  ): File | null => {
+    const normalizedRequested = normalizeImportFileName(requestedName)
+    if (!normalizedRequested) return null
+    if (hasPathSegment(normalizedRequested)) return null
+
+    const exactMatch = lookup.byExactName.get(normalizedRequested)
+    return exactMatch ?? null
+  }
+
+  const handleConfirmImport = async () => {
+    if (!parsedImportResult) {
+      setImportParseError('Chưa có dữ liệu preview để import.')
+      return
+    }
+
+    const validRows = parsedImportResult.rows.filter((row) => row.warnings.length === 0)
+    if (validRows.length === 0) {
+      setImportParseError('Không có dòng hợp lệ để import.')
+      return
+    }
+
+    const attachmentLookup = buildAttachmentLookup(importAttachmentFiles)
+
+    setImportingExcel(true)
+    try {
+      let createdRows = 0
+      let skippedRows = 0
+      let uploadedDocs = 0
+      const errors: string[] = []
+      const missingFiles: string[] = []
+
+      for (const row of validRows) {
+        try {
+          const created = await createOpeningStockRow({
+            code: row.code,
+            lot: row.lot,
+            openingDate: row.openingDate,
+            invoiceNo: row.invoiceNo || undefined,
+            invoiceDate: row.invoiceDate || undefined,
+            supplierId: resolveSupplierIdByImportValue(row.supplierText),
+            quantityBase: row.convertedQuantityBase ?? row.quantityBase,
+            unitPriceValue: row.unitPriceValue,
+            unitPriceUnitId: row.lookupUnitPriceUnitId,
+            expiryDate: row.expiryDate || undefined,
+            manufactureDate: row.manufactureDate || undefined,
+          })
+
+          createdRows += 1
+
+          const docTypeEntries = Object.entries(row.docsByType) as Array<[ImportDocType, string[]]>
+          for (const [docType, names] of docTypeEntries) {
+            for (const requestedName of names) {
+              const matched = resolveAttachmentFile(requestedName, attachmentLookup)
+              if (!matched) {
+                missingFiles.push(`Dòng ${row.rowNumber} (${docType}): ${requestedName}`)
+                continue
+              }
+
+              try {
+                await uploadItemDocument(created.id, matched, docType)
+                uploadedDocs += 1
+              } catch (error) {
+                const message = parseApiErrorMessage(error, 'Upload chứng từ thất bại.')
+                errors.push(`Dòng ${row.rowNumber} (${docType} - ${requestedName}): ${message}`)
+              }
+            }
+          }
+        } catch (error) {
+          skippedRows += 1
+          errors.push(`Dòng ${row.rowNumber}: ${parseApiErrorMessage(error, 'Không thể import dòng dữ liệu.')}`)
+        }
+      }
+
+      skippedRows += parsedImportResult.rows.length - validRows.length
+
+      await loadRows()
+
+      const summary = [
+        `Đã import ${createdRows}/${parsedImportResult.rows.length} dòng`,
+        `Upload chứng từ: ${uploadedDocs} file`,
+      ]
+      if (skippedRows > 0) summary.push(`Bỏ qua ${skippedRows} dòng lỗi`)
+      if (missingFiles.length > 0) summary.push(`Thiếu ${missingFiles.length} file chứng từ trong thư mục`)
+
+      setImportSummary(`${summary.join(' | ')}.`)
+
+      if (errors.length === 0) {
+        showNotice(`${summary.join(' | ')}.`, 'success')
+        setImportModalOpen(false)
+        resetImportState()
+      } else {
+        const previewErrors = errors.slice(0, 3).join(' | ')
+        showNotice(`${summary.join(' | ')}. Lỗi: ${previewErrors}${errors.length > 3 ? ' ...' : ''}`, 'error')
+        setImportParseError(`Import chưa hoàn tất. ${previewErrors}${errors.length > 3 ? ' ...' : ''}`)
+      }
+    } catch (error) {
+      setImportParseError(parseApiErrorMessage(error, 'Import thất bại.'))
+      showNotice(parseApiErrorMessage(error, 'Import thất bại.'), 'error')
+    } finally {
+      setImportingExcel(false)
+    }
   }
 
   const handleDraftChange = (key: keyof DraftRow, value: string) => {
@@ -704,7 +1122,7 @@ export function OpeningStockPage() {
                 <span>VND</span>
               </p>
             </div>
-            <button type="button" className="btn btn-ghost" onClick={handleExportAll}>
+            <button type="button" className="btn btn-ghost" onClick={() => void handleExportAll()}>
               <i className="pi pi-download" /> Xuất Tất Cả (Excel)
             </button>
             <button
@@ -714,16 +1132,10 @@ export function OpeningStockPage() {
             >
               <i className="pi pi-plus-circle" /> Tạo mã NVL mới
             </button>
-            <button type="button" className="btn btn-primary" onClick={handleOpenUpload}>
-              <i className="pi pi-upload" /> Tải lên dữ liệu (Excel)
+            <button type="button" className="btn btn-primary" onClick={handleOpenUpload} disabled={importingExcel}>
+              <i className={`pi ${importingExcel ? 'pi-spin pi-spinner' : 'pi-upload'}`} />
+              {importingExcel ? ' Đang import...' : ' Import Excel'}
             </button>
-            <input
-              ref={uploadInputRef}
-              className="hidden-input"
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleUploadChange}
-            />
           </div>
         </section>
 
@@ -732,15 +1144,21 @@ export function OpeningStockPage() {
           <div className="mapping-content">
             <strong>Quy tắc Mapping Excel (Bắt buộc)</strong>
             <p>
-              Hệ thống tự động nhận diện dữ liệu dựa trên tiêu đề cột. Đảm bảo file Excel của bạn chứa các cột chính xác sau:
+              Gõ tên file chứng từ vào từng cột loại tương ứng. Khi import, chọn thêm file chứng từ để hệ thống tự đối chiếu và upload:
               <span> MÃ NVL</span>
-              <span> TÊN THƯƠNG MẠI</span>
-              <span> TÊN INCI</span>
               <span> SỐ LÔ</span>
-              <span> NGÀY TD</span>
+              <span> SỐ HÓA ĐƠN</span>
+              <span> NGÀY HÓA ĐƠN</span>
+              <span> NHÀ CUNG CẤP</span>
               <span> SL (gr/ml)</span>
-              <span> ĐƠN GIÁ/KG</span>
+              <span> ĐƠN GIÁ</span>
+              <span> NGÀY TD</span>
+              <span> NGÀY SX</span>
               <span> HẠN SD</span>
+              <span className="doc-col-pill"> FILE MSDS</span>
+              <span className="doc-col-pill"> FILE COA</span>
+              <span className="doc-col-pill"> FILE HÓA ĐƠN</span>
+              <span className="doc-col-pill"> FILE KHÁC</span>
             </p>
           </div>
           <button type="button" className="btn btn-ghost compact" onClick={handleDownloadTemplate}>
@@ -916,37 +1334,6 @@ export function OpeningStockPage() {
                       placeholder="Số lô"
                       aria-label="Số lô"
                     />
-                  )
-              )}
-            />
-            <Column
-              field="openingDate"
-              header="NGÀY TD"
-              style={{ width: '120px' }}
-              onBeforeCellEditShow={preventEditOnNewRow}
-              onCellEditComplete={handleCellEditComplete}
-              editor={(options) => (
-                <input
-                  type="date"
-                  value={String(options.value ?? '')}
-                  onChange={(e) => options.editorCallback?.(e.target.value)}
-                  aria-label="Ngày tồn đầu"
-                />
-              )}
-              body={(rowData: OpeningStockRow) => (
-                rowData.id !== NEW_ROW_ID
-                  ? (rowData.openingDate ? <span className="status-pill">{formatDate(rowData.openingDate)}</span> : '---')
-                  : (
-                    <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={draft.openingDate}
-                        onChange={(event) => handleDraftChange('openingDate', event.target.value)}
-                        onClick={(event) => event.stopPropagation()}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        aria-label="Ngày tồn đầu"
-                      />
-                    </div>
                   )
               )}
             />
@@ -1143,40 +1530,36 @@ export function OpeningStockPage() {
               bodyClassName="opening-stock-number-col opening-stock-readonly-column"
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? <span className="num-r">{formatNumber(rowData.lineAmount)}</span>
-                  : <input className="opening-stock-readonly-input" value={formatNumber(draftLineAmount)} readOnly aria-label="Thành tiền" />
+                  ? <span className="num-r">{formatNumber(roundAmountForDisplay(rowData.lineAmount))}</span>
+                  : <input className="opening-stock-readonly-input" value={formatNumber(roundAmountForDisplay(draftLineAmount))} readOnly aria-label="Thành tiền" />
               )}
             />
             <Column
-              field="expiryDate"
-              header="HẠN SD"
+              field="openingDate"
+              header="NGÀY TD"
               style={{ width: '120px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
-                <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                  <input
-                    type="date"
-                    value={String(options.value ?? '')}
-                    onChange={(e) => options.editorCallback?.(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    aria-label="Hạn sử dụng"
-                  />
-                </div>
+                <input
+                  type="date"
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Ngày tồn đầu"
+                />
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
-                  ? (rowData.expiryDate ? <span className="status-pill">{formatDate(rowData.expiryDate)}</span> : '---')
+                  ? (rowData.openingDate ? <span className="status-pill">{formatDate(rowData.openingDate)}</span> : '---')
                   : (
-                    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                    <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                       <input
                         type="date"
-                        value={draft.expiryDate}
-                        onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        aria-label="Hạn sử dụng"
+                        value={draft.openingDate}
+                        onChange={(event) => handleDraftChange('openingDate', event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        aria-label="Ngày tồn đầu"
                       />
                     </div>
                   )
@@ -1212,6 +1595,41 @@ export function OpeningStockPage() {
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                         aria-label="Ngày sản xuất"
+                      />
+                    </div>
+                  )
+              )}
+            />
+            <Column
+              field="expiryDate"
+              header="HẠN SD"
+              style={{ width: '120px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                  <input
+                    type="date"
+                    value={String(options.value ?? '')}
+                    onChange={(e) => options.editorCallback?.(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    aria-label="Hạn sử dụng"
+                  />
+                </div>
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.expiryDate ? <span className="status-pill">{formatDate(rowData.expiryDate)}</span> : '---')
+                  : (
+                    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                      <input
+                        type="date"
+                        value={draft.expiryDate}
+                        onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        aria-label="Hạn sử dụng"
                       />
                     </div>
                   )
@@ -1306,6 +1724,22 @@ export function OpeningStockPage() {
           onPageSizeChange={setPageSize}
         />
       </section>
+
+      <OpeningStockImportModal
+        visible={importModalOpen}
+        parsing={importParsing}
+        importing={importingExcel}
+        parseError={importParseError}
+        parsedResult={parsedImportResult}
+        selectedFileName={selectedImportFileName}
+        attachmentCount={importAttachmentFiles.length}
+        attachmentFileNames={importAttachmentFiles.map((file) => file.name)}
+        importSummary={importSummary}
+        onClose={handleCloseImportModal}
+        onPickExcelFile={handlePickImportFile}
+        onPickAttachments={handlePickAttachmentFiles}
+        onImport={handleConfirmImport}
+      />
 
       {detailModalRow ? (
         <StockItemDetailModal

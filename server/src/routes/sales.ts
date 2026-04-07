@@ -94,15 +94,30 @@ router.post('/', requireAuth, requirePermission('sales.write'), async (req: Auth
     for (let idx = 0; idx < items.length; idx++) {
       const item = items[idx]
       if (item.batchId) {
+        const batchId = BigInt(item.batchId)
+        const batch = await tx.batch.findUnique({
+          where: { id: batchId },
+          select: { id: true, currentQtyBase: true },
+        })
+        if (!batch) throw new Error(`Batch ${item.batchId} not found`)
+        if (Number(batch.currentQtyBase) < item.quantityBase) {
+          throw new Error(`Insufficient stock in batch ${item.batchId}`)
+        }
+
         await tx.inventoryTransaction.create({
           data: {
-            batchId: BigInt(item.batchId),
+            batchId,
             userId: createdBy,
             exportOrderItemId: created.items[idx].id,
             type: 'export',
             quantityBase: item.quantityBase,
             transactionDate: header.exportedAt ? new Date(header.exportedAt) : new Date(),
           },
+        })
+
+        await tx.batch.update({
+          where: { id: batchId },
+          data: { currentQtyBase: { decrement: item.quantityBase } },
         })
       }
     }

@@ -18,6 +18,13 @@ import aiRouter from './routes/ai.js'
 import catalogRouter from './routes/catalog.js'
 import inventoryOpeningRouter from './routes/inventoryOpening.js'
 
+// Normalize BigInt values in API responses to avoid JSON serialization failures.
+if (!(BigInt.prototype as any).toJSON) {
+  ;(BigInt.prototype as any).toJSON = function () {
+    return this.toString()
+  }
+}
+
 const app = express()
 
 app.use(cors())

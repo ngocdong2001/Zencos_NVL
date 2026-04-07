@@ -21,6 +21,38 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value)
 }
 
+function parseDecimalInput(value: string): number {
+  const compact = value.trim().replace(/\s+/g, '')
+  if (!compact) return Number.NaN
+
+  const hasComma = compact.includes(',')
+  const hasDot = compact.includes('.')
+  let normalized = compact
+
+  if (hasComma && hasDot) {
+    const decimalSeparator = compact.lastIndexOf(',') > compact.lastIndexOf('.') ? ',' : '.'
+    normalized = decimalSeparator === ','
+      ? compact.replace(/\./g, '').replace(',', '.')
+      : compact.replace(/,/g, '')
+  } else if (hasComma) {
+    normalized = /^-?\d{1,3}(,\d{3})+$/.test(compact)
+      ? compact.replace(/,/g, '')
+      : compact.replace(',', '.')
+  } else if (hasDot) {
+    normalized = /^-?\d{1,3}(\.\d{3})+$/.test(compact)
+      ? compact.replace(/\./g, '')
+      : compact
+  }
+
+  normalized = normalized.replace(/[^0-9.-]/g, '')
+  return Number.parseFloat(normalized)
+}
+
+function toEditableNumberString(value: number): string {
+  if (!Number.isFinite(value)) return ''
+  return `${value}`
+}
+
 export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, onOpenDocs }: Props) {
   const [lot, setLot] = useState(row.lot)
   const [invoiceNo, setInvoiceNo] = useState(row.invoiceNo)
@@ -33,8 +65,8 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
   const [supplierValue, setSupplierValue] = useState<SupplierOption | string>(
     initialSupplier ?? row.supplierName ?? '',
   )
-  const [quantityGram, setQuantityGram] = useState(String(row.quantityGram))
-  const [unitPriceValue, setUnitPriceValue] = useState(String(row.unitPriceValue))
+  const [quantityGram, setQuantityGram] = useState(formatNumber(row.quantityGram))
+  const [unitPriceValue, setUnitPriceValue] = useState(formatNumber(row.unitPriceValue))
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
   const [baseUnitLabel, setBaseUnitLabel] = useState('g')
   const [saving, setSaving] = useState(false)
@@ -69,8 +101,8 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
     return () => { cancelled = true }
   }, [row.code])
 
-  const qtyNum = Number.parseFloat(quantityGram || '0')
-  const priceNum = Number.parseFloat(unitPriceValue || '0')
+  const qtyNum = parseDecimalInput(quantityGram || '0')
+  const priceNum = parseDecimalInput(unitPriceValue || '0')
   const lineAmount =
     Number.isFinite(qtyNum) && Number.isFinite(priceNum) && row.unitPriceConversionToBase > 0
       ? (qtyNum / row.unitPriceConversionToBase) * priceNum
@@ -89,8 +121,8 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
     setSaving(true)
     setError(null)
     try {
-      const qBase = Number.parseFloat(quantityGram || '0')
-      const uPrice = Number.parseFloat(unitPriceValue || '0')
+      const qBase = parseDecimalInput(quantityGram || '0')
+      const uPrice = parseDecimalInput(unitPriceValue || '0')
       const updated = await updateOpeningStockRow(row.id, {
         lot: lot.trim(),
         invoiceNo: invoiceNo.trim() || undefined,
@@ -213,6 +245,14 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
                         className="sdm-input sdm-qty-input"
                         value={quantityGram}
                         onChange={(e) => setQuantityGram(e.target.value)}
+                        onFocus={() => {
+                          const parsed = parseDecimalInput(quantityGram)
+                          if (Number.isFinite(parsed)) setQuantityGram(toEditableNumberString(parsed))
+                        }}
+                        onBlur={() => {
+                          const parsed = parseDecimalInput(quantityGram)
+                          if (Number.isFinite(parsed)) setQuantityGram(formatNumber(parsed))
+                        }}
                         inputMode="decimal"
                         placeholder="0"
                         aria-label="Số lượng gram"
@@ -228,6 +268,14 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
                         className="sdm-input"
                         value={unitPriceValue}
                         onChange={(e) => setUnitPriceValue(e.target.value)}
+                        onFocus={() => {
+                          const parsed = parseDecimalInput(unitPriceValue)
+                          if (Number.isFinite(parsed)) setUnitPriceValue(toEditableNumberString(parsed))
+                        }}
+                        onBlur={() => {
+                          const parsed = parseDecimalInput(unitPriceValue)
+                          if (Number.isFinite(parsed)) setUnitPriceValue(formatNumber(parsed))
+                        }}
                         inputMode="decimal"
                         placeholder="0"
                         aria-label="Đơn giá"
