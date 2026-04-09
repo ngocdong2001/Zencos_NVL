@@ -24,6 +24,59 @@
 - Kết hợp `forceSelection`/coercion có thể làm giá trị vừa chọn bị ghi đè.
 
 ## Mẫu xử lý ổn định để tái sử dụng
+
+### Cách thức A: Editor Prop (Recommended - PrimeReact Official)
+Từ v10.9+ nên ưu tiên dùng `editor` prop thay vì body template.
+
+```tsx
+// Editor function
+const productCodeEditor = (options: any) => {
+  const lineId = options.rowData?.id
+  return (
+    <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+      <AutoComplete
+        value={lookupValue[lineId] ?? options.value}
+        suggestions={suggestions[lineId] ?? []}
+        completeMethod={(event) => handleComplete(lineId, event)}
+        appendTo={document.body}
+        panelClassName="custom-autocomplete-panel"
+        // ... other props
+      />
+    </div>
+  )
+}
+
+// Column definition
+<Column 
+  field="materialCode"
+  editor={productCodeEditor}
+  onBeforeCellEditShow={preventEditOnNewRow}
+  onCellEditComplete={handleCellEditComplete}
+/>
+```
+
+### Cách thức B: Body Template (Fallback - Khi editor có vấn đề)
+Nếu editor prop gặp conflict, dùng body template thay thế.
+
+```tsx
+<Column 
+  field="materialCode"
+  body={(line) => (
+    line.id !== NEW_LINE_ID ? (
+      <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+        <AutoComplete 
+          // ... props
+          appendTo={document.body}
+        />
+      </div>
+    ) : <CustomNewRowInput />
+  )}
+/>
+```
+
+---
+
+### Checklist áp dụng (cả 2 cách):
 1. Cho column chứa AutoComplete trong DataTable `editMode="cell"`
 - Thêm `onBeforeCellEditShow` và chặn edit với dòng new row.
 - Mục tiêu: không cho DataTable tranh focus với AutoComplete.
@@ -64,6 +117,17 @@
 - Lỗi scrollbar ngang / layout bảng: xem file `horizontal-scroll-fix.md` trong cùng thư mục.
 
 ## Ghi chú cho codebase này
-- Đã áp dụng nhóm fix trên Opening Stock DataTable.
-- Build đã pass sau mỗi bước chỉnh sửa.
-- Nếu sao chép mẫu này sang DataTable khác, ưu tiên giữ nguyên thứ tự xử lý như trên để tránh bug lặp lại.
+- **PurchaseOrderDetailScreen.tsx** (v2 - Editor Prop Pattern):
+  - Refactored từ body template sang `editor` prop official pattern (Cách thức A).
+  - Áp dụng cho columns: `materialCode`, `materialName`, `unit` khi edit rows existing.
+  - Dòng new row vẫn dùng body template vì cần custom new-row controls riêng biệt.
+  - Build pass, hoạt động ổn định.
+
+- **OpeningStockPage & CatalogPage**:
+  - Áp dụng nhóm fix workaround (Cách thức B - Body Template).
+  - Build đã pass sau mỗi bước chỉnh sửa.
+
+- **Khuyến nghị áp dụng lại**:
+  - Ưu tiên Cách thức A (editor prop) cho code mới.
+  - Chỉ dùng Cách thức B nếu editor prop gặp persistent issues.
+  - Nếu sao chép mẫu, ưu tiên giữ nguyên thứ tự fix để tránh bug lặp lại.

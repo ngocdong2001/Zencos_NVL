@@ -41,6 +41,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   ) {
     const [pendingNewMat, setPendingNewMat] = useState<Partial<MaterialRow>>({})
     const [pendingNewBasic, setPendingNewBasic] = useState<Partial<BasicRow>>({})
+    const [isNewMaterialMinStockFocused, setIsNewMaterialMinStockFocused] = useState(false)
     const [savingNewRow, setSavingNewRow] = useState(false)
     const newMaterialCodeRef = useRef<HTMLInputElement>(null)
     const newBasicCodeRef = useRef<HTMLInputElement>(null)
@@ -103,9 +104,46 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     )
 
     const numberFormatter = useMemo(
-      () => new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 6 }),
+      () => new Intl.NumberFormat('vi-VN', { minimumFractionDigits: 0, maximumFractionDigits: 3 }),
       [],
     )
+
+    function parseDecimalInput(raw: string): number {
+      const compact = raw.trim().replace(/\s+/g, '')
+      if (!compact) return Number.NaN
+
+      const hasComma = compact.includes(',')
+      const hasDot = compact.includes('.')
+      let normalized = compact
+
+      if (hasComma && hasDot) {
+        const decimalSeparator = compact.lastIndexOf(',') > compact.lastIndexOf('.') ? ',' : '.'
+        normalized = decimalSeparator === ','
+          ? compact.replace(/\./g, '').replace(',', '.')
+          : compact.replace(/,/g, '')
+      } else if (hasComma) {
+        normalized = /^-?\d{1,3}(,\d{3})+$/.test(compact)
+          ? compact.replace(/,/g, '')
+          : compact.replace(',', '.')
+      } else if (hasDot) {
+        normalized = /^-?\d{1,3}(\.\d{3})+$/.test(compact)
+          ? compact.replace(/\./g, '')
+          : compact
+      }
+
+      normalized = normalized.replace(/[^0-9.-]/g, '')
+      return Number.parseFloat(normalized)
+    }
+
+    function toEditableNumberString(value: number): string {
+      if (!Number.isFinite(value)) return ''
+      return `${value}`
+    }
+
+    function parseMinStockValue(value: unknown): number {
+      if (typeof value === 'number') return value
+      return parseDecimalInput(String(value ?? ''))
+    }
 
     function resolveCategoryLabel(categoryValue: string) {
       if (!categoryValue) return ''
@@ -119,6 +157,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     }
 
     const materialRows = useMemo<MaterialRow[]>(() => {
+      const parsedMinStockLevel = parseMinStockValue(pendingNewMat.minStockLevel ?? '0')
       const newRow: MaterialRow = {
         id: NEW_ID,
         code: pendingNewMat.code ?? '',
@@ -127,6 +166,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         category: pendingNewMat.category ?? '',
         unit: pendingNewMat.unit ?? '',
         orderUnit: pendingNewMat.orderUnit ?? '',
+        minStockLevel: Number.isFinite(parsedMinStockLevel) ? parsedMinStockLevel : 0,
         status: pendingNewMat.status ?? '',
       }
       return [...pagedMaterials, newRow]
@@ -190,7 +230,19 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         event.preventDefault()
         return
       }
-      rowData[field] = newValue // mutate để DataTable cập nhật display ngay
+
+      if (field === 'minStockLevel') {
+        const parsed = parseMinStockValue(newValue)
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          event.preventDefault()
+          return
+        }
+        updatedRow.minStockLevel = parsed
+        rowData[field] = parsed
+      } else {
+        rowData[field] = newValue
+      }
+
       void onSaveMaterial(updatedRow)
     }
 
@@ -270,6 +322,8 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       && pendingNewMat.category?.trim()
       && pendingNewMat.unit?.trim()
       && pendingNewMat.orderUnit?.trim()
+      && Number.isFinite(parseMinStockValue(pendingNewMat.minStockLevel ?? '0'))
+      && parseMinStockValue(pendingNewMat.minStockLevel ?? '0') >= 0
     )
 
     const canSaveNewBasic = Boolean(
@@ -281,6 +335,11 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       if (!canSaveNewMaterial || savingNewRow) return
       setSavingNewRow(true)
       try {
+        const minStockLevel = parseMinStockValue(pendingNewMat.minStockLevel ?? '0')
+        if (!Number.isFinite(minStockLevel) || minStockLevel < 0) {
+          return
+        }
+
         const candidate: MaterialRow = {
           id: `nvl-${Date.now()}`,
           code: pendingNewMat.code?.trim() || nextMatCode,
@@ -289,6 +348,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           category: pendingNewMat.category!.trim(),
           unit: pendingNewMat.unit!.trim(),
           orderUnit: pendingNewMat.orderUnit?.trim() || pendingNewMat.unit!.trim(),
+          minStockLevel,
           status: pendingNewMat.status?.trim() || 'Active',
         }
         const saved = await onSaveMaterial(candidate)
@@ -402,6 +462,16 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         <InputText
           value={options.value || ''}
           onChange={(e) => options.editorCallback?.(e.target.value)}
+        />
+      )
+    }
+
+    function materialMinStockEditor(options: any) {
+      return (
+        <InputText
+          value={toEditableNumberString(parseMinStockValue(options.value ?? 0))}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="0"
         />
       )
     }
@@ -527,6 +597,41 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         )
       }
       return <span className="status-pill">{rowData.status}</span>
+    }
+
+    function materialMinStockBody(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) {
+        const rawValue = String(pendingNewMat.minStockLevel ?? '0')
+        const parsedValue = parseMinStockValue(rawValue)
+        const inputValue = isNewMaterialMinStockFocused
+          ? rawValue
+          : (Number.isFinite(parsedValue) && parsedValue >= 0 ? numberFormatter.format(parsedValue) : rawValue)
+
+        return (
+          <InputText
+            value={inputValue}
+            onChange={(e) => setNewMaterialField('minStockLevel', e.target.value)}
+            onFocus={() => {
+              setIsNewMaterialMinStockFocused(true)
+              if (Number.isFinite(parsedValue)) {
+                setNewMaterialField('minStockLevel', toEditableNumberString(parsedValue))
+              }
+            }}
+            onBlur={(e) => {
+              setIsNewMaterialMinStockFocused(false)
+              const parsed = parseMinStockValue(e.target.value)
+              if (Number.isFinite(parsed) && parsed >= 0) {
+                setNewMaterialField('minStockLevel', numberFormatter.format(parsed))
+              }
+            }}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="0"
+          />
+        )
+      }
+
+      const value = Number(rowData.minStockLevel)
+      return Number.isFinite(value) ? numberFormatter.format(value) : '0'
     }
 
     function materialDeleteButton(rowData: MaterialRow) {
@@ -923,6 +1028,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column field="category" header="Phân loại" body={materialCategoryBody} editor={(options) => materialCategoryEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="unit" header="Đơn vị" body={materialUnitBody} editor={(options) => materialUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="orderUnit" header="Đơn vị đặt hàng" body={materialOrderUnitBody} editor={(options) => materialOrderUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
+              <Column field="minStockLevel" header="SL tối thiểu" bodyClassName="cell-number" body={materialMinStockBody} editor={(options) => materialMinStockEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="status" header="Trạng thái" body={materialStatusBody} editor={(options) => materialStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column header="Xử lý" body={materialDeleteButton} style={{ width: '88px' }} />
             </DataTable>

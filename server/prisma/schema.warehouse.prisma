@@ -65,6 +65,12 @@ enum OpeningStockSource {
   excel
 }
 
+enum OpeningStockPostingStatus {
+  draft
+  posted
+  failed
+}
+
 model User {
   id           BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
   email        String           @unique @db.VarChar(191)
@@ -329,6 +335,7 @@ model PurchaseRequestItem {
   quantityNeededBase  Decimal          @map("quantity_needed_base") @db.Decimal(15, 4)
   unitDisplay         String           @map("unit_display") @db.VarChar(50)
   quantityDisplay     Decimal          @map("quantity_display") @db.Decimal(15, 4)
+  unitPrice           Decimal          @default(0) @map("unit_price") @db.Decimal(15, 2)
   notes               String?          @db.Text
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
@@ -418,6 +425,10 @@ model OpeningStockItem {
   unitPriceConversionToBase Decimal       @default(1) @map("unit_price_conversion_to_base") @db.Decimal(15, 4)
   lineAmount      Decimal                 @default(0) @map("line_amount") @db.Decimal(18, 2)
   hasDocument     Boolean                 @default(false) @map("has_document")
+  postingStatus   OpeningStockPostingStatus @default(draft) @map("posting_status")
+  postedBatchId   BigInt?                 @map("posted_batch_id") @db.UnsignedBigInt
+  postedTxId      BigInt?                 @map("posted_tx_id") @db.UnsignedBigInt
+  postedAt        DateTime?               @map("posted_at")
   locationId      BigInt?                 @map("location_id") @db.UnsignedBigInt
   notes           String?                 @db.Text
   createdAt       DateTime                @default(now()) @map("created_at")
@@ -431,6 +442,9 @@ model OpeningStockItem {
 
   @@index([productId])
   @@index([expiryDate])
+  @@index([postingStatus])
+  @@index([postedBatchId])
+  @@index([postedTxId])
   @@index([supplierId])
   @@index([unitPriceUnitId])
   @@unique([declarationId, productId, lotNo])

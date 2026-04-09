@@ -1,0 +1,246 @@
+import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
+import { Column } from 'primereact/column'
+import { DataTable } from 'primereact/datatable'
+import { Dropdown } from 'primereact/dropdown'
+import { PagedTableFooter } from '../layout/PagedTableFooter'
+import { formatCurrency, formatDateValue, parseDateValue } from './format'
+import { PO_PAGE_SIZE_OPTIONS, PO_STATUS_OPTIONS, STATUS_LABELS } from './types'
+import type { PoStatus, PurchaseOrderRow } from './types'
+
+type Props = {
+  stats: { total: number; draft: number; submitted: number }
+  onCreateNewPo: () => void
+  statusFilter: 'all' | PoStatus
+  onStatusFilterChange: (value: 'all' | PoStatus) => void
+  supplierFilter: string
+  onSupplierFilterChange: (value: string) => void
+  poSupplierOptions: Array<{ label: string; value: string }>
+  fromDate: string
+  onFromDateChange: (value: string) => void
+  toDate: string
+  onToDateChange: (value: string) => void
+  poError: string | null
+  visibleRows: PurchaseOrderRow[]
+  selectedPoRows: PurchaseOrderRow[]
+  allVisibleSelected: boolean
+  onPoSelectionChange: (rows: PurchaseOrderRow[]) => void
+  onToggleVisibleRows: (checked: boolean) => void
+  poLoading: boolean
+  onEditPo: (row: PurchaseOrderRow) => void
+  rangeStart: number
+  rangeEnd: number
+  totalFilteredRows: number
+  safePage: number
+  totalPages: number
+  poPageSize: number
+  onPageChange: (page: number) => void
+  onPageSizeChange: (pageSize: number) => void
+}
+
+export function PurchaseOrderListScreen({
+  stats,
+  onCreateNewPo,
+  statusFilter,
+  onStatusFilterChange,
+  supplierFilter,
+  onSupplierFilterChange,
+  poSupplierOptions,
+  fromDate,
+  onFromDateChange,
+  toDate,
+  onToDateChange,
+  poError,
+  visibleRows,
+  selectedPoRows,
+  allVisibleSelected,
+  onPoSelectionChange,
+  onToggleVisibleRows,
+  poLoading,
+  onEditPo,
+  rangeStart,
+  rangeEnd,
+  totalFilteredRows,
+  safePage,
+  totalPages,
+  poPageSize,
+  onPageChange,
+  onPageSizeChange,
+}: Props) {
+  return (
+    <section className="po-page-shell">
+      <div className="po-title-row">
+        <div>
+          <h2>Danh sách Phiếu PO</h2>
+          <p>Quản lý và theo dõi các đơn đặt hàng với nhà cung cấp.</p>
+        </div>
+        <Button
+          type="button"
+          className="btn btn-primary po-create-btn"
+          icon="pi pi-plus"
+          label="Tạo phiếu PO mới"
+          onClick={onCreateNewPo}
+        />
+      </div>
+
+      <div className="po-stats-grid">
+        <article className="po-stat-card">
+          <span className="po-stat-icon tone-primary">
+            <i className="pi pi-file" />
+          </span>
+          <div>
+            <p>Tổng số PO</p>
+            <strong>{String(stats.total).padStart(2, '0')}</strong>
+          </div>
+        </article>
+        <article className="po-stat-card">
+          <span className="po-stat-icon tone-muted">
+            <i className="pi pi-pencil" />
+          </span>
+          <div>
+            <p>Bản nháp</p>
+            <strong>{String(stats.draft).padStart(2, '0')}</strong>
+          </div>
+        </article>
+        <article className="po-stat-card">
+          <span className="po-stat-icon tone-info">
+            <i className="pi pi-send" />
+          </span>
+          <div>
+            <p>Đã gửi</p>
+            <strong>{String(stats.submitted).padStart(2, '0')}</strong>
+          </div>
+        </article>
+      </div>
+
+      <section className="po-table-card">
+        <div className="po-toolbar">
+          <label className="po-filter-control">
+            <i className="pi pi-filter" aria-hidden />
+            <Dropdown
+              value={statusFilter}
+              options={PO_STATUS_OPTIONS}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(event) => onStatusFilterChange(event.value as 'all' | PoStatus)}
+            />
+            <i className="pi pi-angle-down" aria-hidden />
+          </label>
+
+          <label className="po-filter-control">
+            <Dropdown
+              value={supplierFilter}
+              options={poSupplierOptions}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(event) => onSupplierFilterChange(event.value as string)}
+            />
+            <i className="pi pi-angle-down" aria-hidden />
+          </label>
+
+          <div className="po-filter-control po-date-filter">
+            <i className="pi pi-calendar" aria-hidden />
+            <Calendar
+              value={parseDateValue(fromDate)}
+              onChange={(event) => onFromDateChange(formatDateValue(event.value ?? null))}
+              dateFormat="dd/mm/yy"
+              showIcon
+              aria-label="Từ ngày"
+            />
+            <span>-</span>
+            <Calendar
+              value={parseDateValue(toDate)}
+              onChange={(event) => onToDateChange(formatDateValue(event.value ?? null))}
+              dateFormat="dd/mm/yy"
+              showIcon
+              aria-label="Đến ngày"
+            />
+          </div>
+
+          <Button type="button" className="po-download-btn" icon="pi pi-download" aria-label="Xuất danh sách PO" />
+        </div>
+
+        {poError ? <p className="po-empty-row">{poError}</p> : null}
+
+        <div className="po-table-wrap">
+          <DataTable
+            value={visibleRows}
+            dataKey="id"
+            selectionMode="checkbox"
+            selection={selectedPoRows}
+            onSelectionChange={(event) => onPoSelectionChange((event.value ?? []) as PurchaseOrderRow[])}
+            selectAll={allVisibleSelected}
+            onSelectAllChange={(event) => onToggleVisibleRows(Boolean(event.checked))}
+            stripedRows
+            loading={poLoading}
+            emptyMessage="Không có dữ liệu phù hợp bộ lọc hiện tại."
+            className="po-table prime-catalog-table"
+          >
+            <Column selectionMode="multiple" style={{ width: '42px' }} />
+            <Column
+              field="code"
+              header="Mã PO"
+              body={(row: PurchaseOrderRow) => (
+                <span className="po-code-cell">
+                  <Button
+                    type="button"
+                    text
+                    label={row.code}
+                    onClick={() => onEditPo(row)}
+                  />
+                </span>
+              )}
+            />
+            <Column field="createdAt" header="Ngày tạo" />
+            <Column field="supplier" header="Nhà cung cấp" />
+            <Column field="lineCount" header="Số dòng" />
+            <Column
+              header="Giá trị (đ)"
+              body={(row: PurchaseOrderRow) => (
+                <span className="po-value-cell">{formatCurrency(row.totalValue)}</span>
+              )}
+            />
+            <Column
+              header="Trạng thái"
+              body={(row: PurchaseOrderRow) => (
+                <span className={`po-status-badge ${row.status}`}>{STATUS_LABELS[row.status]}</span>
+              )}
+            />
+            <Column field="creator" header="Người tạo" />
+            <Column
+              header="Thao tác"
+              body={(row: PurchaseOrderRow) => (
+                <span className="po-actions-cell">
+                  <Button type="button" className="po-icon-btn" icon="pi pi-eye" text aria-label={`Xem ${row.code}`} />
+                  <Button
+                    type="button"
+                    className="po-icon-btn"
+                    icon="pi pi-pencil"
+                    text
+                    aria-label={`Sửa ${row.code}`}
+                    onClick={() => onEditPo(row)}
+                  />
+                  <Button type="button" className="po-icon-btn" icon="pi pi-ellipsis-v" text aria-label={`Thêm thao tác cho ${row.code}`} />
+                </span>
+              )}
+            />
+          </DataTable>
+        </div>
+
+        <PagedTableFooter
+          rootClassName="po-footer-row"
+          prefix="po"
+          currentRangeStart={rangeStart}
+          currentRangeEnd={rangeEnd}
+          totalRows={totalFilteredRows}
+          safePage={safePage}
+          totalPages={totalPages}
+          pageSize={poPageSize}
+          pageSizeOptions={PO_PAGE_SIZE_OPTIONS}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+        />
+      </section>
+    </section>
+  )
+}

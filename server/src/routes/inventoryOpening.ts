@@ -156,6 +156,117 @@ async function getOrCreateDraftDeclaration(): Promise<bigint> {
   return created[0].id
 }
 
+type QueryRawClient = Pick<typeof prisma, '$queryRaw'>
+
+async function getFirstActiveUserId(db: QueryRawClient = prisma): Promise<bigint> {
+  const rows = await db.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id FROM users WHERE is_active = 1 ORDER BY id ASC LIMIT 1
+  `)
+  if (!rows[0]) {
+    throw new Error('NO_USER_FOUND')
+  }
+  return rows[0].id
+}
+
+async function autoPostOpeningStockItem(itemId: number): Promise<void> {
+  await prisma.$transaction(async (db) => {
+    const items = await db.$queryRaw<Array<{
+      id: bigint
+      product_id: bigint
+      supplier_id: bigint | null
+      lot_no: string
+      invoice_no: string | null
+      invoice_date: Date | null
+      opening_date: Date | null
+      manufacture_date: Date | null
+      expiry_date: Date | null
+      quantity_base: Prisma.Decimal
+      unit_used: string
+      quantity_display: Prisma.Decimal
+      unit_price_per_kg: Prisma.Decimal
+      posting_status: string | null
+      posted_batch_id: bigint | null
+    }>>(Prisma.sql`
+      SELECT
+        id,
+        product_id,
+        supplier_id,
+        lot_no,
+        invoice_no,
+        invoice_date,
+        opening_date,
+        manufacture_date,
+        expiry_date,
+        quantity_base,
+        unit_used,
+        quantity_display,
+        unit_price_per_kg,
+        posting_status,
+        posted_batch_id
+      FROM opening_stock_items
+      WHERE id = ${itemId}
+      LIMIT 1
+    `)
+
+    const item = items[0]
+    if (!item) {
+      throw new Error('OPENING_ITEM_NOT_FOUND')
+    }
+
+    if ((item.posting_status ?? 'draft') === 'posted' && item.posted_batch_id) {
+      return
+    }
+
+    const userId = await getFirstActiveUserId(db)
+
+    const batch = await db.batch.create({
+      data: {
+        productId: item.product_id,
+        supplierId: item.supplier_id ?? undefined,
+        lotNo: item.lot_no,
+        invoiceNumber: item.invoice_no ?? undefined,
+        invoiceDate: item.invoice_date ?? undefined,
+        unitPricePerKg: Number(item.unit_price_per_kg),
+        receivedQtyBase: Number(item.quantity_base),
+        currentQtyBase: 0,
+        purchaseUnit: item.unit_used,
+        purchaseQty: Number(item.quantity_display),
+        manufactureDate: item.manufacture_date ?? undefined,
+        expiryDate: item.expiry_date ?? undefined,
+        status: 'available',
+        notes: `Auto-posted from opening_stock_item #${item.id.toString()}`,
+      },
+    })
+
+    const tx = await db.inventoryTransaction.create({
+      data: {
+        batchId: batch.id,
+        userId,
+        type: 'import',
+        quantityBase: Number(item.quantity_base),
+        notes: `Opening stock auto-post from item #${item.id.toString()}`,
+        transactionDate: item.opening_date ?? new Date(),
+      },
+    })
+
+    await db.batch.update({
+      where: { id: batch.id },
+      data: { currentQtyBase: { increment: Number(item.quantity_base) } },
+    })
+
+    await db.$executeRaw(Prisma.sql`
+      UPDATE opening_stock_items
+      SET
+        posting_status = 'posted',
+        posted_batch_id = ${batch.id},
+        posted_tx_id = ${tx.id},
+        posted_at = NOW(3),
+        updated_at = NOW(3)
+      WHERE id = ${item.id}
+    `)
+  })
+}
+
 const addRowSchema = z.object({
   code: z.string().min(1),
   lot: z.string().optional().default(''),
@@ -544,6 +655,23 @@ router.post('/rows', async (req, res) => {
   const row = created[0]
   if (!row) return res.status(500).json({ message: 'Không thể đọc lại bản ghi vừa tạo.' })
 
+  const createdId = Number(row.id)
+  if (!Number.isFinite(createdId)) {
+    return res.status(500).json({ message: 'Không thể xác định id bản ghi vừa tạo.' })
+  }
+
+  try {
+    await autoPostOpeningStockItem(createdId)
+  } catch (error) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE opening_stock_items
+      SET posting_status = 'failed', updated_at = NOW(3)
+      WHERE id = ${createdId}
+    `)
+    const message = error instanceof Error ? error.message : 'Lỗi auto-post tồn đầu kỳ.'
+    return res.status(500).json({ message: `Đã lưu dòng nhưng auto-post thất bại: ${message}` })
+  }
+
   return res.status(201).json(normalizeForJson(mapOpeningStockRow(row)))
 })
 
@@ -577,7 +705,10 @@ router.put('/rows/:id', async (req, res) => {
       osi.invoice_no,
       osi.invoice_date,
       osi.supplier_id,
-      osi.expiry_date
+      osi.manufacture_date,
+      osi.expiry_date,
+      osi.posting_status,
+      osi.posted_batch_id
     FROM opening_stock_items osi
     JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
     WHERE osi.id = ${id} AND osd.status = 'draft'
@@ -590,6 +721,8 @@ router.put('/rows/:id', async (req, res) => {
   }
 
   const hasAmountFields = await hasOpeningStockAmountFields()
+  const postedBatchId = toBigInt(current.posted_batch_id)
+  const isPosted = String(current.posting_status ?? 'draft') === 'posted' && postedBatchId !== null
   const quantityBase = data.quantityBase ?? Number(current.quantity_base ?? 0)
   const unitPriceValue = data.unitPriceValue ?? Number(current.unit_price_value ?? current.unit_price_per_kg ?? 0)
   const conversionToBase = Number(current.unit_price_conversion_to_base ?? 1000)
@@ -613,42 +746,115 @@ router.put('/rows/:id', async (req, res) => {
     return res.status(400).json({ message: 'SL (GRAM) và Đơn giá phải là số hợp lệ >= 0.' })
   }
 
-  if (hasAmountFields) {
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE opening_stock_items
-      SET
-        lot_no = ${lotNo},
-        opening_date = ${openingDate ? new Date(String(openingDate)) : null},
-        invoice_no = ${invoiceNo || null},
-        invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
-        supplier_id = ${supplierId},
-        manufacture_date = ${manufactureDate ? new Date(String(manufactureDate)) : null},
-        expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
-        quantity_base = ${quantityBase},
-        quantity_display = ${quantityBase},
-        unit_price_per_kg = ${unitPriceValue},
-        unit_price_value = ${unitPriceValue},
-        line_amount = ${lineAmount},
-        updated_at = NOW(3)
-      WHERE id = ${id}
-    `)
-  } else {
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE opening_stock_items
-      SET
-        lot_no = ${lotNo},
-        opening_date = ${openingDate ? new Date(String(openingDate)) : null},
-        invoice_no = ${invoiceNo || null},
-        invoice_date = ${invoiceDate ? new Date(String(invoiceDate)) : null},
-        supplier_id = ${supplierId},
-        manufacture_date = ${manufactureDate ? new Date(String(manufactureDate)) : null},
-        expiry_date = ${expiryDate ? new Date(String(expiryDate)) : null},
-        quantity_base = ${quantityBase},
-        quantity_display = ${quantityBase},
-        unit_price_per_kg = ${unitPriceValue},
-        updated_at = NOW(3)
-      WHERE id = ${id}
-    `)
+  const openingDateValue = openingDate ? new Date(String(openingDate)) : null
+  const invoiceDateValue = invoiceDate ? new Date(String(invoiceDate)) : null
+  const manufactureDateValue = manufactureDate ? new Date(String(manufactureDate)) : null
+  const expiryDateValue = expiryDate ? new Date(String(expiryDate)) : null
+  const previousQtyBase = Number(current.quantity_base ?? 0)
+  const deltaQty = quantityBase - previousQtyBase
+  const autoAdjusted = isPosted && deltaQty !== 0
+  const batchSynced = isPosted
+
+  try {
+    await prisma.$transaction(async (db) => {
+      if (hasAmountFields) {
+        await db.$executeRaw(Prisma.sql`
+          UPDATE opening_stock_items
+          SET
+            lot_no = ${lotNo},
+            opening_date = ${openingDateValue},
+            invoice_no = ${invoiceNo || null},
+            invoice_date = ${invoiceDateValue},
+            supplier_id = ${supplierId},
+            manufacture_date = ${manufactureDateValue},
+            expiry_date = ${expiryDateValue},
+            quantity_base = ${quantityBase},
+            quantity_display = ${quantityBase},
+            unit_price_per_kg = ${unitPriceValue},
+            unit_price_value = ${unitPriceValue},
+            line_amount = ${lineAmount},
+            updated_at = NOW(3)
+          WHERE id = ${id}
+        `)
+      } else {
+        await db.$executeRaw(Prisma.sql`
+          UPDATE opening_stock_items
+          SET
+            lot_no = ${lotNo},
+            opening_date = ${openingDateValue},
+            invoice_no = ${invoiceNo || null},
+            invoice_date = ${invoiceDateValue},
+            supplier_id = ${supplierId},
+            manufacture_date = ${manufactureDateValue},
+            expiry_date = ${expiryDateValue},
+            quantity_base = ${quantityBase},
+            quantity_display = ${quantityBase},
+            unit_price_per_kg = ${unitPriceValue},
+            updated_at = NOW(3)
+          WHERE id = ${id}
+        `)
+      }
+
+      if (!isPosted || postedBatchId === null) {
+        return
+      }
+
+      const batch = await db.batch.findUnique({
+        where: { id: postedBatchId },
+        select: { id: true, currentQtyBase: true },
+      })
+
+      if (!batch) {
+        throw new Error('POSTED_BATCH_NOT_FOUND')
+      }
+
+      const nextCurrentQtyBase = Number(batch.currentQtyBase) + deltaQty
+      if (nextCurrentQtyBase < 0) {
+        throw new Error('OPENING_STOCK_ADJUSTMENT_NEGATIVE_STOCK')
+      }
+
+      await db.batch.update({
+        where: { id: postedBatchId },
+        data: {
+          lotNo,
+          invoiceNumber: invoiceNo || null,
+          invoiceDate: invoiceDateValue,
+          supplierId,
+          manufactureDate: manufactureDateValue,
+          expiryDate: expiryDateValue,
+          unitPricePerKg: unitPriceValue,
+        },
+      })
+
+      if (deltaQty !== 0) {
+        const userId = await getFirstActiveUserId(db)
+        await db.inventoryTransaction.create({
+          data: {
+            batchId: postedBatchId,
+            userId,
+            type: 'adjustment',
+            quantityBase: deltaQty,
+            notes: `Opening stock item #${id} edited: quantity ${previousQtyBase} -> ${quantityBase}`,
+            transactionDate: new Date(),
+          },
+        })
+
+        await db.batch.update({
+          where: { id: postedBatchId },
+          data: { currentQtyBase: { increment: deltaQty } },
+        })
+      }
+    })
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'OPENING_STOCK_ADJUSTMENT_NEGATIVE_STOCK') {
+        return res.status(409).json({ message: 'Không thể cập nhật vì sẽ làm tồn kho âm sau điều chỉnh.' })
+      }
+      if (error.message === 'POSTED_BATCH_NOT_FOUND') {
+        return res.status(409).json({ message: 'Không tìm thấy batch đã post của dòng tồn đầu kỳ.' })
+      }
+    }
+    throw error
   }
 
   const updated = hasAmountFields
@@ -710,7 +916,12 @@ router.put('/rows/:id', async (req, res) => {
   const row = updated[0]
   if (!row) return res.status(500).json({ message: 'Không thể đọc lại bản ghi vừa cập nhật.' })
 
-  return res.json(normalizeForJson(mapOpeningStockRow(row)))
+  return res.json(normalizeForJson({
+    ...mapOpeningStockRow(row),
+    autoAdjusted,
+    adjustmentQuantityBase: autoAdjusted ? deltaQty : 0,
+    batchSynced,
+  }))
 })
 
 // ──────────────────────────────────────────────────────────────────────
@@ -735,11 +946,83 @@ router.delete('/rows/:id', async (req, res) => {
     return res.status(404).json({ message: 'Không tìm thấy item hoặc phiếu đã được xác nhận.' })
   }
 
-  await prisma.$executeRaw(Prisma.sql`
-    DELETE FROM opening_stock_items WHERE id = ${id}
+  const postedRows = await prisma.$queryRaw<Array<{
+    posting_status: string | null
+    posted_batch_id: bigint | null
+    quantity_base: Prisma.Decimal
+    opening_date: Date | null
+  }>>(Prisma.sql`
+    SELECT posting_status, posted_batch_id, quantity_base, opening_date
+    FROM opening_stock_items
+    WHERE id = ${id}
+    LIMIT 1
   `)
 
-  return res.status(204).send()
+  const posted = postedRows[0]
+  const postedBatchId = toBigInt(posted?.posted_batch_id)
+  const isPosted = posted && String(posted.posting_status ?? 'draft') === 'posted' && postedBatchId !== null
+  const openingQty = Number(posted?.quantity_base ?? 0)
+  const autoReversed = Boolean(isPosted && postedBatchId !== null && openingQty > 0)
+
+  try {
+    await prisma.$transaction(async (db) => {
+      if (isPosted && postedBatchId !== null) {
+        if (openingQty > 0) {
+          const batch = await db.batch.findUnique({
+            where: { id: postedBatchId },
+            select: { id: true, currentQtyBase: true },
+          })
+
+          if (!batch) {
+            throw new Error('POSTED_BATCH_NOT_FOUND')
+          }
+
+          const reversalQty = -openingQty
+          const nextCurrentQtyBase = Number(batch.currentQtyBase) + reversalQty
+          if (nextCurrentQtyBase < 0) {
+            throw new Error('OPENING_STOCK_DELETE_NEGATIVE_STOCK')
+          }
+
+          const userId = await getFirstActiveUserId(db)
+          await db.inventoryTransaction.create({
+            data: {
+              batchId: postedBatchId,
+              userId,
+              type: 'adjustment',
+              quantityBase: reversalQty,
+              notes: `Reversal delete opening stock item #${id}`,
+              transactionDate: new Date(),
+            },
+          })
+
+          await db.batch.update({
+            where: { id: postedBatchId },
+            data: { currentQtyBase: { increment: reversalQty } },
+          })
+        }
+      }
+
+      await db.$executeRaw(Prisma.sql`
+        DELETE FROM opening_stock_items WHERE id = ${id}
+      `)
+    })
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'OPENING_STOCK_DELETE_NEGATIVE_STOCK') {
+        return res.status(409).json({ message: 'Không thể xóa vì tồn hiện tại của batch không đủ để đảo chiều số lượng tồn đầu kỳ.' })
+      }
+      if (error.message === 'POSTED_BATCH_NOT_FOUND') {
+        return res.status(409).json({ message: 'Không tìm thấy batch đã post của dòng tồn đầu kỳ.' })
+      }
+    }
+    throw error
+  }
+
+  return res.json(normalizeForJson({
+    deleted: true,
+    autoReversed,
+    reversalQuantityBase: autoReversed ? openingQty : 0,
+  }))
 })
 
 // ──────────────────────────────────────────────────────────────────────

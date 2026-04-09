@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useOutletContext } from 'react-router-dom'
 import { AutoComplete } from 'primereact/autocomplete'
 import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
+import { Calendar } from 'primereact/calendar'
+import { ConfirmPopup, confirmPopup } from 'primereact/confirmpopup'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import type { ColumnEvent } from 'primereact/column'
-import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
+import { Toast } from 'primereact/toast'
+import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { StockItemDocModal } from '../components/openingStock/StockItemDocModal'
 import { StockItemDetailModal } from '../components/openingStock/StockItemDetailModal'
@@ -76,6 +79,7 @@ function SupplierEditorCell({
 }
 
 const NEW_ROW_ID = '__new__'
+const CATALOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 type DraftRow = {
   code: string
@@ -180,6 +184,37 @@ function parseIsoDate(value: string): Date | null {
   return date
 }
 
+function formatIsoDateFromDate(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function normalizeDateCellValue(value: unknown): string {
+  if (value == null) return ''
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return ''
+    return formatIsoDateFromDate(value)
+  }
+
+  const raw = String(value).trim()
+  if (!raw) return ''
+
+  const isoDate = parseIsoDate(raw)
+  if (isoDate) return formatIsoDateFromDate(isoDate)
+
+  const dmy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (dmy) {
+    const candidate = `${dmy[3]}-${dmy[2]}-${dmy[1]}`
+    const parsed = parseIsoDate(candidate)
+    if (parsed) return formatIsoDateFromDate(parsed)
+  }
+
+  return ''
+}
+
 export function OpeningStockPage() {
   const { search } = useOutletContext<OutletContext>()
   const location = useLocation()
@@ -213,6 +248,7 @@ export function OpeningStockPage() {
   const codeSearchRequestRef = useRef(0)
   const priceUnitRequestRef = useRef(0)
   const lotInputRef = useRef<HTMLInputElement>(null)
+  const toastRef = useRef<Toast>(null)
 
   const filteredRows = useMemo(() => {
     const q = search.trim()
@@ -255,9 +291,10 @@ export function OpeningStockPage() {
 
   const canSaveDraftRow = useMemo(() => {
     const code = normalizeCode(draft.code)
+    const selectedCode = selectedMaterial ? normalizeCode(selectedMaterial.code) : ''
     return Boolean(
       selectedMaterial
-      && selectedMaterial.code === code
+      && selectedCode === code
       && draft.unitPriceUnitId
       && Number.isFinite(draftQuantityBase)
       && draftQuantityBase >= 0
@@ -281,17 +318,6 @@ export function OpeningStockPage() {
   const totalRows = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const safePage = Math.min(page, totalPages)
-
-  const pageButtons = useMemo(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1)
-    }
-    const pages = new Set([1, totalPages])
-    for (let i = Math.max(1, safePage - 2); i <= Math.min(totalPages, safePage + 2); i += 1) {
-      pages.add(i)
-    }
-    return [...pages].sort((a, b) => a - b)
-  }, [totalPages, safePage])
 
   const pagedRows = useMemo(() => {
     const start = (safePage - 1) * pageSize
@@ -480,6 +506,12 @@ export function OpeningStockPage() {
   const showNotice = (message: string, tone: 'success' | 'error') => {
     setNotice(message)
     setNoticeTone(tone)
+    toastRef.current?.show({
+      severity: tone,
+      summary: tone === 'success' ? 'Thành công' : 'Lỗi',
+      detail: message,
+      life: tone === 'success' ? 3000 : 4500,
+    })
   }
 
   const handleToggleSelectAll = (checked: boolean) => {
@@ -519,9 +551,15 @@ export function OpeningStockPage() {
 
   const handleDeleteRow = async (id: string) => {
     try {
-      await deleteOpeningStockRow(id)
+      const deleted = await deleteOpeningStockRow(id)
       setRows((prev) => prev.filter((row) => row.id !== id))
       setSelectedIds((prev) => prev.filter((item) => item !== id))
+      if (deleted.autoReversed) {
+        showNotice(
+          `Đã xóa dòng và tự tạo bút toán đảo chiều ${formatNumber(deleted.reversalQuantityBase ?? 0)} (đơn vị gốc).`,
+          'success',
+        )
+      }
     } catch (error) {
       showNotice(parseApiErrorMessage(error, 'Không thể xóa dòng tồn kho đầu kỳ.'), 'error')
     }
@@ -556,7 +594,7 @@ export function OpeningStockPage() {
     }
 
     if (field === 'openingDate') {
-      const value = String(raw ?? '').trim()
+      const value = normalizeDateCellValue(raw)
       next.openingDate = value || null
     }
 
@@ -565,7 +603,7 @@ export function OpeningStockPage() {
     }
 
     if (field === 'invoiceDate') {
-      const value = String(raw ?? '').trim()
+      const value = normalizeDateCellValue(raw)
       next.invoiceDate = value || null
     }
 
@@ -575,12 +613,12 @@ export function OpeningStockPage() {
     }
 
     if (field === 'expiryDate') {
-      const value = String(raw ?? '').trim()
+      const value = normalizeDateCellValue(raw)
       next.expiryDate = value || null
     }
 
     if (field === 'manufactureDate') {
-      const value = String(raw ?? '').trim()
+      const value = normalizeDateCellValue(raw)
       next.manufactureDate = value || null
     }
 
@@ -608,6 +646,12 @@ export function OpeningStockPage() {
       try {
         const updated = await updateOpeningStockRow(rowData.id, next)
         setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+        if (updated.autoAdjusted) {
+          showNotice(
+            `Đã tự tạo bút toán điều chỉnh ${formatNumber(updated.adjustmentQuantityBase ?? 0)} (đơn vị gốc) cho dòng đã post.`,
+            'success',
+          )
+        }
       } catch (error) {
         showNotice(parseApiErrorMessage(error, 'Không thể cập nhật dòng tồn kho đầu kỳ.'), 'error')
       }
@@ -1048,13 +1092,14 @@ export function OpeningStockPage() {
 
   const handleAddRow = async () => {
     const code = normalizeCode(draft.code)
+    const selectedCode = selectedMaterial ? normalizeCode(selectedMaterial.code) : ''
 
     if (!code) {
       showNotice('Cần nhập Mã NVL.', 'error')
       return
     }
 
-    if (!selectedMaterial || selectedMaterial.code !== code) {
+    if (!selectedMaterial || selectedCode !== code) {
       showNotice('Vui lòng chọn Mã NVL từ danh sách gợi ý.', 'error')
       return
     }
@@ -1105,8 +1150,70 @@ export function OpeningStockPage() {
     }
   }
 
+  const getDraftValidationIssues = (): string[] => {
+    const issues: string[] = []
+    const code = normalizeCode(draft.code)
+    const selectedCode = selectedMaterial ? normalizeCode(selectedMaterial.code) : ''
+    const quantityBase = Number.parseFloat(draft.quantityGram || '0')
+    const unitPrice = Number.parseFloat(draft.unitPriceValue || '0')
+
+    if (!code) {
+      issues.push('Thiếu Mã NVL.')
+    }
+
+    if (!selectedMaterial || selectedCode !== code) {
+      issues.push('Mã NVL chưa được chọn từ danh sách gợi ý.')
+    }
+
+    if (!draft.openingDate) {
+      issues.push('Thiếu Ngày tồn đầu.')
+    }
+
+    if (!Number.isFinite(quantityBase) || quantityBase < 0) {
+      issues.push('SL (gr/ml) phải là số hợp lệ >= 0.')
+    }
+
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      issues.push('Đơn giá phải là số hợp lệ >= 0.')
+    }
+
+    if (!draft.unitPriceUnitId || !Number.isFinite(draftConversionToBase) || draftConversionToBase <= 0) {
+      issues.push('Chưa xác định được đơn vị đơn giá/quy đổi của Mã NVL.')
+    }
+
+    return issues
+  }
+
+  const handleClickSaveDraftRow = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const issues = getDraftValidationIssues()
+
+    if (issues.length > 0) {
+      confirmPopup({
+        target: event.currentTarget,
+        icon: 'pi pi-exclamation-triangle',
+        acceptLabel: 'Đã hiểu',
+        accept: () => undefined,
+        message: (
+          <div>
+            <p style={{ margin: '0 0 6px', fontWeight: 600 }}>Chưa thể lưu dòng mới</p>
+            <p style={{ margin: '0 0 8px' }}>Vui lòng bổ sung các thông tin sau:</p>
+            <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+              {issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      })
+      return
+    }
+
+    void handleAddRow()
+  }
+
   return (
     <div className="catalog-page-shell opening-stock-shell">
+      <Toast ref={toastRef} position="top-right" />
       <div className="catalog-page-top">
         <section className="title-bar">
           <div>
@@ -1370,24 +1477,28 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
-                <input
-                  type="date"
-                  value={String(options.value ?? '')}
-                  onChange={(e) => options.editorCallback?.(e.target.value)}
-                  aria-label="Ngày hóa đơn"
-                />
+                <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                  <Calendar
+                    value={parseIsoDate(String(options.value ?? ''))}
+                    onChange={(event) => options.editorCallback?.(normalizeDateCellValue(event.value))}
+                    dateFormat="dd/mm/yy"
+                    showIcon
+                    appendTo={document.body}
+                    aria-label="Ngày hóa đơn"
+                  />
+                </div>
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? (rowData.invoiceDate ? <span className="status-pill">{formatDate(rowData.invoiceDate)}</span> : '---')
                   : (
                     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={draft.invoiceDate}
-                        onChange={(event) => handleDraftChange('invoiceDate', event.target.value)}
-                        onClick={(event) => event.stopPropagation()}
-                        onMouseDown={(event) => event.stopPropagation()}
+                      <Calendar
+                        value={parseIsoDate(draft.invoiceDate)}
+                        onChange={(event) => handleDraftChange('invoiceDate', normalizeDateCellValue(event.value))}
+                        dateFormat="dd/mm/yy"
+                        showIcon
+                        appendTo={document.body}
                         aria-label="Ngày hóa đơn"
                       />
                     </div>
@@ -1541,24 +1652,28 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
-                <input
-                  type="date"
-                  value={String(options.value ?? '')}
-                  onChange={(e) => options.editorCallback?.(e.target.value)}
-                  aria-label="Ngày tồn đầu"
-                />
+                <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                  <Calendar
+                    value={parseIsoDate(String(options.value ?? ''))}
+                    onChange={(event) => options.editorCallback?.(normalizeDateCellValue(event.value))}
+                    dateFormat="dd/mm/yy"
+                    showIcon
+                    appendTo={document.body}
+                    aria-label="Ngày tồn đầu"
+                  />
+                </div>
               )}
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? (rowData.openingDate ? <span className="status-pill">{formatDate(rowData.openingDate)}</span> : '---')
                   : (
                     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={draft.openingDate}
-                        onChange={(event) => handleDraftChange('openingDate', event.target.value)}
-                        onClick={(event) => event.stopPropagation()}
-                        onMouseDown={(event) => event.stopPropagation()}
+                      <Calendar
+                        value={parseIsoDate(draft.openingDate)}
+                        onChange={(event) => handleDraftChange('openingDate', normalizeDateCellValue(event.value))}
+                        dateFormat="dd/mm/yy"
+                        showIcon
+                        appendTo={document.body}
                         aria-label="Ngày tồn đầu"
                       />
                     </div>
@@ -1573,12 +1688,12 @@ export function OpeningStockPage() {
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
                 <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                  <input
-                    type="date"
-                    value={String(options.value ?? '')}
-                    onChange={(e) => options.editorCallback?.(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
+                  <Calendar
+                    value={parseIsoDate(String(options.value ?? ''))}
+                    onChange={(event) => options.editorCallback?.(normalizeDateCellValue(event.value))}
+                    dateFormat="dd/mm/yy"
+                    showIcon
+                    appendTo={document.body}
                     aria-label="Ngày sản xuất"
                   />
                 </div>
@@ -1588,12 +1703,12 @@ export function OpeningStockPage() {
                   ? (rowData.manufactureDate ? <span className="status-pill">{formatDate(rowData.manufactureDate)}</span> : '---')
                   : (
                     <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={draft.manufactureDate}
-                        onChange={(event) => handleDraftChange('manufactureDate', event.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
+                      <Calendar
+                        value={parseIsoDate(draft.manufactureDate)}
+                        onChange={(event) => handleDraftChange('manufactureDate', normalizeDateCellValue(event.value))}
+                        dateFormat="dd/mm/yy"
+                        showIcon
+                        appendTo={document.body}
                         aria-label="Ngày sản xuất"
                       />
                     </div>
@@ -1608,12 +1723,12 @@ export function OpeningStockPage() {
               onCellEditComplete={handleCellEditComplete}
               editor={(options) => (
                 <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                  <input
-                    type="date"
-                    value={String(options.value ?? '')}
-                    onChange={(e) => options.editorCallback?.(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
+                  <Calendar
+                    value={parseIsoDate(String(options.value ?? ''))}
+                    onChange={(event) => options.editorCallback?.(normalizeDateCellValue(event.value))}
+                    dateFormat="dd/mm/yy"
+                    showIcon
+                    appendTo={document.body}
                     aria-label="Hạn sử dụng"
                   />
                 </div>
@@ -1623,12 +1738,12 @@ export function OpeningStockPage() {
                   ? (rowData.expiryDate ? <span className="status-pill">{formatDate(rowData.expiryDate)}</span> : '---')
                   : (
                     <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-                      <input
-                        type="date"
-                        value={draft.expiryDate}
-                        onChange={(event) => handleDraftChange('expiryDate', event.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
+                      <Calendar
+                        value={parseIsoDate(draft.expiryDate)}
+                        onChange={(event) => handleDraftChange('expiryDate', normalizeDateCellValue(event.value))}
+                        dateFormat="dd/mm/yy"
+                        showIcon
+                        appendTo={document.body}
                         aria-label="Hạn sử dụng"
                       />
                     </div>
@@ -1688,8 +1803,7 @@ export function OpeningStockPage() {
                       className="icon-btn save-btn"
                       aria-label="Lưu dòng mới"
                       title="Lưu"
-                      onClick={() => void handleAddRow()}
-                      disabled={!canSaveDraftRow}
+                      onClick={handleClickSaveDraftRow}
                     >
                       <i className="pi pi-save" />
                     </button>
@@ -1712,14 +1826,16 @@ export function OpeningStockPage() {
       </div>
 
       <section className="catalog-page-bottom">
-        <CatalogGridFooter
+        <PagedTableFooter
+          rootClassName="grid-footer"
+          prefix="catalog"
           currentRangeStart={currentRangeStart}
           currentRangeEnd={currentRangeEnd}
           totalRows={totalRows}
           safePage={safePage}
           totalPages={totalPages}
-          pageButtons={pageButtons}
           pageSize={pageSize}
+          pageSizeOptions={CATALOG_PAGE_SIZE_OPTIONS}
           onPageChange={setPage}
           onPageSizeChange={setPageSize}
         />
@@ -1779,6 +1895,8 @@ export function OpeningStockPage() {
           }}
         />
       ) : null}
+
+      <ConfirmPopup />
 
       {productModalOpen ? (
         <div className="product-create-overlay" role="presentation" onClick={() => setProductModalOpen(false)}>

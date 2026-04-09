@@ -5,8 +5,8 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { CatalogDataGrid, type CatalogDataGridHandle } from './CatalogDataGrid'
 
 const mockMaterials = [
-  { id: '1', code: 'NVL-001', inciName: 'Glycerin', materialName: 'Glycerin 99.5%', category: 'raw_material', unit: 'KG', orderUnit: 'KG', status: 'Active' },
-  { id: '2', code: 'NVL-002', inciName: 'Water', materialName: 'Distilled Water', category: 'raw_material', unit: 'L', orderUnit: 'L', status: 'Active' },
+  { id: '1', code: 'NVL-001', inciName: 'Glycerin', materialName: 'Glycerin 99.5%', category: 'raw_material', unit: 'KG', orderUnit: 'KG', minStockLevel: 0, status: 'Active' },
+  { id: '2', code: 'NVL-002', inciName: 'Water', materialName: 'Distilled Water', category: 'raw_material', unit: 'L', orderUnit: 'L', minStockLevel: 0, status: 'Active' },
 ]
 
 const mockClassifications = [

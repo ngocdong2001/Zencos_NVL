@@ -216,6 +216,7 @@ router.get('/materials', async (req, res) => {
       p.code,
       p.name,
       p.inci_name,
+      p.min_stock_level,
       p.product_type,
       pc.code AS product_type_code,
       p.base_unit,
@@ -242,6 +243,7 @@ router.get('/materials', async (req, res) => {
     category: String(row.product_type_code ?? row.product_type ?? ''),
     unit: String(row.base_unit_code ?? row.base_unit_name ?? row.base_unit ?? ''),
     orderUnit: String(row.order_unit_code ?? row.order_unit_name ?? row.base_unit_code ?? row.base_unit_name ?? row.order_unit ?? row.base_unit ?? ''),
+    minStockLevel: Number(row.min_stock_level ?? 0),
     status: toStatusLabel(row.deleted_at),
   }))
 

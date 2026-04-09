@@ -38,3 +38,26 @@
 - Never compute totals from formatted strings. Parse to numeric value first, then compute and persist.
 - Parsing must support common user input styles: `1000`, `1.000`, `1,000`, `1000.5`, `1.000,5`.
 - If quantity parsing is invalid, block save/import action and show a clear validation message.
+
+## Mandatory Figma-to-UI Component Rules
+
+- Always apply these rules when converting Figma templates/designs to UI code in this repository.
+- Source of truth for migration style and rationale: `docs/prime-react-datatable-migration-log.md`.
+- For all table-like UI (list, grid, report, editable rows), use PrimeReact `DataTable` + `Column` by default.
+- Do not implement new business tables using raw HTML `<table>` unless the user explicitly asks for plain HTML.
+- For all common form and interaction controls, prefer PrimeReact components over native HTML controls:
+  - Text input: `InputText`
+  - Numeric input: `InputNumber`
+  - Text area: `InputTextarea`
+  - Select: `Dropdown`
+  - Date/time: `Calendar`
+  - Checkbox: `Checkbox`
+  - Radio: `RadioButton`
+  - Button/action: `Button`
+  - Modal/dialog: `Dialog`
+  - Tabs: `TabView`/`TabPanel` when tabs are needed
+  - Table pagination/filter/sort/selection: implement through PrimeReact table patterns first
+- Keep visual and interaction consistency with existing PrimeReact usage in:
+  - `src/pages/CatalogPage.tsx`
+  - `src/pages/OpeningStockPage.tsx`
+  - `src/pages/PurchaseOrderPage.tsx`

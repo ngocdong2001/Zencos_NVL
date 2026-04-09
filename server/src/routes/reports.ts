@@ -107,7 +107,7 @@ router.get('/shortages', requireAuth, requirePermission('reports.read'), async (
   } else if (status === 'warning') {
     statusHaving = Prisma.sql`HAVING ${qtyExpr} >= (p.min_stock_level * 0.5) AND ${qtyExpr} < p.min_stock_level`
   } else if (status === 'stable') {
-    statusHaving = Prisma.sql`HAVING ${qtyExpr} >= p.min_stock_level`
+    statusHaving = Prisma.sql`HAVING ${qtyExpr} > 0 AND ${qtyExpr} >= p.min_stock_level`
   }
 
   type ShortageRow = {

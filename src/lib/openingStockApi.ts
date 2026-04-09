@@ -57,6 +57,18 @@ export type OpeningStockPriceUnit = {
   isPurchaseUnit: boolean
 }
 
+export type OpeningStockUpdateResult = OpeningStockRow & {
+  autoAdjusted?: boolean
+  adjustmentQuantityBase?: number
+  batchSynced?: boolean
+}
+
+export type OpeningStockDeleteResult = {
+  deleted: boolean
+  autoReversed?: boolean
+  reversalQuantityBase?: number
+}
+
 export async function fetchOpeningStockRows(): Promise<OpeningStockRow[]> {
   return http<OpeningStockRow[]>('/api/inventory-opening/rows')
 }
@@ -90,8 +102,8 @@ export async function updateOpeningStockRow(id: string, payload: {
   unitPriceValue?: number
   expiryDate?: string | null
   manufactureDate?: string | null
-}): Promise<OpeningStockRow> {
-  return http<OpeningStockRow>(`/api/inventory-opening/rows/${encodeURIComponent(id)}`, {
+}): Promise<OpeningStockUpdateResult> {
+  return http<OpeningStockUpdateResult>(`/api/inventory-opening/rows/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
@@ -101,6 +113,6 @@ export async function fetchOpeningStockPriceUnits(code: string): Promise<Opening
   return http<OpeningStockPriceUnit[]>(`/api/inventory-opening/products/${encodeURIComponent(code)}/price-units`)
 }
 
-export async function deleteOpeningStockRow(id: string): Promise<void> {
-  return http<void>(`/api/inventory-opening/rows/${id}`, { method: 'DELETE' })
+export async function deleteOpeningStockRow(id: string): Promise<OpeningStockDeleteResult> {
+  return http<OpeningStockDeleteResult>(`/api/inventory-opening/rows/${id}`, { method: 'DELETE' })
 }

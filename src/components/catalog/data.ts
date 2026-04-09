@@ -27,6 +27,7 @@ export const initialMaterialRows: MaterialRow[] = [
     category: 'Chất giữ ẩm',
     unit: 'kg',
     orderUnit: 'kg',
+    minStockLevel: 0,
     status: 'Active',
   },
   {
@@ -37,6 +38,7 @@ export const initialMaterialRows: MaterialRow[] = [
     category: 'Chất bảo quản',
     unit: 'kg',
     orderUnit: 'kg',
+    minStockLevel: 0,
     status: 'Active',
   },
   {
@@ -47,6 +49,7 @@ export const initialMaterialRows: MaterialRow[] = [
     category: 'Chất hoạt động bề mặt',
     unit: 'kg',
     orderUnit: 'kg',
+    minStockLevel: 0,
     status: 'Active',
   },
   {
@@ -57,6 +60,7 @@ export const initialMaterialRows: MaterialRow[] = [
     category: 'Hương liệu',
     unit: 'Lít',
     orderUnit: 'Lít',
+    minStockLevel: 0,
     status: 'Active',
   },
   {
@@ -67,6 +71,7 @@ export const initialMaterialRows: MaterialRow[] = [
     category: 'Dung môi',
     unit: 'Lít',
     orderUnit: 'Lít',
+    minStockLevel: 0,
     status: 'Active',
   },
 ]

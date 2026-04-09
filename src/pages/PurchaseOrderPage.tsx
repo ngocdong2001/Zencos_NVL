@@ -1,167 +1,45 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { Button } from 'primereact/button'
-import { Calendar } from 'primereact/calendar'
-import { Checkbox } from 'primereact/checkbox'
-import { Dropdown } from 'primereact/dropdown'
-import { InputNumber } from 'primereact/inputnumber'
-import { InputText } from 'primereact/inputtext'
-import { InputTextarea } from 'primereact/inputtextarea'
+import { PurchaseOrderDetailScreen } from '../components/purchaseOrder/PurchaseOrderDetailScreen'
+import { PurchaseOrderListScreen } from '../components/purchaseOrder/PurchaseOrderListScreen'
+import { PurchaseShortageScreen } from '../components/purchaseOrder/PurchaseShortageScreen'
+import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../components/purchaseOrder/format'
 import {
-  fetchPurchaseShortages,
+  DRAFT_LINES,
+  STATUS_LABELS,
+  type OutletContext,
+  type PurchaseDraftLine,
+  type PurchaseOrderRow,
+  type PurchaseTab,
+  type PurchaseView,
+  type PoStatus,
+  type PurchaseRequestRowResponse,
   type PurchaseShortageRow,
   type ShortageStatus,
+  type SupplierOption,
+} from '../components/purchaseOrder/types'
+import { fetchBasics } from '../lib/catalogApi'
+import {
+  createPurchaseRequest,
+  fetchPurchaseRequestDetail,
+  fetchPurchaseRequestHistory,
+  fetchPurchaseRequests,
+  fetchPurchaseShortages,
+  type PurchaseRequestHistoryEvent,
+  submitPurchaseRequest,
+  updatePurchaseRequestDraft,
 } from '../lib/purchaseShortageApi'
 
-type OutletContext = { search: string }
-
-type PurchaseView = 'tabs' | 'detail'
-type PurchaseTab = 'shortage' | 'po-list'
-type PoStatus = 'draft' | 'sent' | 'confirmed' | 'completed'
-
-type PurchaseOrderRow = {
-  id: string
-  code: string
-  createdAt: string
-  supplier: string
-  lineCount: number
-  totalValue: number
-  status: PoStatus
-  creator: string
-}
-
-type PurchaseDraftLine = {
-  id: string
-  materialCode: string
-  materialName: string
-  quantity: number
-  unit: string
-  unitPrice: number
-}
-
-const PO_ROWS: PurchaseOrderRow[] = [
-  {
-    id: 'PO-2024-001',
-    code: 'PO-2024-001',
-    createdAt: '2024-05-20',
-    supplier: 'Công ty TNHH Hóa chất Việt',
-    lineCount: 12,
-    totalValue: 45000000,
-    status: 'draft',
-    creator: 'Admin Zencos',
-  },
-  {
-    id: 'PO-2024-002',
-    code: 'PO-2024-002',
-    createdAt: '2024-05-19',
-    supplier: 'Hương liệu ABC',
-    lineCount: 5,
-    totalValue: 12500000,
-    status: 'sent',
-    creator: 'Nguyen Van A',
-  },
-  {
-    id: 'PO-2024-003',
-    code: 'PO-2024-003',
-    createdAt: '2024-05-18',
-    supplier: 'Bao bì Toàn Cầu',
-    lineCount: 8,
-    totalValue: 8900000,
-    status: 'confirmed',
-    creator: 'Admin Zencos',
-  },
-  {
-    id: 'PO-2024-004',
-    code: 'PO-2024-004',
-    createdAt: '2024-05-17',
-    supplier: 'Nguyên liệu Mỹ Anh',
-    lineCount: 3,
-    totalValue: 156000000,
-    status: 'completed',
-    creator: 'Tran Thi B',
-  },
-  {
-    id: 'PO-2024-005',
-    code: 'PO-2024-005',
-    createdAt: '2024-05-16',
-    supplier: 'Công ty TNHH Hóa chất Việt',
-    lineCount: 15,
-    totalValue: 67200000,
-    status: 'draft',
-    creator: 'Admin Zencos',
-  },
-  {
-    id: 'PO-2024-006',
-    code: 'PO-2024-006',
-    createdAt: '2024-05-15',
-    supplier: 'Hương liệu ABC',
-    lineCount: 7,
-    totalValue: 23800000,
-    status: 'sent',
-    creator: 'Admin Zencos',
-  },
-]
-
-const STATUS_LABELS: Record<PoStatus, string> = {
-  draft: 'Bản nháp',
-  sent: 'Đã gửi',
-  confirmed: 'Đã xác nhận',
-  completed: 'Hoàn thành',
-}
-
-const PAGE_SIZE = 5
-
-const SHORTAGE_STATUS_OPTIONS: Array<{ label: string; value: 'all' | ShortageStatus }> = [
-  { label: 'Tất cả trạng thái', value: 'all' },
-  { label: 'Nguy cấp', value: 'critical' },
-  { label: 'Cảnh báo', value: 'warning' },
-  { label: 'Ổn định', value: 'stable' },
-]
-
-const PO_STATUS_OPTIONS: Array<{ label: string; value: 'all' | PoStatus }> = [
-  { label: 'Trạng thái', value: 'all' },
-  { label: 'Bản nháp', value: 'draft' },
-  { label: 'Đã gửi', value: 'sent' },
-  { label: 'Đã xác nhận', value: 'confirmed' },
-  { label: 'Hoàn thành', value: 'completed' },
-]
-
-const DRAFT_LINES: PurchaseDraftLine[] = [
-  {
-    id: 'line-1',
-    materialCode: 'RM-EXT-002',
-    materialName: 'Chiết xuất Cam thảo (Licorice Extract)',
-    quantity: 50,
-    unit: 'kg',
-    unitPrice: 450000,
-  },
-  {
-    id: 'line-2',
-    materialCode: 'RM-SOL-015',
-    materialName: 'Glycerin tinh khiết 99.5%',
-    quantity: 200,
-    unit: 'kg',
-    unitPrice: 35000,
-  },
-  {
-    id: 'line-3',
-    materialCode: 'RM-SOL-022',
-    materialName: 'Propylene Glycol USP',
-    quantity: 150,
-    unit: 'kg',
-    unitPrice: 42000,
-  },
-]
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('vi-VN').format(value)
-}
-
-function formatQuantity(value: number): string {
-  return new Intl.NumberFormat('vi-VN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 3,
-  }).format(value)
+function createRequestRef(): string {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const min = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `PR-${yyyy}${mm}${dd}-${hh}${min}${ss}`
 }
 
 function normalizeText(value: string): string {
@@ -171,20 +49,6 @@ function normalizeText(value: string): string {
     .replaceAll('đ', 'd')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-}
-function parseDateValue(value: string): Date | null {
-  if (!value) return null
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  return new Date(year, month - 1, day)
-}
-
-function formatDateValue(value: Date | null | undefined): string {
-  if (!value) return ''
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 export function PurchaseOrderPage() {
@@ -197,37 +61,144 @@ export function PurchaseOrderPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [page, setPage] = useState(1)
+  const [poPageSize, setPoPageSize] = useState(10)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [poRows, setPoRows] = useState<PurchaseOrderRow[]>([])
+  const [poLoading, setPoLoading] = useState(false)
+  const [poError, setPoError] = useState<string | null>(null)
+  const [poRefreshKey, setPoRefreshKey] = useState(0)
   const [shortageStatusFilter, setShortageStatusFilter] = useState<'all' | ShortageStatus>('all')
   const [shortageRows, setShortageRows] = useState<PurchaseShortageRow[]>([])
+  const [selectedShortageIds, setSelectedShortageIds] = useState<string[]>([])
   const [shortagePage, setShortagePage] = useState(1)
+  const [shortagePageSize, setShortagePageSize] = useState(10)
   const [shortageTotal, setShortageTotal] = useState(0)
   const [shortageSummary, setShortageSummary] = useState({ critical: 0, warning: 0, stable: 0 })
   const [shortageLoading, setShortageLoading] = useState(false)
   const [shortageError, setShortageError] = useState<string | null>(null)
   const [shortageLastUpdatedAt, setShortageLastUpdatedAt] = useState<string | null>(null)
   const [shortageRefreshKey, setShortageRefreshKey] = useState(0)
-  const [quickSupplier, setQuickSupplier] = useState('')
+  const [selectedShortageMap, setSelectedShortageMap] = useState<Record<string, PurchaseShortageRow>>({})
+  const [quickSupplierId, setQuickSupplierId] = useState<string>('')
+  const [quickSupplierOptions, setQuickSupplierOptions] = useState<SupplierOption[]>([])
+  const [quickSupplierLoading, setQuickSupplierLoading] = useState(false)
+  const [quickSupplierError, setQuickSupplierError] = useState<string | null>(null)
+  const [quickWarehouseId, setQuickWarehouseId] = useState<string>('')
+  const [quickWarehouseOptions, setQuickWarehouseOptions] = useState<SupplierOption[]>([])
+  const [quickWarehouseLoading, setQuickWarehouseLoading] = useState(false)
+  const [quickWarehouseError, setQuickWarehouseError] = useState<string | null>(null)
   const [quickNeedDate, setQuickNeedDate] = useState<Date | null>(null)
   const [quickRequestType, setQuickRequestType] = useState<'normal' | 'urgent' | null>(null)
   const [quickNote, setQuickNote] = useState('')
+  const [quickItemQuantities, setQuickItemQuantities] = useState<Record<string, string>>({})
+  const [quickQuantityErrors, setQuickQuantityErrors] = useState<Record<string, string>>({})
+  const [quickSubmitError, setQuickSubmitError] = useState<string | null>(null)
+  const [quickSubmitSuccess, setQuickSubmitSuccess] = useState<string | null>(null)
+  const [quickSaving, setQuickSaving] = useState(false)
+  const [detailLines, setDetailLines] = useState<PurchaseDraftLine[]>(DRAFT_LINES)
+  const [detailPurchaseId, setDetailPurchaseId] = useState<string | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailDraftRef, setDetailDraftRef] = useState('PO-DRAFT-2024-00892')
+  const [detailSaving, setDetailSaving] = useState(false)
+  const [detailSubmitting, setDetailSubmitting] = useState(false)
+  const [detailSubmitError, setDetailSubmitError] = useState<string | null>(null)
+  const [detailSubmitSuccess, setDetailSubmitSuccess] = useState<string | null>(null)
+  const [detailHistoryEvents, setDetailHistoryEvents] = useState<PurchaseRequestHistoryEvent[]>([])
+  const [detailHistoryLoading, setDetailHistoryLoading] = useState(false)
+  const [detailHistoryError, setDetailHistoryError] = useState<string | null>(null)
 
-  const suppliers = useMemo(
-    () => [...new Set(PO_ROWS.map((row) => row.supplier))],
-    [],
+  const loadDetailHistory = async (purchaseId: string) => {
+    setDetailHistoryLoading(true)
+    setDetailHistoryError(null)
+    try {
+      const history = await fetchPurchaseRequestHistory(purchaseId)
+      setDetailHistoryEvents(history.data)
+    } catch (error) {
+      setDetailHistoryEvents([])
+      setDetailHistoryError(error instanceof Error ? error.message : 'Không thể tải lịch sử thao tác.')
+    } finally {
+      setDetailHistoryLoading(false)
+    }
+  }
+
+  const poSuppliers = useMemo(
+    () => [...new Set(poRows.map((row) => row.supplier))],
+    [poRows],
   )
-  const supplierOptions = useMemo(
+  const poSupplierOptions = useMemo(
     () => [
       { label: 'Nhà cung cấp', value: 'all' },
-      ...suppliers.map((supplier) => ({ label: supplier, value: supplier })),
+      ...poSuppliers.map((supplier) => ({ label: supplier, value: supplier })),
     ],
-    [suppliers],
+    [poSuppliers],
   )
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadSuppliers = async () => {
+      setQuickSupplierLoading(true)
+      setQuickSupplierError(null)
+      try {
+        const rows = await fetchBasics('suppliers')
+        if (cancelled) return
+        const options = rows
+          .filter((row) => row.id && row.name)
+          .map((row) => ({
+            value: row.id,
+            label: row.code ? `${row.code} - ${row.name}` : row.name,
+          }))
+        setQuickSupplierOptions(options)
+      } catch (error) {
+        if (cancelled) return
+        setQuickSupplierError(error instanceof Error ? error.message : 'Không thể tải danh sách nhà cung cấp.')
+      } finally {
+        if (!cancelled) setQuickSupplierLoading(false)
+      }
+    }
+
+    void loadSuppliers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadWarehouses = async () => {
+      setQuickWarehouseLoading(true)
+      setQuickWarehouseError(null)
+      try {
+        const rows = await fetchBasics('locations')
+        if (cancelled) return
+        const options = rows
+          .filter((row) => row.id && row.name)
+          .map((row) => ({
+            value: row.id,
+            label: row.code ? `${row.code} - ${row.name}` : row.name,
+          }))
+        setQuickWarehouseOptions(options)
+      } catch (error) {
+        if (cancelled) return
+        setQuickWarehouseError(error instanceof Error ? error.message : 'Không thể tải danh sách kho nhận hàng.')
+      } finally {
+        if (!cancelled) setQuickWarehouseLoading(false)
+      }
+    }
+
+    void loadWarehouses()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = normalizeText(search)
 
-    return PO_ROWS.filter((row) => {
+    return poRows.filter((row) => {
       const inStatus = statusFilter === 'all' || row.status === statusFilter
       const inSupplier = supplierFilter === 'all' || row.supplier === supplierFilter
       const inFromDate = !fromDate || row.createdAt >= fromDate
@@ -236,16 +207,59 @@ export function PurchaseOrderPage() {
       const inSearch = !normalizedQuery || text.includes(normalizedQuery)
       return inStatus && inSupplier && inFromDate && inToDate && inSearch
     })
-  }, [fromDate, search, statusFilter, supplierFilter, toDate])
+  }, [fromDate, poRows, search, statusFilter, supplierFilter, toDate])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const toPoRow = (row: PurchaseRequestRowResponse): PurchaseOrderRow => {
+      const fallbackTotal = row.items.reduce((sum, item) => {
+        const qty = Number(item.quantityDisplay)
+        return sum + (Number.isFinite(qty) ? qty : 0)
+      }, 0)
+
+      return {
+        id: row.id,
+        code: row.requestRef,
+        createdAt: String(row.createdAt).slice(0, 10),
+        supplier: row.supplier?.name ?? '---',
+        lineCount: row.items.length,
+        totalValue: Number.isFinite(row.totalAmount) ? Number(row.totalAmount) : fallbackTotal,
+        status: row.status as PoStatus,
+        creator: row.requester?.fullName ?? '---',
+      }
+    }
+
+    const loadPoRows = async () => {
+      setPoLoading(true)
+      setPoError(null)
+      try {
+        const response = await fetchPurchaseRequests({ page: 1, limit: 500 })
+        if (cancelled) return
+        setPoRows(response.data.map(toPoRow))
+      } catch (error) {
+        if (cancelled) return
+        setPoError(error instanceof Error ? error.message : 'Không thể tải danh sách phiếu PO.')
+      } finally {
+        if (!cancelled) setPoLoading(false)
+      }
+    }
+
+    void loadPoRows()
+    return () => {
+      cancelled = true
+    }
+  }, [poRefreshKey])
 
   useEffect(() => {
     setPage(1)
     setSelectedIds([])
-  }, [search, statusFilter, supplierFilter, fromDate, toDate])
+  }, [search, statusFilter, supplierFilter, fromDate, toDate, poPageSize])
 
   useEffect(() => {
     setShortagePage(1)
-  }, [search, shortageStatusFilter])
+    setSelectedShortageIds([])
+  }, [search, shortageStatusFilter, shortagePageSize])
 
   useEffect(() => {
     let cancelled = false
@@ -258,7 +272,7 @@ export function PurchaseOrderPage() {
           q: search,
           status: shortageStatusFilter,
           page: shortagePage,
-          limit: PAGE_SIZE,
+          limit: shortagePageSize,
         })
         if (cancelled) return
         setShortageRows(response.data)
@@ -278,37 +292,112 @@ export function PurchaseOrderPage() {
     return () => {
       cancelled = true
     }
-  }, [search, shortagePage, shortageRefreshKey, shortageStatusFilter])
+  }, [search, shortagePage, shortagePageSize, shortageRefreshKey, shortageStatusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
+  useEffect(() => {
+    setSelectedShortageMap((prev) => {
+      const next = { ...prev }
+      for (const row of shortageRows) {
+        next[row.id] = row
+      }
+      return next
+    })
+  }, [shortageRows])
+
+  useEffect(() => {
+    setQuickItemQuantities((prev) => {
+      const next: Record<string, string> = {}
+      for (const id of selectedShortageIds) {
+        if (prev[id] !== undefined) {
+          next[id] = prev[id]
+          continue
+        }
+        const row = selectedShortageMap[id]
+        const defaultQty = row && row.stockShort > 0 ? formatQuantity(row.stockShort) : ''
+        next[id] = defaultQty
+      }
+      return next
+    })
+
+    setQuickQuantityErrors((prev) => {
+      const next: Record<string, string> = {}
+      for (const id of selectedShortageIds) {
+        if (prev[id]) next[id] = prev[id]
+      }
+      return next
+    })
+  }, [selectedShortageIds, selectedShortageMap])
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / poPageSize))
   const safePage = Math.min(page, totalPages)
-  const start = (safePage - 1) * PAGE_SIZE
-  const visibleRows = filteredRows.slice(start, start + PAGE_SIZE)
+  const start = (safePage - 1) * poPageSize
+  const visibleRows = filteredRows.slice(start, start + poPageSize)
   const visibleIds = visibleRows.map((row) => row.id)
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))
   const rangeStart = filteredRows.length === 0 ? 0 : start + 1
-  const rangeEnd = Math.min(start + PAGE_SIZE, filteredRows.length)
+  const rangeEnd = Math.min(start + poPageSize, filteredRows.length)
+  const selectedPoRows = visibleRows.filter((row) => selectedIds.includes(row.id))
 
-  const shortageTotalPages = Math.max(1, Math.ceil(shortageTotal / PAGE_SIZE))
+  const shortageTotalPages = Math.max(1, Math.ceil(shortageTotal / shortagePageSize))
   const shortageSafePage = Math.min(shortagePage, shortageTotalPages)
-  const shortageRangeStart = shortageTotal === 0 ? 0 : (shortageSafePage - 1) * PAGE_SIZE + 1
-  const shortageRangeEnd = Math.min(shortageSafePage * PAGE_SIZE, shortageTotal)
+  const shortageRangeStart = shortageTotal === 0 ? 0 : (shortageSafePage - 1) * shortagePageSize + 1
+  const shortageRangeEnd = Math.min(shortageSafePage * shortagePageSize, shortageTotal)
+  const shortageVisibleIds = shortageRows.map((row) => row.id)
+  const selectedShortageRows = shortageRows.filter((row) => selectedShortageIds.includes(row.id))
+  const selectedQuickItems = selectedShortageIds
+    .map((id) => selectedShortageMap[id])
+    .filter((row): row is PurchaseShortageRow => Boolean(row))
+  const allShortageVisibleSelected =
+    shortageVisibleIds.length > 0 && shortageVisibleIds.every((id) => selectedShortageIds.includes(id))
 
   const stats = useMemo(
     () => ({
-      total: PO_ROWS.length,
-      draft: PO_ROWS.filter((row) => row.status === 'draft').length,
-      sent: PO_ROWS.filter((row) => row.status === 'sent').length,
+      total: poRows.length,
+      draft: poRows.filter((row) => row.status === 'draft').length,
+      submitted: poRows.filter((row) => row.status === 'submitted').length,
     }),
-    [],
+    [poRows],
   )
 
   const detailSubtotal = useMemo(
-    () => DRAFT_LINES.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0),
-    [],
+    () => detailLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0),
+    [detailLines],
   )
   const detailVat = Math.round(detailSubtotal * 0.0925)
   const detailTotal = detailSubtotal + detailVat
+
+  const handleUpdateDetailLine = (lineId: string, patch: Partial<PurchaseDraftLine>) => {
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setDetailLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, ...patch } : line)))
+  }
+
+  const handleAppendDetailLine = (line: Omit<PurchaseDraftLine, 'id'>) => {
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+
+    const normalizedNewCode = normalizeText(line.materialCode)
+
+    setDetailLines((prev) => {
+      const inferredProductId = line.productId?.trim()
+        || prev.find((item) => normalizeText(item.materialCode) === normalizedNewCode)?.productId
+        || ''
+
+      const newLine: PurchaseDraftLine = {
+        ...line,
+        productId: inferredProductId,
+        id: `line-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      }
+
+      return [...prev, newLine]
+    })
+  }
+
+  const handleRemoveDetailLine = (lineId: string) => {
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setDetailLines((prev) => prev.filter((line) => line.id !== lineId))
+  }
 
   const handleToggleVisibleRows = (checked: boolean) => {
     if (!checked) {
@@ -318,163 +407,341 @@ export function PurchaseOrderPage() {
     setSelectedIds((prev) => [...new Set([...prev, ...visibleIds])])
   }
 
-  const handleToggleRow = (rowId: string, checked: boolean) => {
+  const handlePoSelectionChange = (nextRows: PurchaseOrderRow[]) => {
+    const nextSet = new Set(nextRows.map((r) => r.id))
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      for (const id of visibleIds) {
+        if (nextSet.has(id)) next.add(id)
+        else next.delete(id)
+      }
+      return [...next]
+    })
+  }
+
+  const handleToggleShortageVisibleRows = (checked: boolean) => {
     if (!checked) {
-      setSelectedIds((prev) => prev.filter((id) => id !== rowId))
+      setSelectedShortageIds((prev) => prev.filter((id) => !shortageVisibleIds.includes(id)))
       return
     }
-    setSelectedIds((prev) => [...prev, rowId])
+    setSelectedShortageIds((prev) => [...new Set([...prev, ...shortageVisibleIds])])
+  }
+
+  const handleShortageSelectionChange = (nextRows: PurchaseShortageRow[]) => {
+    const nextSelectedIds = nextRows.map((row) => row.id)
+    const nextSet = new Set(nextSelectedIds)
+
+    setSelectedShortageIds((prev) => {
+      const next = new Set(prev)
+      for (const id of shortageVisibleIds) {
+        if (nextSet.has(id)) next.add(id)
+        else next.delete(id)
+      }
+      return [...next]
+    })
+  }
+
+  const handleQuickQuantityChange = (itemId: string, rawValue: string) => {
+    setQuickSubmitError(null)
+    setQuickSubmitSuccess(null)
+    setQuickItemQuantities((prev) => ({ ...prev, [itemId]: rawValue }))
+    setQuickQuantityErrors((prev) => {
+      if (!prev[itemId]) return prev
+      const next = { ...prev }
+      delete next[itemId]
+      return next
+    })
+  }
+
+  const handleQuickQuantityFocus = (itemId: string) => {
+    const parsed = parseDecimalInput(quickItemQuantities[itemId] ?? '')
+    if (Number.isFinite(parsed)) {
+      setQuickItemQuantities((prev) => ({ ...prev, [itemId]: toEditableNumberString(parsed) }))
+    }
+  }
+
+  const handleQuickQuantityBlur = (itemId: string) => {
+    const parsed = parseDecimalInput(quickItemQuantities[itemId] ?? '')
+    if (Number.isFinite(parsed)) {
+      setQuickItemQuantities((prev) => ({ ...prev, [itemId]: formatQuantity(parsed) }))
+      return
+    }
+    if ((quickItemQuantities[itemId] ?? '').trim() === '') return
+    setQuickQuantityErrors((prev) => ({ ...prev, [itemId]: 'Số lượng không hợp lệ.' }))
+  }
+
+  const handleQuickSaveDraft = async () => {
+    setQuickSubmitError(null)
+    setQuickSubmitSuccess(null)
+
+    if (selectedQuickItems.length === 0) {
+      setQuickSubmitError('Vui lòng chọn ít nhất 1 nguyên liệu từ danh sách thiếu hụt.')
+      return
+    }
+
+    const nextErrors: Record<string, string> = {}
+    const items = selectedQuickItems.map((row) => {
+      const raw = quickItemQuantities[row.id] ?? ''
+      const parsed = parseDecimalInput(raw)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        nextErrors[row.id] = 'Số lượng yêu cầu phải là số > 0.'
+      }
+
+      return {
+        productId: row.id,
+        quantityNeededBase: parsed,
+        unitDisplay: row.unit || 'base',
+        quantityDisplay: parsed,
+        unitPrice: 0,
+      }
+    })
+
+    if (Object.keys(nextErrors).length > 0) {
+      setQuickQuantityErrors(nextErrors)
+      setQuickSubmitError('Có dòng số lượng không hợp lệ. Vui lòng kiểm tra lại trước khi lưu.')
+      return
+    }
+
+    const note = quickNote.trim()
+
+    setQuickSaving(true)
+    try {
+      const created = await createPurchaseRequest({
+        requestRef: createRequestRef(),
+        supplierId: quickSupplierId || undefined,
+        expectedDate: quickNeedDate ? quickNeedDate.toISOString() : undefined,
+        notes: note || undefined,
+        items,
+      })
+      setQuickSubmitSuccess(`Đã lưu dự thảo yêu cầu mua hàng ${created.requestRef}.`)
+      setPoRefreshKey((prev) => prev + 1)
+      setSelectedShortageIds([])
+      setQuickItemQuantities({})
+      setQuickQuantityErrors({})
+      setQuickSupplierId('')
+      setQuickWarehouseId('')
+    } catch (error) {
+      setQuickSubmitError(error instanceof Error ? error.message : 'Không thể lưu dự thảo mua hàng.')
+    } finally {
+      setQuickSaving(false)
+    }
+  }
+
+  const handleEnterDetailFromQuick = () => {
+    setQuickSubmitError(null)
+    setQuickSubmitSuccess(null)
+
+    if (selectedQuickItems.length === 0) {
+      setQuickSubmitError('Vui lòng chọn ít nhất 1 nguyên liệu trước khi vào chi tiết phiếu PO.')
+      return
+    }
+
+    const nextErrors: Record<string, string> = {}
+    const mappedLines: PurchaseDraftLine[] = selectedQuickItems.map((item) => {
+      const parsed = parseDecimalInput(quickItemQuantities[item.id] ?? '')
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        nextErrors[item.id] = 'Số lượng yêu cầu phải là số > 0.'
+      }
+
+      return {
+        id: `quick-${item.id}`,
+        productId: item.id,
+        materialCode: item.code,
+        materialName: item.materialName,
+        quantity: Number.isFinite(parsed) ? parsed : 0,
+        unit: item.unit || 'base',
+        unitPrice: 0,
+      }
+    })
+
+    if (Object.keys(nextErrors).length > 0) {
+      setQuickQuantityErrors(nextErrors)
+      setQuickSubmitError('Có dòng số lượng không hợp lệ. Vui lòng kiểm tra lại trước khi vào chi tiết.')
+      return
+    }
+
+    setDetailLines(mappedLines)
+    setDetailPurchaseId(null)
+    setDetailDraftRef('PO-DRAFT-2024-00892')
+    setDetailHistoryEvents([])
+    setDetailHistoryError(null)
+    setDetailHistoryLoading(false)
+    setActiveView('detail')
+  }
+
+  const handleEditPoFromList = async (row: PurchaseOrderRow) => {
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setDetailLoading(true)
+    setActiveView('detail')
+
+    try {
+      const detail = await fetchPurchaseRequestDetail(row.id)
+      const mappedLines: PurchaseDraftLine[] = detail.items.map((item) => ({
+        id: `item-${item.id}`,
+        productId: String(item.productId),
+        materialCode: item.product.code,
+        materialName: item.product.name,
+        quantity: Number(item.quantityDisplay),
+        unit: item.unitDisplay || 'base',
+        unitPrice: Number(item.unitPrice ?? 0),
+      }))
+
+      setDetailPurchaseId(detail.id)
+      setDetailDraftRef(detail.requestRef)
+      setDetailLines(mappedLines)
+      setQuickSupplierId(detail.supplier?.id ? String(detail.supplier.id) : '')
+      setQuickNeedDate(detail.expectedDate ? new Date(detail.expectedDate) : null)
+      setQuickNote(detail.notes ?? '')
+      setQuickWarehouseId('')
+      setQuickRequestType(null)
+      await loadDetailHistory(detail.id)
+    } catch (error) {
+      setDetailSubmitError(error instanceof Error ? error.message : 'Không thể tải chi tiết phiếu PO để chỉnh sửa.')
+      setDetailHistoryEvents([])
+      setDetailHistoryLoading(false)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const handleSaveDetailDraft = async () => {
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+
+    if (detailLines.length === 0) {
+      setDetailSubmitError('Không có dòng nguyên liệu để lưu bản nháp.')
+      return
+    }
+
+    const missingProductLink = detailLines.find((line) => !line.productId?.trim())
+    if (missingProductLink) {
+      setDetailSubmitError(`Dòng ${missingProductLink.materialCode || missingProductLink.materialName || missingProductLink.id} chưa gắn mã sản phẩm hệ thống, chưa thể lưu.`)
+      return
+    }
+
+    const items = detailLines
+      .map((line) => ({
+        productId: line.productId,
+        quantityNeededBase: line.quantity,
+        unitDisplay: line.unit || 'base',
+        quantityDisplay: line.quantity,
+        unitPrice: line.unitPrice,
+      }))
+
+    if (items.some((item) => !Number.isFinite(item.quantityNeededBase) || item.quantityNeededBase <= 0)) {
+      setDetailSubmitError('Có dòng số lượng không hợp lệ. Vui lòng kiểm tra lại.')
+      return
+    }
+
+    const note = quickNote.trim()
+
+    setDetailSaving(true)
+    try {
+      const payload = {
+        requestRef: detailPurchaseId ? detailDraftRef : createRequestRef(),
+        supplierId: quickSupplierId || undefined,
+        expectedDate: quickNeedDate ? quickNeedDate.toISOString() : undefined,
+        notes: note || undefined,
+        items,
+      }
+
+      const saved = detailPurchaseId
+        ? await updatePurchaseRequestDraft(detailPurchaseId, payload)
+        : await createPurchaseRequest(payload)
+
+      setDetailPurchaseId(saved.id)
+      setDetailDraftRef(saved.requestRef)
+      setPoRefreshKey((prev) => prev + 1)
+      setDetailSubmitSuccess(`Đã lưu bản nháp ${saved.requestRef}.`)
+      await loadDetailHistory(saved.id)
+      return saved
+    } catch (error) {
+      setDetailSubmitError(error instanceof Error ? error.message : 'Không thể lưu bản nháp từ màn chi tiết.')
+      return null
+    } finally {
+      setDetailSaving(false)
+    }
+  }
+
+  const handleSubmitDetail = async () => {
+    if (detailSaving || detailSubmitting || detailLoading) return
+
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+
+    let requestId = detailPurchaseId
+    if (!requestId) {
+      const saved = await handleSaveDetailDraft()
+      if (!saved?.id) return
+      requestId = saved.id
+    }
+
+    setDetailSubmitting(true)
+    try {
+      const submitted = await submitPurchaseRequest(requestId)
+      setDetailPurchaseId(submitted.id)
+      setDetailDraftRef(submitted.requestRef)
+      setDetailSubmitSuccess(`Đã gửi phiếu ${submitted.requestRef} cho bộ phận thu mua.`)
+      await loadDetailHistory(submitted.id)
+      setPoRefreshKey((prev) => prev + 1)
+      setActiveView('tabs')
+      setActiveTab('po-list')
+    } catch (error) {
+      setDetailSubmitError(error instanceof Error ? error.message : 'Không thể gửi phiếu cho bộ phận thu mua.')
+    } finally {
+      setDetailSubmitting(false)
+    }
+  }
+
+  const handleCreateNewPo = () => {
+    setDetailPurchaseId(null)
+    setDetailHistoryEvents([])
+    setDetailHistoryError(null)
+    setDetailHistoryLoading(false)
+    setActiveView('detail')
   }
 
   if (activeView === 'detail') {
     return (
-      <section className="purchase-detail-shell">
-        <header className="purchase-detail-header">
-          <div className="purchase-detail-title-wrap">
-            <Button
-              type="button"
-              className="purchase-detail-back-btn"
-              icon="pi pi-angle-left"
-              text
-              onClick={() => setActiveView('tabs')}
-              aria-label="Quay lại danh sách"
-            />
-            <div>
-              <div className="purchase-detail-title-row">
-                <h2>Soạn thảo Đơn mua hàng</h2>
-                <span className="purchase-detail-draft-tag">DỰ THẢO (DRAFT)</span>
-              </div>
-              <p>Mã tham chiếu: PO-DRAFT-2024-00892</p>
-            </div>
-          </div>
-
-          <div className="purchase-detail-header-actions">
-            <Button
-              type="button"
-              className="btn btn-ghost"
-              icon="pi pi-times"
-              label="Hủy bỏ"
-              onClick={() => setActiveView('tabs')}
-            />
-            <Button type="button" className="btn btn-primary" icon="pi pi-send" label="Gửi cho thu mua" />
-          </div>
-        </header>
-
-        <div className="purchase-detail-content-grid">
-          <div className="purchase-detail-main">
-            <section className="purchase-detail-card">
-              <h3><i className="pi pi-file" aria-hidden /> Thông tin chung</h3>
-              <div className="purchase-general-grid">
-                <article>
-                  <span>Nhà cung cấp</span>
-                  <strong>Công ty TNHH Hóa Chất Toàn Cầu</strong>
-                </article>
-                <article>
-                  <span>Kho nhận hàng</span>
-                  <strong>Kho Thành phẩm & Nguyên liệu Zencos - Long An</strong>
-                </article>
-                <article>
-                  <span>Ngày dự kiến nhận</span>
-                  <strong>15/12/2024</strong>
-                </article>
-              </div>
-
-              <label className="purchase-terms-field">
-                Ghi chú điều khoản (Terms & Conditions)
-                <InputTextarea
-                  rows={3}
-                  defaultValue="Thanh toán 50% sau khi nhận hàng và kiểm định đạt yêu cầu. Yêu cầu kèm theo phiếu COA và MSDS cho từng lô hàng."
-                />
-              </label>
-            </section>
-
-            <section className="purchase-detail-card">
-              <div className="purchase-material-head">
-                <h3><i className="pi pi-box" aria-hidden /> Danh mục nguyên liệu</h3>
-                <Button
-                  type="button"
-                  className="btn btn-ghost btn-compact-material"
-                  icon="pi pi-plus"
-                  label="Thêm dòng hàng"
-                />
-              </div>
-
-              <div className="purchase-material-table-wrap">
-                <table className="purchase-material-table">
-                  <thead>
-                    <tr>
-                      <th>STT</th>
-                      <th>Mã / Tên nguyên liệu</th>
-                      <th>Số lượng</th>
-                      <th>ĐVT</th>
-                      <th>Đơn giá (VND)</th>
-                      <th>Thành tiền</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {DRAFT_LINES.map((line, index) => (
-                      <tr key={line.id}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <strong>{line.materialName}</strong>
-                          <span>{line.materialCode}</span>
-                        </td>
-                        <td>
-                          <InputNumber value={line.quantity} readOnly useGrouping={false} />
-                        </td>
-                        <td><span className="purchase-unit-pill">{line.unit}</span></td>
-                        <td>{formatCurrency(line.unitPrice)}</td>
-                        <td className="purchase-line-total">{formatCurrency(line.quantity * line.unitPrice)}</td>
-                        <td>
-                          <Button
-                            type="button"
-                            className="po-icon-btn"
-                            icon="pi pi-trash"
-                            text
-                            aria-label={`Xóa ${line.materialCode}`}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-
-          <aside className="purchase-detail-side">
-            <section className="purchase-side-card">
-              <h4>Tổng kết đơn hàng</h4>
-              <div className="purchase-side-row"><span>Tiền hàng:</span><strong>{formatCurrency(detailSubtotal)} đ</strong></div>
-              <div className="purchase-side-row"><span>Thuế VAT (Tạm tính):</span><strong>{formatCurrency(detailVat)} đ</strong></div>
-              <div className="purchase-side-total"><span>Tổng cộng:</span><strong>{formatCurrency(detailTotal)} đ</strong></div>
-              <p className="purchase-side-note">Giá trên chưa bao gồm phí vận chuyển (nếu có).</p>
-            </section>
-
-            <section className="purchase-side-card">
-              <h4><i className="pi pi-paperclip" aria-hidden /> Tệp đính kèm</h4>
-              <div className="purchase-upload-box">
-                <i className="pi pi-plus" aria-hidden />
-                <p>Kéo thả tệp hoặc click để tải lên</p>
-                <small>PDF, JPG, PNG (Max 5MB)</small>
-              </div>
-              <ul className="purchase-attachment-list">
-                <li>Bao-gia-hoa-chat-T12.pdf</li>
-                <li>COA-Licorice-Extract-Batch.pdf</li>
-              </ul>
-            </section>
-
-            <section className="purchase-side-card">
-              <h4>Lịch sử thao tác</h4>
-              <ul className="purchase-timeline">
-                <li><strong>Tạo bản nháp PO</strong><span>Hôm nay, 09:15 bởi Admin Zencos</span></li>
-                <li><strong>Cập nhật danh mục hàng</strong><span>Hôm nay, 10:22 bởi Admin Zencos</span></li>
-              </ul>
-            </section>
-          </aside>
-        </div>
-      </section>
+      <PurchaseOrderDetailScreen
+        detailDraftRef={detailDraftRef}
+        detailSaving={detailSaving}
+        onBack={() => setActiveView('tabs')}
+        onSaveDraft={() => {
+          void handleSaveDetailDraft()
+        }}
+        onSubmit={() => {
+          void handleSubmitDetail()
+        }}
+        onCancel={() => setActiveView('tabs')}
+        detailSubmitting={detailSubmitting}
+        detailSubmitError={detailSubmitError}
+        detailSubmitSuccess={detailSubmitSuccess}
+        detailLoading={detailLoading}
+        quickSupplierId={quickSupplierId}
+        quickSupplierOptions={quickSupplierOptions}
+        onQuickSupplierIdChange={setQuickSupplierId}
+        receivingWarehouseId={quickWarehouseId}
+        receivingWarehouseOptions={quickWarehouseOptions}
+        receivingWarehouseLoading={quickWarehouseLoading}
+        receivingWarehouseError={quickWarehouseError}
+        onReceivingWarehouseIdChange={setQuickWarehouseId}
+        quickNeedDate={quickNeedDate}
+        onQuickNeedDateChange={setQuickNeedDate}
+        quickNote={quickNote}
+        onQuickNoteChange={setQuickNote}
+        detailLines={detailLines}
+        onUpdateDetailLine={handleUpdateDetailLine}
+        onAppendDetailLine={handleAppendDetailLine}
+        onRemoveDetailLine={handleRemoveDetailLine}
+        detailSubtotal={detailSubtotal}
+        detailVat={detailVat}
+        detailTotal={detailTotal}
+        detailHistoryEvents={detailHistoryEvents}
+        detailHistoryLoading={detailHistoryLoading}
+        detailHistoryError={detailHistoryError}
+      />
     )
   }
 
@@ -497,412 +764,86 @@ export function PurchaseOrderPage() {
         />
       </header>
 
-      {activeTab === 'shortage'
-        ? (
-            <section className="purchase-shortage-shell">
-              <div className="purchase-shortage-left">
-                <div className="purchase-shortage-title-row">
-                  <div>
-                    <h2>Yêu cầu mua hàng & Thiếu hụt</h2>
-                    <p>Giám sát vật tư dưới ngưỡng tồn kho an toàn và tạo đơn mua hàng.</p>
-                  </div>
-                  <div className="purchase-shortage-actions">
-                    <label className="po-filter-control">
-                      <i className="pi pi-filter" aria-hidden />
-                      <Dropdown
-                        value={shortageStatusFilter}
-                        options={SHORTAGE_STATUS_OPTIONS}
-                        onChange={(event) => setShortageStatusFilter(event.value as 'all' | ShortageStatus)}
-                        optionLabel="label"
-                        optionValue="value"
-                      />
-                      <i className="pi pi-angle-down" aria-hidden />
-                    </label>
-                    <Button type="button" className="btn btn-ghost" icon="pi pi-download" label="Xuất báo cáo tồn" />
-                  </div>
-                </div>
-
-                <div className="purchase-shortage-stats-grid">
-                  <article className="shortage-stat-card tone-critical">
-                    <p>Thiếu hụt khẩn cấp</p>
-                    <strong>{String(shortageSummary.critical).padStart(2, '0')} mặt hàng</strong>
-                    <span>Nguyên liệu dưới ngưỡng an toàn nghiêm trọng</span>
-                  </article>
-                  <article className="shortage-stat-card tone-draft">
-                    <p>Thiếu hụt cảnh báo</p>
-                    <strong>{String(shortageSummary.warning).padStart(2, '0')} mặt hàng</strong>
-                    <span>Cần theo dõi và chuẩn bị kế hoạch mua</span>
-                  </article>
-                  <article className="shortage-stat-card tone-ok">
-                    <p>Ổn định tồn kho</p>
-                    <strong>{String(shortageSummary.stable).padStart(2, '0')} mặt hàng</strong>
-                    <span>Đang đạt hoặc vượt định mức min</span>
-                  </article>
-                </div>
-
-                <section className="shortage-table-card">
-                  <div className="shortage-table-head">
-                    <h3>Danh sách NVL thiếu hụt</h3>
-                    <div>
-                      <span>
-                        Cập nhật:{' '}
-                        {shortageLastUpdatedAt
-                          ? new Date(shortageLastUpdatedAt).toLocaleString('vi-VN')
-                          : '--'}
-                      </span>
-                      <Button
-                        type="button"
-                        text
-                        disabled={shortageLoading}
-                        onClick={() => setShortageRefreshKey((prev) => prev + 1)}
-                        label="Tải lại"
-                      />
-                    </div>
-                  </div>
-
-                  {shortageError ? <p className="po-empty-row">{shortageError}</p> : null}
-
-                  <div className="shortage-table-wrap">
-                    <table className="shortage-table">
-                      <thead>
-                        <tr>
-                          <th>
-                            <Checkbox checked={false} onChange={() => undefined} aria-label="Chọn tất cả NVL thiếu hụt" />
-                          </th>
-                          <th>Mã NVL</th>
-                          <th>Tên nguyên liệu</th>
-                          <th>Tồn hiện tại</th>
-                          <th>Định mức min</th>
-                          <th>Số lượng thiếu</th>
-                          <th>Trạng thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shortageLoading
-                          ? (
-                              <tr>
-                                <td colSpan={7} className="po-empty-row">Đang tải dữ liệu thiếu hụt...</td>
-                              </tr>
-                            )
-                          : shortageRows.length === 0
-                            ? (
-                                <tr>
-                                  <td colSpan={7} className="po-empty-row">Không có dữ liệu phù hợp bộ lọc hiện tại.</td>
-                                </tr>
-                              )
-                            : shortageRows.map((row) => (
-                          <tr key={row.id}>
-                            <td><Checkbox checked={false} onChange={() => undefined} aria-label={`Chọn ${row.code}`} /></td>
-                            <td className="shortage-code">{row.code}</td>
-                            <td>{row.materialName}</td>
-                            <td>{formatQuantity(row.stockCurrent)} {row.unit}</td>
-                            <td>{formatQuantity(row.stockMin)} {row.unit}</td>
-                            <td className={row.status === 'stable' ? '' : 'shortage-negative'}>
-                              {row.stockShort > 0 ? `-${formatQuantity(row.stockShort)} ${row.unit}` : '-'}
-                            </td>
-                            <td>
-                              <span className={`shortage-status-badge ${row.status}`}>
-                                {row.status === 'critical' ? 'Nguy cấp' : row.status === 'warning' ? 'Cảnh báo' : 'Ổn định'}
-                              </span>
-                            </td>
-                          </tr>
-                              ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="shortage-table-footer">
-                    <p>Hiển thị {shortageRangeStart}-{shortageRangeEnd} trên {shortageTotal} kết quả</p>
-                    <div>
-                      <Button
-                        type="button"
-                        disabled={shortageSafePage === 1 || shortageLoading}
-                        onClick={() => setShortagePage((prev) => Math.max(1, prev - 1))}
-                        label="Trước"
-                        text
-                      />
-                      {Array.from({ length: shortageTotalPages }, (_, index) => index + 1).map((pageNumber) => (
-                        <Button
-                          type="button"
-                          key={pageNumber}
-                          className={pageNumber === shortageSafePage ? 'active' : ''}
-                          onClick={() => setShortagePage(pageNumber)}
-                          disabled={shortageLoading}
-                          label={String(pageNumber)}
-                          text
-                        />
-                      ))}
-                      <Button
-                        type="button"
-                        disabled={shortageSafePage === shortageTotalPages || shortageLoading}
-                        onClick={() => setShortagePage((prev) => Math.min(shortageTotalPages, prev + 1))}
-                        label="Sau"
-                        text
-                      />
-                    </div>
-                  </div>
-                </section>
-              </div>
-
-              <aside className="purchase-shortage-right">
-                <h3>Soạn nhanh yêu cầu mua hàng (PO)</h3>
-
-                <label>
-                  Nhà cung cấp dự kiến
-                  <InputText
-                    value={quickSupplier}
-                    onChange={(event) => setQuickSupplier(event.target.value)}
-                    placeholder="Tìm nhà cung cấp..."
-                  />
-                </label>
-
-                <div className="quick-po-inline-fields">
-                  <label>
-                    Ngày cần hàng
-                    <Calendar
-                      value={quickNeedDate}
-                      onChange={(event) => setQuickNeedDate(event.value ?? null)}
-                      dateFormat="dd/mm/yy"
-                      showIcon
-                    />
-                  </label>
-                  <label>
-                    Loại yêu cầu
-                    <Dropdown
-                      value={quickRequestType}
-                      onChange={(event) => setQuickRequestType((event.value as 'normal' | 'urgent' | null) ?? null)}
-                      options={[
-                        { label: 'Thông thường', value: 'normal' },
-                        { label: 'Khẩn cấp', value: 'urgent' },
-                      ]}
-                      placeholder="Chọn loại"
-                    />
-                  </label>
-                </div>
-
-                <div className="quick-po-selected-list">
-                  <p>Nguyên liệu đã chọn (03)</p>
-                  <article>
-                    <strong>MAT-GLY-01</strong>
-                    <span>Glycerin 99.5% USP</span>
-                    <small>SL cần: 350 kg</small>
-                  </article>
-                  <article>
-                    <strong>MAT-VIT-E</strong>
-                    <span>Vitamin E Acetate</span>
-                    <small>SL cần: 15 lit</small>
-                  </article>
-                  <article>
-                    <strong>MAT-XAN-02</strong>
-                    <span>Xanthan Gum</span>
-                    <small>SL cần: 5 kg</small>
-                  </article>
-                </div>
-
-                <label>
-                  Ghi chú nội bộ
-                  <InputTextarea
-                    rows={4}
-                    value={quickNote}
-                    onChange={(event) => setQuickNote(event.target.value)}
-                    placeholder="Lưu ý cho bộ phận thu mua..."
-                  />
-                </label>
-
-                <Button
-                  type="button"
-                  className="btn btn-primary"
-                  label="Vào chi tiết phiếu PO"
-                  onClick={() => setActiveView('detail')}
-                />
-                <Button type="button" className="btn btn-ghost quick-save-btn" label="Lưu dự thảo mua hàng" />
-              </aside>
-            </section>
-          )
-        : (
-            <section className="po-page-shell">
-      <div className="po-title-row">
-        <div>
-          <h2>Danh sách Phiếu PO</h2>
-          <p>Quản lý và theo dõi các đơn đặt hàng với nhà cung cấp.</p>
-        </div>
-        <Button
-          type="button"
-          className="btn btn-primary po-create-btn"
-          icon="pi pi-plus"
-          label="Tạo phiếu PO mới"
-          onClick={() => setActiveView('detail')}
+      {activeTab === 'shortage' ? (
+        <PurchaseShortageScreen
+          shortageStatusFilter={shortageStatusFilter}
+          onShortageStatusFilterChange={setShortageStatusFilter}
+          shortageSummary={shortageSummary}
+          shortageLastUpdatedAt={shortageLastUpdatedAt}
+          shortageError={shortageError}
+          shortageLoading={shortageLoading}
+          shortageRows={shortageRows}
+          selectedShortageRows={selectedShortageRows}
+          allShortageVisibleSelected={allShortageVisibleSelected}
+          onShortageSelectionChange={handleShortageSelectionChange}
+          onToggleShortageVisibleRows={handleToggleShortageVisibleRows}
+          onReloadShortage={() => setShortageRefreshKey((prev) => prev + 1)}
+          shortageRangeStart={shortageRangeStart}
+          shortageRangeEnd={shortageRangeEnd}
+          shortageTotal={shortageTotal}
+          shortageSafePage={shortageSafePage}
+          shortageTotalPages={shortageTotalPages}
+          shortagePageSize={shortagePageSize}
+          onShortagePageChange={setShortagePage}
+          onShortagePageSizeChange={setShortagePageSize}
+          quickSupplierId={quickSupplierId}
+          quickSupplierOptions={quickSupplierOptions}
+          quickSupplierLoading={quickSupplierLoading}
+          quickSupplierError={quickSupplierError}
+          onQuickSupplierIdChange={setQuickSupplierId}
+          quickNeedDate={quickNeedDate}
+          onQuickNeedDateChange={setQuickNeedDate}
+          quickRequestType={quickRequestType}
+          onQuickRequestTypeChange={setQuickRequestType}
+          selectedQuickItems={selectedQuickItems}
+          quickItemQuantities={quickItemQuantities}
+          quickQuantityErrors={quickQuantityErrors}
+          onQuickQuantityChange={handleQuickQuantityChange}
+          onQuickQuantityFocus={handleQuickQuantityFocus}
+          onQuickQuantityBlur={handleQuickQuantityBlur}
+          quickSubmitError={quickSubmitError}
+          quickSubmitSuccess={quickSubmitSuccess}
+          quickNote={quickNote}
+          onQuickNoteChange={setQuickNote}
+          onEnterDetailFromQuick={handleEnterDetailFromQuick}
+          quickSaving={quickSaving}
+          onQuickSaveDraft={() => {
+            void handleQuickSaveDraft()
+          }}
         />
-      </div>
-
-      <div className="po-stats-grid">
-        <article className="po-stat-card">
-          <span className="po-stat-icon tone-primary">
-            <i className="pi pi-file" />
-          </span>
-          <div>
-            <p>Tổng số PO</p>
-            <strong>{String(stats.total).padStart(2, '0')}</strong>
-          </div>
-        </article>
-        <article className="po-stat-card">
-          <span className="po-stat-icon tone-muted">
-            <i className="pi pi-pencil" />
-          </span>
-          <div>
-            <p>Bản nháp</p>
-            <strong>{String(stats.draft).padStart(2, '0')}</strong>
-          </div>
-        </article>
-        <article className="po-stat-card">
-          <span className="po-stat-icon tone-info">
-            <i className="pi pi-send" />
-          </span>
-          <div>
-            <p>Đã gửi</p>
-            <strong>{String(stats.sent).padStart(2, '0')}</strong>
-          </div>
-        </article>
-      </div>
-
-      <section className="po-table-card">
-        <div className="po-toolbar">
-          <label className="po-filter-control">
-            <i className="pi pi-filter" aria-hidden />
-            <Dropdown
-              value={statusFilter}
-              options={PO_STATUS_OPTIONS}
-              optionLabel="label"
-              optionValue="value"
-              onChange={(event) => setStatusFilter(event.value as 'all' | PoStatus)}
-            />
-            <i className="pi pi-angle-down" aria-hidden />
-          </label>
-
-          <label className="po-filter-control">
-            <Dropdown
-              value={supplierFilter}
-              options={supplierOptions}
-              optionLabel="label"
-              optionValue="value"
-              onChange={(event) => setSupplierFilter(event.value as string)}
-            />
-            <i className="pi pi-angle-down" aria-hidden />
-          </label>
-
-          <div className="po-filter-control po-date-filter">
-            <i className="pi pi-calendar" aria-hidden />
-            <Calendar
-              value={parseDateValue(fromDate)}
-              onChange={(event) => setFromDate(formatDateValue(event.value ?? null))}
-              dateFormat="dd/mm/yy"
-              showIcon
-              aria-label="Từ ngày"
-            />
-            <span>-</span>
-            <Calendar
-              value={parseDateValue(toDate)}
-              onChange={(event) => setToDate(formatDateValue(event.value ?? null))}
-              dateFormat="dd/mm/yy"
-              showIcon
-              aria-label="Đến ngày"
-            />
-          </div>
-
-          <Button type="button" className="po-download-btn" icon="pi pi-download" aria-label="Xuất danh sách PO" />
-        </div>
-
-        <div className="po-table-wrap">
-          <table className="po-table">
-            <thead>
-              <tr>
-                <th>
-                  <Checkbox
-                    checked={allVisibleSelected}
-                    onChange={(event) => handleToggleVisibleRows(Boolean(event.checked))}
-                    aria-label="Chọn tất cả PO hiển thị"
-                  />
-                </th>
-                <th>Mã PO</th>
-                <th>Ngày tạo</th>
-                <th>Nhà cung cấp</th>
-                <th>Số dòng</th>
-                <th>Giá trị (đ)</th>
-                <th>Trạng thái</th>
-                <th>Người tạo</th>
-                <th>Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.length === 0
-                ? (
-                    <tr>
-                      <td colSpan={9} className="po-empty-row">Không có dữ liệu phù hợp bộ lọc hiện tại.</td>
-                    </tr>
-                  )
-                : visibleRows.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        <Checkbox
-                          checked={selectedIds.includes(row.id)}
-                          onChange={(event) => handleToggleRow(row.id, Boolean(event.checked))}
-                          aria-label={`Chọn ${row.code}`}
-                        />
-                      </td>
-                      <td className="po-code-cell">
-                        <Button type="button" text label={row.code} />
-                      </td>
-                      <td>{row.createdAt}</td>
-                      <td>{row.supplier}</td>
-                      <td>{row.lineCount}</td>
-                      <td className="po-value-cell">{formatCurrency(row.totalValue)}</td>
-                      <td>
-                        <span className={`po-status-badge ${row.status}`}>{STATUS_LABELS[row.status]}</span>
-                      </td>
-                      <td>{row.creator}</td>
-                      <td className="po-actions-cell">
-                        <Button type="button" className="po-icon-btn" icon="pi pi-eye" text aria-label={`Xem ${row.code}`} />
-                        <Button type="button" className="po-icon-btn" icon="pi pi-pencil" text aria-label={`Sửa ${row.code}`} />
-                        <Button type="button" className="po-icon-btn" icon="pi pi-ellipsis-v" text aria-label={`Thêm thao tác cho ${row.code}`} />
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="po-footer-row">
-          <p>Hiển thị {rangeStart}-{rangeEnd} trên {filteredRows.length} kết quả</p>
-          <div className="po-pagination">
-            <Button
-              type="button"
-              text
-              label="Trước"
-              disabled={safePage === 1}
-              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            />
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
-              <Button
-                type="button"
-                key={pageNumber}
-                className={pageNumber === safePage ? 'active' : ''}
-                onClick={() => setPage(pageNumber)}
-                text
-                label={String(pageNumber)}
-              />
-            ))}
-            <Button
-              type="button"
-              text
-              label="Sau"
-              disabled={safePage === totalPages}
-              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            />
-          </div>
-        </div>
-      </section>
-            </section>
-          )}
+      ) : (
+        <PurchaseOrderListScreen
+          stats={stats}
+          onCreateNewPo={handleCreateNewPo}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          supplierFilter={supplierFilter}
+          onSupplierFilterChange={setSupplierFilter}
+          poSupplierOptions={poSupplierOptions}
+          fromDate={fromDate}
+          onFromDateChange={setFromDate}
+          toDate={toDate}
+          onToDateChange={setToDate}
+          poError={poError}
+          visibleRows={visibleRows}
+          selectedPoRows={selectedPoRows}
+          allVisibleSelected={allVisibleSelected}
+          onPoSelectionChange={handlePoSelectionChange}
+          onToggleVisibleRows={handleToggleVisibleRows}
+          poLoading={poLoading}
+          onEditPo={(row) => {
+            void handleEditPoFromList(row)
+          }}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          totalFilteredRows={filteredRows.length}
+          safePage={safePage}
+          totalPages={totalPages}
+          poPageSize={poPageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPoPageSize}
+        />
+      )}
     </section>
   )
 }

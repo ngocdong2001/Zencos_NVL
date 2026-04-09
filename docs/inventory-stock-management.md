@@ -338,6 +338,132 @@ Phiếu đã received → Batch đã tạo
 |---|---|
 | `inventory_transactions` chỉ INSERT, không UPDATE/DELETE | Đảm bảo ledger bất biến, audit đầy đủ |
 | Sửa sai bằng bút toán bù (reversal) | Ghi giao dịch ngược chiều thay vì xóa record cũ |
+
+---
+
+## 10. Logic post tồn đầu kỳ (đề xuất triển khai)
+
+Mục tiêu: đảm bảo dữ liệu nhập tại màn hình khai báo tồn đầu kỳ được phản ánh ngay vào tồn thực tế dùng cho báo cáo thiếu hụt.
+
+### 10.1 Vấn đề hiện tại
+
+- Người dùng nhập dữ liệu vào `opening_stock_items`.
+- Báo cáo thiếu hụt đọc từ `batches.current_qty_base`.
+- Nếu chưa có bước post từ `opening_stock_items` sang `batches`, số liệu sẽ lệch (khai báo có số lượng nhưng thiếu hụt vẫn thấy tồn = 0).
+
+### 10.2 Mô hình post được áp dụng
+
+Hệ thống **chỉ dùng duy nhất Mô hình A (Auto-post theo từng dòng)**.
+
+#### Mô hình A — Auto-post từng dòng khi bấm Lưu (khuyến nghị cho trải nghiệm)
+
+Khi user lưu 1 dòng hợp lệ:
+
+1. Insert `opening_stock_items` (lưu chứng từ, giá trị, lot, ngày).
+2. Trong cùng transaction DB:
+   - Tạo `batch` tương ứng.
+   - Tạo `inventory_transaction` loại `import` với `quantity_base = opening quantity`.
+   - `batch.current_qty_base` tăng đúng bằng lượng import.
+3. Gắn cờ đã post cho dòng (`posting_status = posted`, `posted_at`, `posted_batch_id`, `posted_tx_id`).
+
+Ưu điểm:
+- Không cần bước thao tác bổ sung cho user.
+- Báo cáo thiếu hụt cập nhật tức thì.
+
+Nhược điểm:
+- Cần xử lý kỹ luồng sửa/xóa dòng đã post (phải qua bút toán bù).
+
+### 10.3 Quy tắc idempotent (bắt buộc)
+
+Để tránh post trùng khi retry/network timeout:
+
+- Mỗi `opening_stock_item` chỉ được post đúng 1 lần.
+- Trước khi post, check:
+  - `posting_status = posted` hoặc
+  - `posted_batch_id` đã tồn tại.
+- Dùng unique index chống trùng theo quan hệ item-posted:
+
+```sql
+-- Gợi ý cột mới
+ALTER TABLE opening_stock_items
+  ADD COLUMN posting_status ENUM('draft','posted','failed') NOT NULL DEFAULT 'draft',
+  ADD COLUMN posted_batch_id BIGINT NULL,
+  ADD COLUMN posted_tx_id BIGINT NULL,
+  ADD COLUMN posted_at DATETIME(3) NULL;
+
+-- Một item chỉ map tối đa 1 batch được post
+CREATE UNIQUE INDEX ux_opening_item_posted_batch ON opening_stock_items(posted_batch_id);
+```
+
+### 10.4 Transaction chuẩn khi post 1 dòng
+
+```typescript
+await prisma.$transaction(async (db) => {
+  const item = await db.openingStockItem.findUnique({ where: { id: itemId } })
+  if (!item) throw new Error('ITEM_NOT_FOUND')
+  if (item.postingStatus === 'posted') return item // idempotent
+
+  const batch = await db.batch.create({
+    data: {
+      productId: item.productId,
+      supplierId: item.supplierId ?? undefined,
+      lotNo: item.lotNo,
+      invoiceNumber: item.invoiceNo,
+      invoiceDate: item.invoiceDate,
+      receivedQtyBase: item.quantityBase,
+      currentQtyBase: 0,
+      manufactureDate: item.manufactureDate,
+      expiryDate: item.expiryDate,
+      status: 'available',
+      notes: `Opening stock item #${item.id}`,
+    },
+  })
+
+  const tx = await db.inventoryTransaction.create({
+    data: {
+      batchId: batch.id,
+      userId,
+      type: 'import',
+      quantityBase: item.quantityBase,
+      notes: `Opening stock posting from item #${item.id}`,
+      transactionDate: item.openingDate ?? new Date(),
+    },
+  })
+
+  await db.batch.update({
+    where: { id: batch.id },
+    data: { currentQtyBase: { increment: item.quantityBase } },
+  })
+
+  await db.openingStockItem.update({
+    where: { id: item.id },
+    data: {
+      postingStatus: 'posted',
+      postedBatchId: batch.id,
+      postedTxId: tx.id,
+      postedAt: new Date(),
+    },
+  })
+})
+```
+
+### 10.5 Quy tắc sửa/xóa sau khi đã post
+
+- UX cho phép user vẫn sửa dòng đã post ngay trên màn hình, nhưng backend không sửa sổ kho trực tiếp.
+- Nếu user sửa giảm/tăng số lượng: hệ thống tự tạo `adjustment` transaction cho `posted_batch_id` với `delta = new_quantity - old_quantity`.
+- Nếu user sửa metadata lô (`lot`, `invoice`, `supplier`, `NSX`, `HSD`, `unit_price_per_kg`): hệ thống đồng bộ sang `batch` đã post trong cùng DB transaction.
+- Nếu user xóa dòng đã post: hệ thống tự tạo transaction đảo chiều (`adjustment` âm theo lượng tồn đầu đã post) rồi mới xóa dòng khai báo.
+- Chặn thao tác nếu adjustment/reversal làm `batch.current_qty_base < 0`.
+- Luôn giữ lịch sử đầy đủ, không xóa `inventory_transactions`.
+
+### 10.6 Checklist test bắt buộc
+
+1. Lưu dòng tồn đầu kỳ -> shortage tăng/giảm đúng ngay sau thao tác.
+2. Retry API lưu cùng payload -> không tạo batch/transaction trùng.
+3. Sửa số lượng dòng đã post -> tạo adjustment đúng dấu, `batch.current_qty_base` đổi đúng bằng delta.
+4. Xóa dòng đã post -> tạo reversal tự động, rollback đúng mà không làm tồn âm.
+5. Báo cáo tổng tồn theo product khớp với tổng `current_qty_base` của batch available.
+
 | `received_qty_base` ghi 1 lần, không đổi | Là lịch sử nhập gốc; đính chính qua adjustment |
 | Kiểm tra tồn từ `current_qty_base` trước khi xuất | Chặn tồn âm nếu nghiệp vụ yêu cầu |
 | Backfill `current_qty_base` chạy 1 lần trước go-live | Sau đó mọi cập nhật đều qua `prisma.$transaction` |

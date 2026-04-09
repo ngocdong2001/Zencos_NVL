@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useOutletContext } from 'react-router-dom'
 import type { CatalogDataGridHandle } from '../components/catalog/CatalogDataGrid'
 import { CatalogDataGrid } from '../components/catalog/CatalogDataGrid'
-import { CatalogGridFooter } from '../components/catalog/CatalogGridFooter'
+import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { CatalogImportModal } from '../components/catalog/CatalogImportModal'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { CatalogToolbar } from '../components/catalog/CatalogToolbar'
@@ -37,6 +37,8 @@ type CatalogNotice = {
   tone: 'error' | 'success'
   message: string
 }
+
+const CATALOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 function parseApiError(error: unknown, fallbackMessage = 'Lưu dữ liệu thất bại'): ParsedApiError {
   if (!(error instanceof Error)) {
@@ -241,17 +243,6 @@ export function CatalogPage() {
   const currentRangeStart = totalRows === 0 ? 0 : (safePage - 1) * pageSize + 1
   const currentRangeEnd = Math.min(totalRows, safePage * pageSize)
 
-  const pageButtons = useMemo(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1)
-    }
-    const pages = new Set([1, totalPages])
-    for (let i = Math.max(1, safePage - 2); i <= Math.min(totalPages, safePage + 2); i++) {
-      pages.add(i)
-    }
-    return [...pages].sort((a, b) => a - b)
-  }, [totalPages, safePage])
-
   const nextBasicCode = useMemo(() => {
     if (activeTab === 'materials') return ''
     const tab = activeTab as BasicTabId
@@ -312,7 +303,7 @@ export function CatalogPage() {
       productType: resolvedProductType,
       baseUnit: row.unit,
       orderUnit: row.orderUnit || row.unit,
-      minStockLevel: 0,
+      minStockLevel: Number.isFinite(Number(row.minStockLevel)) ? Number(row.minStockLevel) : 0,
       hasExpiry: !isPackaging,
       useFefo: !isPackaging,
       notes: '',
@@ -709,16 +700,18 @@ export function CatalogPage() {
       </div>
 
       <div className="catalog-page-bottom">
-        <CatalogGridFooter
+        <PagedTableFooter
+          rootClassName="grid-footer"
+          prefix="catalog"
           currentRangeStart={currentRangeStart}
           currentRangeEnd={currentRangeEnd}
           totalRows={totalRows}
           safePage={safePage}
           totalPages={totalPages}
-          pageButtons={pageButtons}
           pageSize={pageSize}
+          pageSizeOptions={CATALOG_PAGE_SIZE_OPTIONS}
           onPageChange={setPage}
-          onPageSizeChange={(size) => setPageSize(size)}
+          onPageSizeChange={setPageSize}
         />
       </div>
 
