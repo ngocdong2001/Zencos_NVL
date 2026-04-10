@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { Button } from 'primereact/button'
+import { Column } from 'primereact/column'
+import { DataTable } from 'primereact/datatable'
+import { Dialog } from 'primereact/dialog'
 import { PurchaseOrderDetailScreen } from '../components/purchaseOrder/PurchaseOrderDetailScreen'
 import { PurchaseOrderListScreen } from '../components/purchaseOrder/PurchaseOrderListScreen'
 import { PurchaseShortageScreen } from '../components/purchaseOrder/PurchaseShortageScreen'
+import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../components/purchaseOrder/format'
 import {
   DRAFT_LINES,
@@ -22,10 +26,13 @@ import {
 import { fetchBasics } from '../lib/catalogApi'
 import {
   createPurchaseRequest,
+  deletePurchaseRequest,
   fetchPurchaseRequestDetail,
   fetchPurchaseRequestHistory,
   fetchPurchaseRequests,
   fetchPurchaseShortages,
+  recallPurchaseRequest,
+  type PurchaseRequestDetailResponse,
   type PurchaseRequestHistoryEvent,
   submitPurchaseRequest,
   updatePurchaseRequestDraft,
@@ -39,7 +46,24 @@ function createRequestRef(): string {
   const hh = String(now.getHours()).padStart(2, '0')
   const min = String(now.getMinutes()).padStart(2, '0')
   const ss = String(now.getSeconds()).padStart(2, '0')
-  return `PR-${yyyy}${mm}${dd}-${hh}${min}${ss}`
+  return `PO-${yyyy}${mm}${dd}-${hh}${min}${ss}`
+}
+
+function formatYmd(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getDefaultMonthRange(): { fromDate: string; toDate: string } {
+  const now = new Date()
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return {
+    fromDate: formatYmd(firstDay),
+    toDate: formatYmd(lastDay),
+  }
 }
 
 function normalizeText(value: string): string {
@@ -51,15 +75,35 @@ function normalizeText(value: string): string {
     .replace(/[\u0300-\u036f]/g, '')
 }
 
+function toPoStatus(value: string | null | undefined): PoStatus {
+  if (value === 'draft') return 'draft'
+  if (value === 'submitted') return 'submitted'
+  if (value === 'approved') return 'approved'
+  if (value === 'ordered') return 'ordered'
+  if (value === 'received') return 'received'
+  if (value === 'cancelled') return 'cancelled'
+  return 'draft'
+}
+
+const RECALL_BLOCKED_REASON: Record<PoStatus, string> = {
+  draft: 'Phiếu đang ở bản nháp, không cần thu hồi.',
+  submitted: '',
+  approved: 'Phiếu đã được duyệt, không thể thu hồi. Liên hệ bộ phận thu mua để điều chỉnh.',
+  ordered: 'Phiếu đã đặt hàng với nhà cung cấp, không thể thu hồi.',
+  received: 'Phiếu đã nhận hàng về kho, không thể thu hồi.',
+  cancelled: 'Phiếu đã hủy, không thể thu hồi.',
+}
+
 export function PurchaseOrderPage() {
   const { search } = useOutletContext<OutletContext>()
+  const defaultMonthRange = useMemo(() => getDefaultMonthRange(), [])
   const [activeView, setActiveView] = useState<PurchaseView>('tabs')
   const [activeTab, setActiveTab] = useState<PurchaseTab>('shortage')
 
   const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all')
   const [supplierFilter, setSupplierFilter] = useState('all')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  const [fromDate, setFromDate] = useState(defaultMonthRange.fromDate)
+  const [toDate, setToDate] = useState(defaultMonthRange.toDate)
   const [page, setPage] = useState(1)
   const [poPageSize, setPoPageSize] = useState(10)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -98,14 +142,22 @@ export function PurchaseOrderPage() {
   const [detailLines, setDetailLines] = useState<PurchaseDraftLine[]>(DRAFT_LINES)
   const [detailPurchaseId, setDetailPurchaseId] = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [detailDraftRef, setDetailDraftRef] = useState('PO-DRAFT-2024-00892')
+  const [detailDraftRef, setDetailDraftRef] = useState(createRequestRef())
+  const [detailStatus, setDetailStatus] = useState<PoStatus>('draft')
   const [detailSaving, setDetailSaving] = useState(false)
   const [detailSubmitting, setDetailSubmitting] = useState(false)
+  const [detailRecalling, setDetailRecalling] = useState(false)
+  const [detailDeleting, setDetailDeleting] = useState(false)
   const [detailSubmitError, setDetailSubmitError] = useState<string | null>(null)
   const [detailSubmitSuccess, setDetailSubmitSuccess] = useState<string | null>(null)
   const [detailHistoryEvents, setDetailHistoryEvents] = useState<PurchaseRequestHistoryEvent[]>([])
   const [detailHistoryLoading, setDetailHistoryLoading] = useState(false)
   const [detailHistoryError, setDetailHistoryError] = useState<string | null>(null)
+  const [quickViewVisible, setQuickViewVisible] = useState(false)
+  const [quickViewLoading, setQuickViewLoading] = useState(false)
+  const [quickViewError, setQuickViewError] = useState<string | null>(null)
+  const [quickViewDetail, setQuickViewDetail] = useState<PurchaseRequestDetailResponse | null>(null)
+  const [quickViewOpeningDetail, setQuickViewOpeningDetail] = useState(false)
 
   const loadDetailHistory = async (purchaseId: string) => {
     setDetailHistoryLoading(true)
@@ -234,9 +286,26 @@ export function PurchaseOrderPage() {
       setPoLoading(true)
       setPoError(null)
       try {
-        const response = await fetchPurchaseRequests({ page: 1, limit: 500 })
-        if (cancelled) return
-        setPoRows(response.data.map(toPoRow))
+        const limit = 500
+        let currentPage = 1
+        let total = 0
+        const rows: PurchaseRequestRowResponse[] = []
+
+        do {
+          const response = await fetchPurchaseRequests({
+            page: currentPage,
+            limit,
+            fromDate: fromDate || undefined,
+            toDate: toDate || undefined,
+          })
+          if (cancelled) return
+
+          rows.push(...response.data)
+          total = response.total
+          currentPage += 1
+        } while (rows.length < total)
+
+        setPoRows(rows.map(toPoRow))
       } catch (error) {
         if (cancelled) return
         setPoError(error instanceof Error ? error.message : 'Không thể tải danh sách phiếu PO.')
@@ -249,7 +318,7 @@ export function PurchaseOrderPage() {
     return () => {
       cancelled = true
     }
-  }, [poRefreshKey])
+  }, [fromDate, poRefreshKey, toDate])
 
   useEffect(() => {
     setPage(1)
@@ -363,8 +432,6 @@ export function PurchaseOrderPage() {
     () => detailLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0),
     [detailLines],
   )
-  const detailVat = Math.round(detailSubtotal * 0.0925)
-  const detailTotal = detailSubtotal + detailVat
 
   const handleUpdateDetailLine = (lineId: string, patch: Partial<PurchaseDraftLine>) => {
     setDetailSubmitError(null)
@@ -509,6 +576,7 @@ export function PurchaseOrderPage() {
       const created = await createPurchaseRequest({
         requestRef: createRequestRef(),
         supplierId: quickSupplierId || undefined,
+        receivingLocationId: quickWarehouseId || undefined,
         expectedDate: quickNeedDate ? quickNeedDate.toISOString() : undefined,
         notes: note || undefined,
         items,
@@ -562,7 +630,8 @@ export function PurchaseOrderPage() {
 
     setDetailLines(mappedLines)
     setDetailPurchaseId(null)
-    setDetailDraftRef('PO-DRAFT-2024-00892')
+    setDetailDraftRef(createRequestRef())
+    setDetailStatus('draft')
     setDetailHistoryEvents([])
     setDetailHistoryError(null)
     setDetailHistoryLoading(false)
@@ -589,11 +658,12 @@ export function PurchaseOrderPage() {
 
       setDetailPurchaseId(detail.id)
       setDetailDraftRef(detail.requestRef)
+      setDetailStatus(toPoStatus(detail.status))
       setDetailLines(mappedLines)
       setQuickSupplierId(detail.supplier?.id ? String(detail.supplier.id) : '')
+      setQuickWarehouseId(detail.receivingLocation?.id ? String(detail.receivingLocation.id) : '')
       setQuickNeedDate(detail.expectedDate ? new Date(detail.expectedDate) : null)
       setQuickNote(detail.notes ?? '')
-      setQuickWarehouseId('')
       setQuickRequestType(null)
       await loadDetailHistory(detail.id)
     } catch (error) {
@@ -605,9 +675,90 @@ export function PurchaseOrderPage() {
     }
   }
 
+  const handleQuickViewPoFromList = async (row: PurchaseOrderRow) => {
+    setQuickViewVisible(true)
+    setQuickViewLoading(true)
+    setQuickViewError(null)
+    setQuickViewDetail(null)
+
+    try {
+      const detail = await fetchPurchaseRequestDetail(row.id)
+      setQuickViewDetail(detail)
+    } catch (error) {
+      setQuickViewError(error instanceof Error ? error.message : `Không thể tải chi tiết phiếu ${row.code}.`)
+    } finally {
+      setQuickViewLoading(false)
+    }
+  }
+
+  const closeQuickViewDialog = () => {
+    setQuickViewVisible(false)
+    setQuickViewLoading(false)
+    setQuickViewError(null)
+    setQuickViewDetail(null)
+    setQuickViewOpeningDetail(false)
+  }
+
+  const handleOpenDetailFromQuickView = async () => {
+    if (!quickViewDetail || quickViewLoading || quickViewOpeningDetail) return
+
+    setQuickViewOpeningDetail(true)
+    const row: PurchaseOrderRow = {
+      id: quickViewDetail.id,
+      code: quickViewDetail.requestRef,
+      createdAt: '',
+      supplier: quickViewDetail.supplier?.name ?? '---',
+      lineCount: quickViewDetail.items.length,
+      totalValue: Number(quickViewDetail.totalAmount ?? 0),
+      status: toPoStatus(quickViewDetail.status),
+      creator: quickViewDetail.requester?.fullName ?? '---',
+    }
+
+    closeQuickViewDialog()
+    await handleEditPoFromList(row)
+  }
+
+  const executeDeletePoFromList = async (row: PurchaseOrderRow) => {
+    try {
+      await deletePurchaseRequest(row.id)
+      setPoError(null)
+      setSelectedIds((prev) => prev.filter((id) => id !== row.id))
+      setPoRefreshKey((prev) => prev + 1)
+    } catch (error) {
+      setPoError(error instanceof Error ? error.message : `Không thể xóa phiếu ${row.code}.`)
+    }
+  }
+
+  const handleDeletePoFromList = (row: PurchaseOrderRow) => {
+    showDangerConfirm({
+      header: 'Xác nhận xóa phiếu PO',
+      message: `Xóa vĩnh viễn phiếu ${row.code}? Hành động này không thể hoàn tác.`,
+      acceptLabel: 'Xóa phiếu',
+      rejectLabel: 'Hủy',
+      onAccept: () => {
+        void executeDeletePoFromList(row)
+      },
+    })
+  }
+
   const handleSaveDetailDraft = async () => {
     setDetailSubmitError(null)
     setDetailSubmitSuccess(null)
+
+    const normalizedRequestRef = detailDraftRef.trim()
+    if (!normalizedRequestRef) {
+      setDetailSubmitError('Mã tham chiếu phiếu PO không được để trống.')
+      return
+    }
+    if (!normalizedRequestRef.toUpperCase().startsWith('PO-')) {
+      setDetailSubmitError('Mã tham chiếu phải bắt đầu bằng PO-.')
+      return
+    }
+
+    if (detailStatus !== 'draft') {
+      setDetailSubmitError('Phiếu không ở trạng thái bản nháp. Vui lòng thu hồi về nháp trước khi chỉnh sửa.')
+      return
+    }
 
     if (detailLines.length === 0) {
       setDetailSubmitError('Không có dòng nguyên liệu để lưu bản nháp.')
@@ -639,8 +790,9 @@ export function PurchaseOrderPage() {
     setDetailSaving(true)
     try {
       const payload = {
-        requestRef: detailPurchaseId ? detailDraftRef : createRequestRef(),
+        requestRef: normalizedRequestRef,
         supplierId: quickSupplierId || undefined,
+        receivingLocationId: quickWarehouseId || undefined,
         expectedDate: quickNeedDate ? quickNeedDate.toISOString() : undefined,
         notes: note || undefined,
         items,
@@ -652,6 +804,7 @@ export function PurchaseOrderPage() {
 
       setDetailPurchaseId(saved.id)
       setDetailDraftRef(saved.requestRef)
+      setDetailStatus(toPoStatus(saved.status))
       setPoRefreshKey((prev) => prev + 1)
       setDetailSubmitSuccess(`Đã lưu bản nháp ${saved.requestRef}.`)
       await loadDetailHistory(saved.id)
@@ -670,6 +823,11 @@ export function PurchaseOrderPage() {
     setDetailSubmitError(null)
     setDetailSubmitSuccess(null)
 
+    if (detailStatus !== 'draft') {
+      setDetailSubmitError('Phiếu không ở trạng thái bản nháp. Vui lòng thu hồi về nháp trước khi gửi.')
+      return
+    }
+
     let requestId = detailPurchaseId
     if (!requestId) {
       const saved = await handleSaveDetailDraft()
@@ -682,6 +840,7 @@ export function PurchaseOrderPage() {
       const submitted = await submitPurchaseRequest(requestId)
       setDetailPurchaseId(submitted.id)
       setDetailDraftRef(submitted.requestRef)
+      setDetailStatus(toPoStatus(submitted.status))
       setDetailSubmitSuccess(`Đã gửi phiếu ${submitted.requestRef} cho bộ phận thu mua.`)
       await loadDetailHistory(submitted.id)
       setPoRefreshKey((prev) => prev + 1)
@@ -694,8 +853,112 @@ export function PurchaseOrderPage() {
     }
   }
 
+  const executeRecallDetailToDraft = async () => {
+    if (!detailPurchaseId || detailRecalling || detailLoading) return
+
+    if (detailStatus !== 'submitted') {
+      setDetailSubmitError(RECALL_BLOCKED_REASON[detailStatus] ?? 'Không thể thu hồi phiếu ở trạng thái này.')
+      return
+    }
+
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setDetailRecalling(true)
+
+    try {
+      const recalled = await recallPurchaseRequest(detailPurchaseId)
+      setDetailPurchaseId(recalled.id)
+      setDetailDraftRef(recalled.requestRef)
+      setDetailStatus(toPoStatus(recalled.status))
+      setDetailSubmitSuccess(`Đã thu hồi phiếu ${recalled.requestRef} về bản nháp.`)
+      await loadDetailHistory(recalled.id)
+      setPoRefreshKey((prev) => prev + 1)
+    } catch (error) {
+      setDetailSubmitError(error instanceof Error ? error.message : 'Không thể thu hồi phiếu về bản nháp.')
+    } finally {
+      setDetailRecalling(false)
+    }
+  }
+
+  const handleRecallDetailToDraft = () => {
+    if (!detailPurchaseId || detailRecalling || detailLoading) return
+
+    if (detailStatus !== 'submitted') {
+      setDetailSubmitError(RECALL_BLOCKED_REASON[detailStatus] ?? 'Không thể thu hồi phiếu ở trạng thái này.')
+      return
+    }
+
+    showDangerConfirm({
+      header: 'Xác nhận thu hồi',
+      message: 'Thu hồi phiếu đã gửi về bản nháp để chỉnh sửa?',
+      acceptLabel: 'Thu hồi',
+      rejectLabel: 'Hủy',
+      onAccept: () => {
+        void executeRecallDetailToDraft()
+      },
+    })
+  }
+
+  const executeDeleteDetailPo = async () => {
+    if (!detailPurchaseId || detailDeleting || detailLoading) return
+
+    if (detailStatus !== 'draft') {
+      setDetailSubmitError('Chỉ có thể xóa phiếu PO ở trạng thái bản nháp.')
+      return
+    }
+
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setDetailDeleting(true)
+
+    try {
+      await deletePurchaseRequest(detailPurchaseId)
+      setPoRefreshKey((prev) => prev + 1)
+      setSelectedIds((prev) => prev.filter((id) => id !== detailPurchaseId))
+      setActiveView('tabs')
+      setActiveTab('po-list')
+      setDetailPurchaseId(null)
+      setDetailHistoryEvents([])
+      setDetailHistoryError(null)
+      setDetailHistoryLoading(false)
+    } catch (error) {
+      setDetailSubmitError(error instanceof Error ? error.message : 'Không thể xóa phiếu PO.')
+    } finally {
+      setDetailDeleting(false)
+    }
+  }
+
+  const handleDeleteDetailPo = () => {
+    if (!detailPurchaseId || detailDeleting || detailLoading) return
+
+    showDangerConfirm({
+      header: 'Xác nhận xóa phiếu PO',
+      message: `Xóa vĩnh viễn phiếu ${detailDraftRef}? Hành động này không thể hoàn tác.`,
+      acceptLabel: 'Xóa phiếu',
+      rejectLabel: 'Hủy',
+      onAccept: () => {
+        void executeDeleteDetailPo()
+      },
+    })
+  }
+
   const handleCreateNewPo = () => {
+    setDetailLines([])
     setDetailPurchaseId(null)
+    setDetailDraftRef(createRequestRef())
+    setDetailStatus('draft')
+    setDetailLoading(false)
+    setDetailSaving(false)
+    setDetailSubmitting(false)
+    setDetailRecalling(false)
+    setDetailDeleting(false)
+    setDetailSubmitError(null)
+    setDetailSubmitSuccess(null)
+    setQuickSupplierId('')
+    setQuickWarehouseId('')
+    setQuickNeedDate(null)
+    setQuickRequestType(null)
+    setQuickNote('')
     setDetailHistoryEvents([])
     setDetailHistoryError(null)
     setDetailHistoryLoading(false)
@@ -714,8 +977,21 @@ export function PurchaseOrderPage() {
         onSubmit={() => {
           void handleSubmitDetail()
         }}
+        onRecallToDraft={() => {
+          void handleRecallDetailToDraft()
+        }}
+        onDelete={() => {
+          void handleDeleteDetailPo()
+        }}
         onCancel={() => setActiveView('tabs')}
+        onDetailDraftRefChange={setDetailDraftRef}
         detailSubmitting={detailSubmitting}
+        detailRecalling={detailRecalling}
+        detailDeleting={detailDeleting}
+        detailStatusLabel={STATUS_LABELS[detailStatus]}
+        detailCanRecallToDraft={detailStatus === 'submitted' && Boolean(detailPurchaseId)}
+        detailCanDelete={detailStatus === 'draft' && Boolean(detailPurchaseId)}
+        detailEditable={detailStatus === 'draft'}
         detailSubmitError={detailSubmitError}
         detailSubmitSuccess={detailSubmitSuccess}
         detailLoading={detailLoading}
@@ -736,8 +1012,6 @@ export function PurchaseOrderPage() {
         onAppendDetailLine={handleAppendDetailLine}
         onRemoveDetailLine={handleRemoveDetailLine}
         detailSubtotal={detailSubtotal}
-        detailVat={detailVat}
-        detailTotal={detailTotal}
         detailHistoryEvents={detailHistoryEvents}
         detailHistoryLoading={detailHistoryLoading}
         detailHistoryError={detailHistoryError}
@@ -834,6 +1108,12 @@ export function PurchaseOrderPage() {
           onEditPo={(row) => {
             void handleEditPoFromList(row)
           }}
+          onQuickViewPo={(row) => {
+            void handleQuickViewPoFromList(row)
+          }}
+          onDeletePo={(row) => {
+            void handleDeletePoFromList(row)
+          }}
           rangeStart={rangeStart}
           rangeEnd={rangeEnd}
           totalFilteredRows={filteredRows.length}
@@ -844,6 +1124,71 @@ export function PurchaseOrderPage() {
           onPageSizeChange={setPoPageSize}
         />
       )}
+
+      <Dialog
+        header={quickViewDetail ? `Xem nhanh phiếu ${quickViewDetail.requestRef}` : 'Xem nhanh chi tiết phiếu PO'}
+        visible={quickViewVisible}
+        style={{ width: 'min(980px, 96vw)' }}
+        onHide={closeQuickViewDialog}
+        footer={(
+          <div className="po-quick-view-footer">
+            <Button
+              type="button"
+              className="btn btn-ghost"
+              label="Đóng"
+              onClick={closeQuickViewDialog}
+            />
+            <Button
+              type="button"
+              className="btn btn-primary"
+              icon="pi pi-arrow-right"
+              label={quickViewOpeningDetail ? 'Đang mở...' : 'Vào chỉnh sửa'}
+              disabled={!quickViewDetail || quickViewLoading || Boolean(quickViewError) || quickViewOpeningDetail}
+              onClick={() => {
+                void handleOpenDetailFromQuickView()
+              }}
+            />
+          </div>
+        )}
+      >
+        {quickViewLoading ? <p className="po-field-success">Đang tải chi tiết phiếu PO...</p> : null}
+        {quickViewError ? <p className="po-field-error">{quickViewError}</p> : null}
+
+        {quickViewDetail && !quickViewLoading && !quickViewError ? (
+          <div className="po-quick-view-content">
+            <div className="po-quick-view-grid">
+              <p><strong>Trạng thái:</strong> {STATUS_LABELS[toPoStatus(quickViewDetail.status)]}</p>
+              <p><strong>Nhà cung cấp:</strong> {quickViewDetail.supplier?.name ?? '---'}</p>
+              <p><strong>Kho nhận:</strong> {quickViewDetail.receivingLocation?.name ?? '---'}</p>
+              <p><strong>Người tạo:</strong> {quickViewDetail.requester?.fullName ?? '---'}</p>
+              <p><strong>Ngày cần hàng:</strong> {quickViewDetail.expectedDate ? new Date(quickViewDetail.expectedDate).toLocaleDateString('vi-VN') : '---'}</p>
+              <p><strong>Tổng tiền:</strong> {new Intl.NumberFormat('vi-VN').format(Number(quickViewDetail.totalAmount ?? 0))} đ</p>
+            </div>
+
+            <div className="po-quick-view-table-wrap">
+              <DataTable value={quickViewDetail.items} stripedRows className="prime-catalog-table">
+                <Column field="product.code" header="Mã NVL" style={{ width: '180px', minWidth: '180px' }} />
+                <Column field="product.name" header="Tên nguyên liệu" />
+                <Column
+                  header="Số lượng"
+                  body={(item) => `${formatQuantity(Number(item.quantityDisplay))} ${item.unitDisplay || ''}`}
+                />
+                <Column
+                  header="Đơn giá"
+                  body={(item) => `${new Intl.NumberFormat('vi-VN').format(Number(item.unitPrice ?? 0))} đ`}
+                />
+              </DataTable>
+            </div>
+
+            {quickViewDetail.notes ? (
+              <div className="po-quick-view-note">
+                <strong>Ghi chú:</strong>
+                <p>{quickViewDetail.notes}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Dialog>
     </section>
   )
 }

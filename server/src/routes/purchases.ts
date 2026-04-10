@@ -6,6 +6,12 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../mi
 
 const router = Router()
 
+function parseYmdDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const date = new Date(`${value}T00:00:00.000Z`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 function calculatePurchaseRequestTotalAmount(items: Array<{
   quantityDisplay: Prisma.Decimal
   unitPrice?: Prisma.Decimal
@@ -161,17 +167,49 @@ function mapPurchaseRequestHistory(pr: {
 // LIST / GET  (Purchase Requests = warehouse procurement workflow)
 // ──────────────────────────────────────────────────────────────────────
 router.get('/', requireAuth, requirePermission('purchases.read'), async (req: AuthenticatedRequest, res) => {
-  const { supplierId, status, page = '1', limit = '20' } = req.query as Record<string, string>
+  const { supplierId, status, page = '1', limit = '20', fromDate, toDate } = req.query as Record<string, string>
   const skip = (Number(page) - 1) * Number(limit)
   const where: Prisma.PurchaseRequestWhereInput = {}
   if (supplierId) where.supplierId = BigInt(supplierId)
   if (status) where.status = status as PurchaseRequestStatus
+
+  const parsedFromDate = fromDate ? parseYmdDate(fromDate) : null
+  const parsedToDate = toDate ? parseYmdDate(toDate) : null
+
+  if (fromDate && !parsedFromDate) {
+    res.status(400).json({ error: 'fromDate không hợp lệ, cần định dạng YYYY-MM-DD.' })
+    return
+  }
+
+  if (toDate && !parsedToDate) {
+    res.status(400).json({ error: 'toDate không hợp lệ, cần định dạng YYYY-MM-DD.' })
+    return
+  }
+
+  if (parsedFromDate && parsedToDate && parsedFromDate.getTime() > parsedToDate.getTime()) {
+    res.status(400).json({ error: 'Từ ngày phải nhỏ hơn hoặc bằng Đến ngày.' })
+    return
+  }
+
+  const createdAtFilter: Prisma.DateTimeFilter = {}
+  if (parsedFromDate) {
+    createdAtFilter.gte = parsedFromDate
+  }
+  if (parsedToDate) {
+    const nextDay = new Date(parsedToDate)
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1)
+    createdAtFilter.lt = nextDay
+  }
+  if (Object.keys(createdAtFilter).length > 0) {
+    where.createdAt = createdAtFilter
+  }
 
   const [rawData, total] = await Promise.all([
     prisma.purchaseRequest.findMany({
       where, skip, take: Number(limit), orderBy: { createdAt: 'desc' },
       include: {
         supplier: { select: { id: true, code: true, name: true } },
+        receivingLocation: { select: { id: true, code: true, name: true } },
         requester: { select: { id: true, fullName: true } },
         items: {
           include: {
@@ -197,6 +235,7 @@ router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req:
     where: { id: BigInt(req.params.id) },
     include: {
       supplier: true,
+      receivingLocation: { select: { id: true, code: true, name: true } },
       requester: { select: { id: true, fullName: true } },
       approver: { select: { id: true, fullName: true } },
       items: {
@@ -300,16 +339,18 @@ const prItemSchema = z.object({
 })
 
 const createPRSchema = z.object({
-  requestRef: z.string().min(1),
+  requestRef: z.string().min(1).regex(/^PO-/i, 'Mã tham chiếu phải bắt đầu bằng PO-'),
   supplierId: z.string().optional(),
+  receivingLocationId: z.string().optional(),
   expectedDate: z.string().optional(),
   notes: z.string().optional(),
   items: z.array(prItemSchema).min(1),
 })
 
 const updatePRSchema = z.object({
-  requestRef: z.string().min(1).optional(),
+  requestRef: z.string().min(1).regex(/^PO-/i, 'Mã tham chiếu phải bắt đầu bằng PO-').optional(),
   supplierId: z.string().optional(),
+  receivingLocationId: z.string().optional(),
   expectedDate: z.string().optional(),
   notes: z.string().optional(),
   items: z.array(prItemSchema).min(1),
@@ -326,6 +367,7 @@ router.post('/', requireAuth, requirePermission('purchases.write'), async (req: 
       requestRef: header.requestRef,
       requestedBy,
       supplierId: header.supplierId ? BigInt(header.supplierId) : undefined,
+      receivingLocationId: header.receivingLocationId ? BigInt(header.receivingLocationId) : undefined,
       expectedDate: header.expectedDate ? new Date(header.expectedDate) : undefined,
       notes: header.notes,
       items: {
@@ -370,6 +412,7 @@ router.patch('/:id', requireAuth, requirePermission('purchases.write'), async (r
       data: {
         requestRef: header.requestRef,
         supplierId: header.supplierId ? BigInt(header.supplierId) : null,
+        receivingLocationId: header.receivingLocationId ? BigInt(header.receivingLocationId) : null,
         expectedDate: header.expectedDate ? new Date(header.expectedDate) : null,
         notes: header.notes,
         items: {
@@ -419,6 +462,28 @@ router.patch('/:id/submit', requireAuth, requirePermission('purchases.write'), a
     actorId: BigInt(req.auth!.sub),
     actionType: 'submitted',
     action: 'Gửi phiếu cho thu mua',
+  })
+
+  res.json(updated)
+})
+
+router.patch('/:id/recall', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: BigInt(req.params.id) } })
+  if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
+  if (pr.status !== PurchaseRequestStatus.submitted) {
+    res.status(409).json({ error: 'Can only recall a submitted request' }); return
+  }
+
+  const updated = await prisma.purchaseRequest.update({
+    where: { id: pr.id },
+    data: { status: PurchaseRequestStatus.draft, submittedAt: null },
+  })
+
+  await logPurchaseHistoryEvent(prisma, {
+    requestId: pr.id,
+    actorId: BigInt(req.auth!.sub),
+    actionType: 'updated',
+    action: 'Thu hồi phiếu về bản nháp',
   })
 
   res.json(updated)
@@ -543,6 +608,23 @@ router.patch('/:id/cancel', requireAuth, requirePermission('purchases.write'), a
   })
 
   res.json(updated)
+})
+
+router.delete('/:id', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+  const requestId = BigInt(req.params.id)
+  const pr = await prisma.purchaseRequest.findUnique({ where: { id: requestId } })
+  if (!pr) {
+    res.status(404).json({ error: 'Purchase request not found' })
+    return
+  }
+
+  if (pr.status !== PurchaseRequestStatus.draft) {
+    res.status(409).json({ error: 'Chỉ có thể xóa phiếu đang ở trạng thái bản nháp.' })
+    return
+  }
+
+  await prisma.purchaseRequest.delete({ where: { id: requestId } })
+  res.status(204).send()
 })
 
 export default router

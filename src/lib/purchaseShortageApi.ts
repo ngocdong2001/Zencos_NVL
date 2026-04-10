@@ -72,6 +72,7 @@ export type PurchaseShortageResponse = {
 export type CreatePurchaseRequestPayload = {
   requestRef: string
   supplierId?: string
+  receivingLocationId?: string
   expectedDate?: string
   notes?: string
   items: Array<{
@@ -111,6 +112,11 @@ export type PurchaseRequestDetailResponse = {
   notes?: string | null
   totalAmount?: number
   supplier?: {
+    id: string
+    code: string
+    name: string
+  } | null
+  receivingLocation?: {
     id: string
     code: string
     name: string
@@ -215,6 +221,12 @@ export async function submitPurchaseRequest(id: string): Promise<CreatePurchaseR
   })
 }
 
+export async function recallPurchaseRequest(id: string): Promise<CreatePurchaseRequestResponse> {
+  return http<CreatePurchaseRequestResponse>(`/api/purchases/${id}/recall`, {
+    method: 'PATCH',
+  })
+}
+
 export async function fetchPurchaseRequestDetail(id: string): Promise<PurchaseRequestDetailResponse> {
   return http<PurchaseRequestDetailResponse>(`/api/purchases/${id}`)
 }
@@ -228,13 +240,23 @@ export async function fetchPurchaseRequests(params?: {
   limit?: number
   status?: PurchaseRequestStatus
   supplierId?: string
+  fromDate?: string
+  toDate?: string
 }): Promise<PurchaseRequestListResponse> {
   const query = new URLSearchParams()
   if (params?.page) query.set('page', String(params.page))
   if (params?.limit) query.set('limit', String(params.limit))
   if (params?.status) query.set('status', params.status)
   if (params?.supplierId) query.set('supplierId', params.supplierId)
+  if (params?.fromDate) query.set('fromDate', params.fromDate)
+  if (params?.toDate) query.set('toDate', params.toDate)
 
   const suffix = query.toString()
   return http<PurchaseRequestListResponse>(`/api/purchases${suffix ? `?${suffix}` : ''}`)
+}
+
+export async function deletePurchaseRequest(id: string): Promise<void> {
+  await http<void>(`/api/purchases/${id}`, {
+    method: 'DELETE',
+  })
 }

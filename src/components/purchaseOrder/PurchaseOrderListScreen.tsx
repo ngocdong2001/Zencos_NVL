@@ -28,6 +28,8 @@ type Props = {
   onToggleVisibleRows: (checked: boolean) => void
   poLoading: boolean
   onEditPo: (row: PurchaseOrderRow) => void
+  onQuickViewPo: (row: PurchaseOrderRow) => void
+  onDeletePo: (row: PurchaseOrderRow) => void
   rangeStart: number
   rangeEnd: number
   totalFilteredRows: number
@@ -58,6 +60,8 @@ export function PurchaseOrderListScreen({
   onToggleVisibleRows,
   poLoading,
   onEditPo,
+  onQuickViewPo,
+  onDeletePo,
   rangeStart,
   rangeEnd,
   totalFilteredRows,
@@ -82,8 +86,8 @@ export function PurchaseOrderListScreen({
           onClick={onCreateNewPo}
         />
       </div>
-
-      <div className="po-stats-grid">
+      
+      <div className="po-stats-grid" style={{ display: 'none' }}>
         <article className="po-stat-card">
           <span className="po-stat-icon tone-primary">
             <i className="pi pi-file" />
@@ -112,7 +116,7 @@ export function PurchaseOrderListScreen({
           </div>
         </article>
       </div>
-
+      
       <section className="po-table-card">
         <div className="po-toolbar">
           <label className="po-filter-control">
@@ -138,8 +142,9 @@ export function PurchaseOrderListScreen({
             <i className="pi pi-angle-down" aria-hidden />
           </label>
 
-          <div className="po-filter-control po-date-filter">
+          <div className="po-filter-control po-date-control">
             <i className="pi pi-calendar" aria-hidden />
+            <span>Từ ngày</span>
             <Calendar
               value={parseDateValue(fromDate)}
               onChange={(event) => onFromDateChange(formatDateValue(event.value ?? null))}
@@ -147,7 +152,11 @@ export function PurchaseOrderListScreen({
               showIcon
               aria-label="Từ ngày"
             />
-            <span>-</span>
+          </div>
+
+          <div className="po-filter-control po-date-control">
+            <i className="pi pi-calendar" aria-hidden />
+            <span>Đến ngày</span>
             <Calendar
               value={parseDateValue(toDate)}
               onChange={(event) => onToDateChange(formatDateValue(event.value ?? null))}
@@ -180,6 +189,7 @@ export function PurchaseOrderListScreen({
             <Column
               field="code"
               header="Mã PO"
+              sortable
               body={(row: PurchaseOrderRow) => (
                 <span className="po-code-cell">
                   <Button
@@ -191,36 +201,58 @@ export function PurchaseOrderListScreen({
                 </span>
               )}
             />
-            <Column field="createdAt" header="Ngày tạo" />
-            <Column field="supplier" header="Nhà cung cấp" />
-            <Column field="lineCount" header="Số dòng" />
+            <Column field="createdAt" header="Ngày tạo" sortable />
+            <Column field="supplier" header="Nhà cung cấp" sortable />
+            <Column field="lineCount" header="Số dòng" sortable />
             <Column
+              field="totalValue"
               header="Giá trị (đ)"
+              sortable
               body={(row: PurchaseOrderRow) => (
                 <span className="po-value-cell">{formatCurrency(row.totalValue)}</span>
               )}
             />
             <Column
+              field="status"
               header="Trạng thái"
+              sortable
               body={(row: PurchaseOrderRow) => (
                 <span className={`po-status-badge ${row.status}`}>{STATUS_LABELS[row.status]}</span>
               )}
             />
-            <Column field="creator" header="Người tạo" />
+            <Column field="creator" header="Người tạo" sortable />
             <Column
               header="Thao tác"
               body={(row: PurchaseOrderRow) => (
                 <span className="po-actions-cell">
-                  <Button type="button" className="po-icon-btn" icon="pi pi-eye" text aria-label={`Xem ${row.code}`} />
                   <Button
                     type="button"
                     className="po-icon-btn"
-                    icon="pi pi-pencil"
+                    icon="pi pi-eye"
                     text
-                    aria-label={`Sửa ${row.code}`}
-                    onClick={() => onEditPo(row)}
+                    aria-label={`Xem nhanh ${row.code}`}
+                    onClick={() => onQuickViewPo(row)}
                   />
-                  <Button type="button" className="po-icon-btn" icon="pi pi-ellipsis-v" text aria-label={`Thêm thao tác cho ${row.code}`} />
+                  {row.status === 'draft' ? (
+                    <Button
+                      type="button"
+                      className="po-icon-btn"
+                      icon="pi pi-pencil"
+                      text
+                      aria-label={`Sửa ${row.code}`}
+                      onClick={() => onEditPo(row)}
+                    />
+                  ) : null}
+                  {row.status === 'draft' ? (
+                    <Button
+                      type="button"
+                      className="po-icon-btn danger"
+                      icon="pi pi-trash"
+                      text
+                      aria-label={`Xóa ${row.code}`}
+                      onClick={() => onDeletePo(row)}
+                    />
+                  ) : null}
                 </span>
               )}
             />

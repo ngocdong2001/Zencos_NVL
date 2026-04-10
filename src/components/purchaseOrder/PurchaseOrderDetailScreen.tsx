@@ -15,6 +15,14 @@ import type { PurchaseDraftLine, SupplierOption } from './types'
 import type { PurchaseRequestHistoryEvent } from '../../lib/purchaseShortageApi'
 
 const NEW_LINE_ID = '__new_po_line__'
+const NEW_ROW_TAB_INDEX = {
+  materialCode: 101,
+  materialName: 102,
+  quantity: 103,
+  unitPrice: 104,
+  save: 105,
+  reset: 106,
+} as const
 
 type ProductSuggestion = MaterialRow & { displayLabel: string }
 
@@ -22,10 +30,19 @@ type Props = {
   detailDraftRef: string
   detailSaving: boolean
   detailSubmitting: boolean
+  detailRecalling: boolean
+  detailDeleting: boolean
+  detailStatusLabel: string
+  detailCanRecallToDraft: boolean
+  detailCanDelete: boolean
+  detailEditable: boolean
   onBack: () => void
   onSaveDraft: () => void
   onSubmit: () => void
+  onRecallToDraft: () => void
+  onDelete: () => void
   onCancel: () => void
+  onDetailDraftRefChange: (value: string) => void
   detailSubmitError: string | null
   detailSubmitSuccess: string | null
   detailLoading: boolean
@@ -46,8 +63,6 @@ type Props = {
   onAppendDetailLine: (line: Omit<PurchaseDraftLine, 'id'>) => void
   onRemoveDetailLine: (lineId: string) => void
   detailSubtotal: number
-  detailVat: number
-  detailTotal: number
   detailHistoryEvents: PurchaseRequestHistoryEvent[]
   detailHistoryLoading: boolean
   detailHistoryError: string | null
@@ -57,10 +72,19 @@ export function PurchaseOrderDetailScreen({
   detailDraftRef,
   detailSaving,
   detailSubmitting,
+  detailRecalling,
+  detailDeleting,
+  detailStatusLabel,
+  detailCanRecallToDraft,
+  detailCanDelete,
+  detailEditable,
   onBack,
   onSaveDraft,
   onSubmit,
+  onRecallToDraft,
+  onDelete,
   onCancel,
+  onDetailDraftRefChange,
   detailSubmitError,
   detailSubmitSuccess,
   detailLoading,
@@ -81,8 +105,6 @@ export function PurchaseOrderDetailScreen({
   onAppendDetailLine,
   onRemoveDetailLine,
   detailSubtotal,
-  detailVat,
-  detailTotal,
   detailHistoryEvents,
   detailHistoryLoading,
   detailHistoryError,
@@ -93,7 +115,7 @@ export function PurchaseOrderDetailScreen({
     materialCode: '',
     materialName: '',
     quantity: 0,
-    unit: 'kg',
+    unit: '',
     unitPrice: 0,
   })
   const [newQuantityInput, setNewQuantityInput] = useState('')
@@ -127,13 +149,18 @@ export function PurchaseOrderDetailScreen({
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : Number.NaN
   }
 
+  const focusNewRowControlByTabIndex = (tabIndex: number) => {
+    const target = document.querySelector(`[tabindex="${tabIndex}"]`) as HTMLElement | null
+    target?.focus()
+  }
+
   const resetNewLineDraft = () => {
     setNewLineDraft({
       productId: '',
       materialCode: '',
       materialName: '',
       quantity: 0,
-      unit: 'kg',
+      unit: '',
       unitPrice: 0,
     })
     setNewQuantityInput('')
@@ -208,7 +235,7 @@ export function PurchaseOrderDetailScreen({
       productId: product.id,
       materialCode: product.code,
       materialName: product.materialName,
-      unit: product.orderUnit || product.unit || line.unit,
+      unit: product.unit || line.unit,
     })
   }
 
@@ -218,11 +245,15 @@ export function PurchaseOrderDetailScreen({
       productId: product.id,
       materialCode: product.code,
       materialName: product.materialName,
-      unit: product.orderUnit || product.unit || prev.unit,
+      unit: product.unit || prev.unit,
     }))
   }
 
   const handleAppendNewLine = () => {
+    if (!detailEditable) {
+      return
+    }
+
     const productId = newLineDraft.productId.trim()
     const materialCode = newLineDraft.materialCode.trim()
     const materialName = newLineDraft.materialName.trim()
@@ -252,6 +283,11 @@ export function PurchaseOrderDetailScreen({
   }
 
   const handleCellEditComplete = (event: any) => {
+    if (!detailEditable) {
+      event.originalEvent?.preventDefault?.()
+      return
+    }
+
     const rowData = event.rowData as PurchaseDraftLine
     const field = String(event.field ?? '') as keyof PurchaseDraftLine
     if (!field || rowData.id === NEW_LINE_ID) {
@@ -290,11 +326,13 @@ export function PurchaseOrderDetailScreen({
     onUpdateDetailLine(rowData.id, { [field]: nextText })
   }
 
-  const preventEditOnNewRow = (event: any) => event.rowData?.id !== NEW_LINE_ID
+  const preventEditOnNewRow = (event: any) => detailEditable && event.rowData?.id !== NEW_LINE_ID
 
   const renderExistingRowCodeLookup = (line: PurchaseDraftLine) => (
     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
       <AutoComplete
+        className="po-inline-lookup"
+        inputClassName="po-inline-lookup-input"
         value={rowProductLookupValues[line.id] ?? line.materialCode}
         suggestions={rowProductSuggestions[line.id] ?? []}
         completeMethod={(event) => {
@@ -303,10 +341,11 @@ export function PurchaseOrderDetailScreen({
         field="displayLabel"
         appendTo={document.body}
         panelClassName="po-autocomplete-panel"
+        disabled={!detailEditable}
         onChange={(event) => {
           const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.code ?? '')
           setRowProductLookupValues((prev) => ({ ...prev, [line.id]: nextValue }))
-          onUpdateDetailLine(line.id, { materialCode: nextValue, productId: '' })
+          onUpdateDetailLine(line.id, { materialCode: nextValue, productId: '', unit: '' })
         }}
         onSelect={(event) => {
           applyProductToExistingRow(line.id, line, event.value as ProductSuggestion)
@@ -325,6 +364,8 @@ export function PurchaseOrderDetailScreen({
   const renderExistingRowNameLookup = (line: PurchaseDraftLine) => (
     <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
       <AutoComplete
+        className="po-inline-lookup"
+        inputClassName="po-inline-lookup-input"
         value={rowProductNameLookupValues[line.id] ?? line.materialName}
         suggestions={rowProductSuggestions[line.id] ?? []}
         completeMethod={(event) => {
@@ -333,10 +374,11 @@ export function PurchaseOrderDetailScreen({
         field="displayLabel"
         appendTo={document.body}
         panelClassName="po-autocomplete-panel"
+        disabled={!detailEditable}
         onChange={(event) => {
           const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.materialName ?? '')
           setRowProductNameLookupValues((prev) => ({ ...prev, [line.id]: nextValue }))
-          onUpdateDetailLine(line.id, { materialName: nextValue, productId: '' })
+          onUpdateDetailLine(line.id, { materialName: nextValue, productId: '', unit: '' })
         }}
         onSelect={(event) => {
           applyProductToExistingRow(line.id, line, event.value as ProductSuggestion)
@@ -370,14 +412,6 @@ export function PurchaseOrderDetailScreen({
     />
   )
 
-  const unitEditor = (options: any) => (
-    <InputText
-      value={String(options.value ?? '')}
-      onChange={(e) => options.editorCallback?.(e.target.value)}
-      placeholder="Đơn vị"
-    />
-  )
-
   return (
     <section className="purchase-detail-shell">
       <header className="purchase-detail-header">
@@ -393,19 +427,47 @@ export function PurchaseOrderDetailScreen({
           <div>
             <div className="purchase-detail-title-row">
               <h2>Soạn thảo Đơn mua hàng</h2>
-              <span className="purchase-detail-draft-tag">DỰ THẢO (DRAFT)</span>
+              <span className="purchase-detail-draft-tag">{detailStatusLabel.toUpperCase()}</span>
             </div>
-            <p>Mã tham chiếu: {detailDraftRef}</p>
+            <label className="purchase-detail-ref-field">
+              <span>Mã tham chiếu</span>
+              <InputText
+                value={detailDraftRef}
+                onChange={(event) => onDetailDraftRefChange(event.target.value)}
+                placeholder="Nhập mã tham chiếu PO"
+                disabled={!detailEditable || detailLoading || detailSaving || detailSubmitting || detailRecalling || detailDeleting}
+              />
+            </label>
           </div>
         </div>
 
         <div className="purchase-detail-header-actions">
+          {detailCanRecallToDraft ? (
+            <Button
+              type="button"
+              className="btn btn-ghost"
+              icon="pi pi-undo"
+              label={detailRecalling ? 'Đang thu hồi...' : 'Thu hồi về nháp'}
+              disabled={detailRecalling || detailLoading || detailSaving || detailSubmitting || detailDeleting}
+              onClick={onRecallToDraft}
+            />
+          ) : null}
+          {detailCanDelete ? (
+            <Button
+              type="button"
+              className="btn btn-ghost purchase-detail-delete-btn"
+              icon="pi pi-trash"
+              label={detailDeleting ? 'Đang xóa...' : 'Xóa phiếu'}
+              disabled={detailDeleting || detailRecalling || detailLoading || detailSaving || detailSubmitting}
+              onClick={onDelete}
+            />
+          ) : null}
           <Button
             type="button"
             className="btn btn-ghost"
             icon="pi pi-save"
             label={detailSaving ? 'Đang lưu...' : 'Lưu bản nháp'}
-            disabled={detailSaving || detailSubmitting}
+            disabled={!detailEditable || detailDeleting || detailRecalling || detailSaving || detailSubmitting}
             onClick={onSaveDraft}
           />
           <Button
@@ -420,7 +482,7 @@ export function PurchaseOrderDetailScreen({
             className="btn btn-primary"
             icon="pi pi-send"
             label={detailSubmitting ? 'Đang gửi...' : 'Gửi cho thu mua'}
-            disabled={detailSaving || detailSubmitting || detailLoading}
+            disabled={!detailEditable || detailDeleting || detailRecalling || detailSaving || detailSubmitting || detailLoading}
             onClick={onSubmit}
           />
         </div>
@@ -512,6 +574,7 @@ export function PurchaseOrderDetailScreen({
                 className="btn btn-ghost btn-compact-material"
                 icon="pi pi-plus"
                 label="Thêm dòng hàng"
+                disabled={!detailEditable}
                 onClick={() => newCodeInputRef.current?.focus()}
               />
             </div>
@@ -556,6 +619,8 @@ export function PurchaseOrderDetailScreen({
                           appendTo={document.body}
                           panelClassName="po-autocomplete-panel"
                           dropdownMode="current"
+                          tabIndex={NEW_ROW_TAB_INDEX.materialCode}
+                          disabled={!detailEditable}
                           onChange={(event) => {
                             setNewProductLookupValue(event.value)
                             if (typeof event.value === 'string') {
@@ -563,6 +628,7 @@ export function PurchaseOrderDetailScreen({
                                 ...prev,
                                 productId: '',
                                 materialCode: String(event.value ?? ''),
+                                unit: '',
                               }))
                             }
                           }}
@@ -599,10 +665,12 @@ export function PurchaseOrderDetailScreen({
                           field="displayLabel"
                           appendTo={document.body}
                           panelClassName="po-autocomplete-panel"
+                          tabIndex={NEW_ROW_TAB_INDEX.materialName}
+                          disabled={!detailEditable}
                           onChange={(event) => {
                             const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.materialName ?? '')
                             setNewProductNameLookupValue(nextValue)
-                            setNewLineDraft((prev) => ({ ...prev, productId: '', materialName: nextValue }))
+                            setNewLineDraft((prev) => ({ ...prev, productId: '', materialName: nextValue, unit: '' }))
                           }}
                           onSelect={(event) => {
                             const selected = event.value as ProductSuggestion
@@ -649,6 +717,15 @@ export function PurchaseOrderDetailScreen({
                         inputMode="decimal"
                         className="num-editor"
                         placeholder="0"
+                        tabIndex={NEW_ROW_TAB_INDEX.quantity}
+                        disabled={!detailEditable}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Tab') return
+                          event.preventDefault()
+                          focusNewRowControlByTabIndex(
+                            event.shiftKey ? NEW_ROW_TAB_INDEX.materialName : NEW_ROW_TAB_INDEX.unitPrice,
+                          )
+                        }}
                       />
                     ) : (
                       <span className="num-r">{formatQuantity(line.quantity)}</span>
@@ -663,19 +740,10 @@ export function PurchaseOrderDetailScreen({
                   field="unit"
                   header="ĐVT"
                   body={(line: PurchaseDraftLine) => (
-                    line.id === NEW_LINE_ID ? (
-                      <InputText
-                        value={newLineDraft.unit}
-                        onChange={(event) => setNewLineDraft((prev) => ({ ...prev, unit: event.target.value }))}
-                        placeholder="kg"
-                      />
-                    ) : (
-                      <span>{line.unit}</span>
-                    )
+                    line.id === NEW_LINE_ID
+                      ? <span tabIndex={-1}>{newLineDraft.unit || '---'}</span>
+                      : <span>{line.unit || '---'}</span>
                   )}
-                  editor={unitEditor}
-                  onBeforeCellEditShow={preventEditOnNewRow}
-                  onCellEditComplete={handleCellEditComplete}
                   style={{ width: '90px' }}
                 />
                 <Column
@@ -703,6 +771,15 @@ export function PurchaseOrderDetailScreen({
                         inputMode="decimal"
                         className="num-editor"
                         placeholder="0"
+                        tabIndex={NEW_ROW_TAB_INDEX.unitPrice}
+                        disabled={!detailEditable}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Tab') return
+                          event.preventDefault()
+                          focusNewRowControlByTabIndex(
+                            event.shiftKey ? NEW_ROW_TAB_INDEX.quantity : NEW_ROW_TAB_INDEX.save,
+                          )
+                        }}
                       />
                     ) : (
                       <span className="num-r">{formatCurrency(line.unitPrice)}</span>
@@ -734,6 +811,8 @@ export function PurchaseOrderDetailScreen({
                           title="Thêm dòng"
                           onClick={handleAppendNewLine}
                           aria-label="Thêm dòng mới"
+                          tabIndex={NEW_ROW_TAB_INDEX.save}
+                          disabled={!detailEditable}
                         >
                           <i className="pi pi-save" />
                         </button>
@@ -743,6 +822,8 @@ export function PurchaseOrderDetailScreen({
                           title="Xóa nháp dòng mới"
                           onClick={resetNewLineDraft}
                           aria-label="Xóa nháp dòng mới"
+                          tabIndex={NEW_ROW_TAB_INDEX.reset}
+                          disabled={!detailEditable}
                         >
                           ×
                         </button>
@@ -753,6 +834,7 @@ export function PurchaseOrderDetailScreen({
                         className="icon-btn danger"
                         title={`Xóa ${line.materialCode}`}
                         aria-label={`Xóa ${line.materialCode}`}
+                        disabled={!detailEditable}
                         onClick={() => onRemoveDetailLine(line.id)}
                       >
                         <i className="pi pi-trash" />
@@ -767,11 +849,10 @@ export function PurchaseOrderDetailScreen({
         </div>
 
         <aside className="purchase-detail-side">
-          <section className="purchase-side-card">
+          <section className="purchase-side-card purchase-side-card-summary">
             <h4>Tổng kết đơn hàng</h4>
-            <div className="purchase-side-row"><span>Tiền hàng:</span><strong>{formatCurrency(detailSubtotal)} đ</strong></div>
-            <div className="purchase-side-row"><span>Thuế VAT (Tạm tính):</span><strong>{formatCurrency(detailVat)} đ</strong></div>
-            <div className="purchase-side-total"><span>Tổng cộng:</span><strong>{formatCurrency(detailTotal)} đ</strong></div>
+            <div className="purchase-side-row"><span>Tổng số NVL:</span><strong>{detailLines.length}</strong></div>
+            <div className="purchase-side-row"><span>Tiền hàng:</span><strong className="purchase-side-amount-accent">{formatCurrency(detailSubtotal)} đ</strong></div>
             <p className="purchase-side-note">Giá trên chưa bao gồm phí vận chuyển (nếu có).</p>
           </section>
 

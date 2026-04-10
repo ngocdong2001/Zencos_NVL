@@ -124,18 +124,39 @@ export function PurchaseShortageScreen({
 
         <div className="purchase-shortage-stats-grid">
           <article className="shortage-stat-card tone-critical">
-            <p>Thiếu hụt khẩn cấp</p>
-            <strong>{String(shortageSummary.critical).padStart(2, '0')} mặt hàng</strong>
+            <div className="shortage-stat-card-head">
+              <div>
+                <p>Thiếu hụt khẩn cấp</p>
+                <strong>{String(shortageSummary.critical).padStart(2, '0')} mặt hàng</strong>
+              </div>
+              <span className="shortage-stat-icon" aria-hidden>
+                <i className="pi pi-exclamation-triangle" />
+              </span>
+            </div>
             <span>Nguyên liệu dưới ngưỡng an toàn nghiêm trọng</span>
           </article>
           <article className="shortage-stat-card tone-draft">
-            <p>Thiếu hụt cảnh báo</p>
-            <strong>{String(shortageSummary.warning).padStart(2, '0')} mặt hàng</strong>
+            <div className="shortage-stat-card-head">
+              <div>
+                <p>Thiếu hụt cảnh báo</p>
+                <strong>{String(shortageSummary.warning).padStart(2, '0')} mặt hàng</strong>
+              </div>
+              <span className="shortage-stat-icon" aria-hidden>
+                <i className="pi pi-clock" />
+              </span>
+            </div>
             <span>Cần theo dõi và chuẩn bị kế hoạch mua</span>
           </article>
           <article className="shortage-stat-card tone-ok">
-            <p>Ổn định tồn kho</p>
-            <strong>{String(shortageSummary.stable).padStart(2, '0')} mặt hàng</strong>
+            <div className="shortage-stat-card-head">
+              <div>
+                <p>Ổn định tồn kho</p>
+                <strong>{String(shortageSummary.stable).padStart(2, '0')} mặt hàng</strong>
+              </div>
+              <span className="shortage-stat-icon" aria-hidden>
+                <i className="pi pi-check-circle" />
+              </span>
+            </div>
             <span>Đang đạt hoặc vượt định mức min</span>
           </article>
         </div>

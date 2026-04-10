@@ -307,6 +307,7 @@ model PurchaseRequest {
   requestedBy   BigInt               @map("requested_by") @db.UnsignedBigInt
   approvedBy    BigInt?              @map("approved_by") @db.UnsignedBigInt
   supplierId    BigInt?              @map("supplier_id") @db.UnsignedBigInt
+  receivingLocationId BigInt?        @map("receiving_location_id") @db.UnsignedBigInt
   status        PurchaseRequestStatus @default(draft)
   expectedDate  DateTime?            @map("expected_date") @db.Date
   notes         String?              @db.Text
@@ -320,6 +321,7 @@ model PurchaseRequest {
   requester     User                 @relation("PurchaseRequestRequestedBy", fields: [requestedBy], references: [id], onDelete: Restrict)
   approver      User?                @relation("PurchaseRequestApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
   supplier      Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  receivingLocation CatalogLocation? @relation("PurchaseRequestReceivingLocation", fields: [receivingLocationId], references: [id], onDelete: SetNull)
   items         PurchaseRequestItem[]
 
   @@index([status])
@@ -381,6 +383,7 @@ model CatalogLocation {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   openingStockItems OpeningStockItem[]
+  purchaseRequests PurchaseRequest[] @relation("PurchaseRequestReceivingLocation")
 
   @@map("inventory_locations")
 }

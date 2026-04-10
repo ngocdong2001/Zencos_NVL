@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { ConfirmDialog } from 'primereact/confirmdialog'
 import { MasterHeader } from './components/layout/MasterHeader'
 import { MasterPage } from './components/layout/MasterPage'
 import { MasterSidebar } from './components/layout/MasterSidebar'
@@ -42,6 +43,7 @@ function AppLayout() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ConfirmDialog />
       <Routes>
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/catalog" replace />} />
