@@ -11,6 +11,11 @@ body,
 }
 
 body {
+  font-family: 'Readex Pro', 'Inter', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   background: #eef3f0;
   color: #1a2a28;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }

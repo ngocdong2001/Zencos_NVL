@@ -130,6 +130,12 @@ export type PurchaseRequestDetailResponse = {
       id: string
       code: string
       name: string
+      orderUnitRef?: {
+        id: string
+        unitName: string
+        unitCodeName?: string | null
+        conversionToBase: number
+      } | null
     }
   }>
 }
@@ -160,8 +166,14 @@ export type PurchaseRequestRowResponse = {
   requestRef: string
   createdAt: string
   status: PurchaseRequestStatus
+  expectedDate?: string | null
   totalAmount?: number
   supplier?: {
+    id: string
+    code: string
+    name: string
+  } | null
+  receivingLocation?: {
     id: string
     code: string
     name: string

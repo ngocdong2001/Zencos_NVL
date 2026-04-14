@@ -6,6 +6,14 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../mi
 
 const router = Router()
 
+function buildInboundReceiptRef(now = new Date()): string {
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const serial = now.getTime().toString().slice(-6)
+  return `NK-${year}${month}${day}-${serial}`
+}
+
 function parseYmdDate(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
   const date = new Date(`${value}T00:00:00.000Z`)
@@ -240,7 +248,11 @@ router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req:
       approver: { select: { id: true, fullName: true } },
       items: {
         include: {
-          product: true,
+          product: {
+            include: {
+              orderUnitRef: { select: { id: true, unitName: true, unitCodeName: true, conversionToBase: true } },
+            },
+          },
           exportOrderItem: { select: { unitPriceSnapshot: true } },
         },
       },
@@ -522,7 +534,7 @@ router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), 
     },
   })
   if (!pr) { res.status(404).json({ error: 'Purchase request not found' }); return }
-  if (pr.status !== PurchaseRequestStatus.approved && pr.status !== PurchaseRequestStatus.ordered) {
+  if (!['approved', 'ordered', 'partially_received'].includes(String(pr.status))) {
     res.status(409).json({ error: 'Request must be approved or ordered before marking received' }); return
   }
 
@@ -535,6 +547,37 @@ router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), 
   const userId = BigInt(req.auth!.sub)
 
   const updated = await prisma.$transaction(async (db) => {
+    const inboundRef = buildInboundReceiptRef(receivedAt)
+
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO inbound_receipts
+        (receipt_ref, purchase_request_id, supplier_id, receiving_location_id, status, expected_date, received_at, qc_checked_at, created_by, posted_by, notes, created_at, updated_at)
+      VALUES
+        (
+          ${inboundRef},
+          ${pr.id},
+          ${pr.supplierId},
+          ${pr.receivingLocationId},
+          ${'posted'},
+          ${pr.expectedDate},
+          ${receivedAt},
+          ${receivedAt},
+          ${userId},
+          ${userId},
+          ${`Auto-posted from purchase request ${pr.requestRef}`},
+          NOW(3),
+          NOW(3)
+        )
+    `)
+
+    const createdInbound = await db.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT LAST_INSERT_ID() AS id
+    `)
+    const inboundReceiptId = createdInbound[0]?.id
+    if (!inboundReceiptId) {
+      throw new Error('Cannot create inbound receipt')
+    }
+
     const request = await db.purchaseRequest.update({
       where: { id: pr.id },
       data: { status: PurchaseRequestStatus.received, receivedAt },
@@ -544,36 +587,81 @@ router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), 
       const item = pr.items[idx]
       const lotNo = `${request.requestRef}-${item.product.code}-${Date.now().toString().slice(-6)}-${idx + 1}`
 
+      await db.$executeRaw(Prisma.sql`
+        INSERT INTO inbound_receipt_items
+          (inbound_receipt_id, purchase_request_item_id, product_id, lot_no, invoice_number, invoice_date, manufacture_date, expiry_date, quantity_base, unit_used, quantity_display, unit_price_per_kg, line_amount, qc_status, has_document, posted_batch_id, posted_tx_id, notes, created_at, updated_at)
+        VALUES
+          (
+            ${inboundReceiptId},
+            ${item.id},
+            ${item.productId},
+            ${lotNo},
+            ${null},
+            ${receivedAt},
+            ${null},
+            ${null},
+            ${item.quantityNeededBase},
+            ${item.unitDisplay},
+            ${item.quantityDisplay},
+            ${item.unitPrice ?? 0},
+            ${new Prisma.Decimal(item.quantityDisplay).mul(item.unitPrice ?? 0)},
+            ${'pending'},
+            ${false},
+            ${null},
+            ${null},
+            ${`Auto-created from purchase request ${request.requestRef}`},
+            NOW(3),
+            NOW(3)
+          )
+      `)
+
+      const createdInboundItem = await db.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+        SELECT LAST_INSERT_ID() AS id
+      `)
+      const inboundReceiptItemId = createdInboundItem[0]?.id
+      if (!inboundReceiptItemId) {
+        throw new Error('Cannot create inbound receipt item')
+      }
+
       const batch = await db.batch.create({
         data: {
           productId: item.productId,
           supplierId: request.supplierId ?? undefined,
+          inboundReceiptItemId,
           lotNo,
           receivedQtyBase: item.quantityNeededBase,
-          currentQtyBase: 0,
+          currentQtyBase: item.quantityNeededBase,
           purchaseUnit: item.unitDisplay,
           purchaseQty: item.quantityDisplay,
           invoiceDate: receivedAt,
           status: 'available',
-          notes: `Auto-created from purchase request ${request.requestRef}`,
+          notes: `Auto-created from inbound receipt ${inboundRef}`,
         },
       })
 
-      await db.inventoryTransaction.create({
+      const tx = await db.inventoryTransaction.create({
         data: {
           batchId: batch.id,
           userId,
+          inboundReceiptItemId,
           type: 'import',
           quantityBase: item.quantityNeededBase,
-          notes: `Goods received from purchase request ${request.requestRef}`,
+          notes: `Goods received from inbound receipt ${inboundRef}`,
           transactionDate: receivedAt,
         },
       })
 
-      await db.batch.update({
-        where: { id: batch.id },
-        data: { currentQtyBase: { increment: item.quantityNeededBase } },
-      })
+      await db.$executeRaw(Prisma.sql`
+        UPDATE inbound_receipt_items
+        SET posted_batch_id = ${batch.id}, posted_tx_id = ${tx.id}, qc_status = ${'passed'}, updated_at = NOW(3)
+        WHERE id = ${inboundReceiptItemId}
+      `)
+
+      await db.$executeRaw(Prisma.sql`
+        UPDATE purchase_request_items
+        SET received_qty_base = quantity_needed_base, updated_at = NOW(3)
+        WHERE id = ${item.id}
+      `)
     }
 
     await logPurchaseHistoryEvent(db, {

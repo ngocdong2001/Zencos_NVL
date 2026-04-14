@@ -1062,6 +1062,21 @@ const uploadDoc = multer({
 
 const VALID_DOC_TYPES = ['Invoice', 'COA', 'MSDS', 'Other'] as const
 
+function normalizeUploadedFilename(originalName: string): string {
+  const raw = String(originalName ?? '').trim()
+  if (!raw) return 'unnamed-file'
+
+  const maybeMojibake = /Ã.|Â|â.|ðŸ|Ð|Ñ/.test(raw)
+  if (!maybeMojibake) return raw
+
+  try {
+    const decoded = Buffer.from(raw, 'latin1').toString('utf8').trim()
+    return decoded || raw
+  } catch {
+    return raw
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // GET /rows/:id/documents — danh sách chứng từ của một item
 // ──────────────────────────────────────────────────────────────────────
@@ -1129,12 +1144,13 @@ router.post('/rows/:id/documents', uploadDoc.single('file'), async (req, res) =>
   }
 
   const relativePath = path.relative(process.cwd(), req.file.path).replace(/\\/g, '/')
+  const originalName = normalizeUploadedFilename(req.file.originalname)
 
   await prisma.$executeRaw(Prisma.sql`
     INSERT INTO opening_stock_item_documents
       (item_id, doc_type, file_path, original_name, mime_type, file_size, uploaded_by, created_at, updated_at)
     VALUES
-      (${itemId}, ${docType}, ${relativePath}, ${req.file.originalname}, ${req.file.mimetype}, ${req.file.size}, ${systemUser[0].id}, NOW(3), NOW(3))
+      (${itemId}, ${docType}, ${relativePath}, ${originalName}, ${req.file.mimetype}, ${req.file.size}, ${systemUser[0].id}, NOW(3), NOW(3))
   `)
 
   await prisma.$executeRaw(Prisma.sql`

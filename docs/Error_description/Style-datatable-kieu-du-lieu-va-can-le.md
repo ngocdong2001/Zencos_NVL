@@ -63,6 +63,7 @@ function formatNumber(value: number): string {
 ### Ngày (date)
 
 - DB lưu dạng `YYYY-MM-DD`, **hiển thị** chuyển sang `dd/MM/yyyy`.
+- Chuẩn nhập liệu cho **tất cả date control**: `dd/MM/yyyy`.
 - Dùng hàm `formatDate`:
 
 ```ts
@@ -75,9 +76,12 @@ function formatDate(value: string | null | undefined): string {
 ```
 
 - Input nhập liệu vẫn dùng `input[type=date]` (trình duyệt yêu cầu `YYYY-MM-DD` — không thay đổi).
+- Không dùng `input[type=date]` cho luồng nhập liệu chuẩn hóa ngày.
+- Với PrimeReact `Calendar`: dùng `dateFormat="dd/mm/yy"` để người dùng nhập/chọn đúng `dd/MM/yyyy`.
+- Khi lưu về DB/API: convert từ `dd/MM/yyyy` sang `YYYY-MM-DD`.
 - Bọc bằng `<span className="status-pill">` nếu muốn badge style, hoặc text thuần.
 - Căn trái (mặc định).
-- Input: `input[type=date]` — cần wrap `stopPropagation` (xem file `Loi date picker trong DataTable - huong dan xu ly.md`).
+- Input date trong DataTable vẫn cần wrapper `stopPropagation` (xem file `Loi date picker trong DataTable - huong dan xu ly.md`).
 
 ### Văn bản (string)
 

@@ -8,11 +8,10 @@ import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
 import { InputTextarea } from 'primereact/inputtextarea'
 import { fetchMaterials } from '../../lib/catalogApi'
-import { HistoryTimeline } from '../shared/HistoryTimeline'
+import { HistoryTimeline, type HistoryTimelineEvent } from '../shared/HistoryTimeline'
 import { formatCurrency, formatQuantity, parseDecimalInput, toEditableNumberString } from './format'
 import type { MaterialRow } from '../catalog/types'
 import type { PurchaseDraftLine, SupplierOption } from './types'
-import type { PurchaseRequestHistoryEvent } from '../../lib/purchaseShortageApi'
 
 const NEW_LINE_ID = '__new_po_line__'
 const NEW_ROW_TAB_INDEX = {
@@ -63,7 +62,7 @@ type Props = {
   onAppendDetailLine: (line: Omit<PurchaseDraftLine, 'id'>) => void
   onRemoveDetailLine: (lineId: string) => void
   detailSubtotal: number
-  detailHistoryEvents: PurchaseRequestHistoryEvent[]
+  detailHistoryEvents: HistoryTimelineEvent[]
   detailHistoryLoading: boolean
   detailHistoryError: string | null
 }

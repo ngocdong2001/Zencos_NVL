@@ -1,8 +1,15 @@
 import { Timeline } from 'primereact/timeline'
-import type { PurchaseRequestHistoryEvent } from '../../lib/purchaseShortageApi'
+
+export type HistoryTimelineEvent = {
+  id: string
+  actionType: string
+  action: string
+  actorName: string
+  at: string
+}
 
 type Props = {
-  events: PurchaseRequestHistoryEvent[]
+  events: HistoryTimelineEvent[]
   loading: boolean
   error: string | null
   emptyMessage?: string
@@ -22,22 +29,24 @@ function formatHistoryDateTime(raw: string) {
   })
 }
 
-function mapHistoryStyle(actionType: PurchaseRequestHistoryEvent['actionType']) {
+function mapHistoryStyle(actionType: string) {
   if (actionType === 'created') return { tone: 'tone-created', icon: 'pi pi-file-edit', badge: 'Tạo mới' }
   if (actionType === 'updated') return { tone: 'tone-updated', icon: 'pi pi-pencil', badge: 'Cập nhật' }
   if (actionType === 'submitted') return { tone: 'tone-submitted', icon: 'pi pi-send', badge: 'Đã gửi' }
   if (actionType === 'approved') return { tone: 'tone-approved', icon: 'pi pi-check-circle', badge: 'Đã duyệt' }
   if (actionType === 'ordered') return { tone: 'tone-ordered', icon: 'pi pi-shopping-cart', badge: 'Đặt hàng' }
   if (actionType === 'received') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã nhận' }
+  if (actionType === 'qc_reviewed') return { tone: 'tone-approved', icon: 'pi pi-verified', badge: 'QC kiểm tra' }
+  if (actionType === 'posted') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã posted' }
   return { tone: 'tone-cancelled', icon: 'pi pi-times-circle', badge: 'Đã hủy' }
 }
 
-function historyMarkerTemplate(event: PurchaseRequestHistoryEvent) {
+function historyMarkerTemplate(event: HistoryTimelineEvent) {
   const style = mapHistoryStyle(event.actionType)
   return <span className={`purchase-timeline-marker ${style.tone}`} aria-hidden />
 }
 
-function historyContentTemplate(event: PurchaseRequestHistoryEvent) {
+function historyContentTemplate(event: HistoryTimelineEvent) {
   const style = mapHistoryStyle(event.actionType)
   return (
     <div className={`purchase-timeline-content ${style.tone}`}>

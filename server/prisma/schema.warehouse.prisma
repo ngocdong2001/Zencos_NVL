@@ -50,8 +50,29 @@ enum PurchaseRequestStatus {
   submitted
   approved
   ordered
+  partially_received
   received
   cancelled
+}
+
+enum InboundReceiptStatus {
+  draft
+  pending_qc
+  posted
+  cancelled
+}
+
+enum InboundReceiptItemQcStatus {
+  pending
+  passed
+  failed
+}
+
+enum InboundReceiptItemDocType {
+  Invoice
+  COA
+  MSDS
+  Other
 }
 
 enum OpeningStockDeclarationStatus {
@@ -83,10 +104,14 @@ model User {
   productDocuments ProductDocument[]
   batchDocuments   BatchDocument[]
   openingStockItemDocuments OpeningStockItemDocument[]
+  inboundReceiptItemDocuments InboundReceiptItemDocument[]
   exportOrders     ExportOrder[]
   inventoryTransactions InventoryTransaction[]
   requestedPurchaseRequests PurchaseRequest[] @relation("PurchaseRequestRequestedBy")
   approvedPurchaseRequests  PurchaseRequest[] @relation("PurchaseRequestApprovedBy")
+  createdInboundReceipts InboundReceipt[] @relation("InboundReceiptCreatedBy")
+  postedInboundReceipts InboundReceipt[] @relation("InboundReceiptPostedBy")
+  inboundReceiptHistoryEntries InboundReceiptHistory[] @relation("InboundReceiptHistoryActor")
   createdOpeningStockDeclarations OpeningStockDeclaration[] @relation("OpeningStockCreatedBy")
   postedOpeningStockDeclarations  OpeningStockDeclaration[] @relation("OpeningStockPostedBy")
   notifications Notification[]
@@ -116,6 +141,7 @@ model Product {
   batches        Batch[]
   exportOrderItems ExportOrderItem[]
   purchaseRequestItems PurchaseRequestItem[]
+  inboundReceiptItems InboundReceiptItem[]
   openingStockItems OpeningStockItem[]
   productClassification ProductClassification @relation(fields: [productType], references: [id], onDelete: Restrict)
 
@@ -176,6 +202,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt @map("updated_at")
   batches     Batch[]
   purchaseRequests PurchaseRequest[]
+  inboundReceipts InboundReceipt[]
   openingStockItems OpeningStockItem[]
 
   @@map("suppliers")
@@ -201,6 +228,7 @@ model Batch {
   id               BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
   productId        BigInt      @map("product_id") @db.UnsignedBigInt
   supplierId       BigInt?     @map("supplier_id") @db.UnsignedBigInt
+  inboundReceiptItemId BigInt? @map("inbound_receipt_item_id") @db.UnsignedBigInt
   lotNo            String      @map("lot_no") @db.VarChar(100)
   invoiceNumber    String?     @map("invoice_number") @db.VarChar(100)
   invoiceDate      DateTime?   @map("invoice_date") @db.Date
@@ -218,11 +246,14 @@ model Batch {
   updatedAt        DateTime    @updatedAt @map("updated_at")
   product          Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
   supplier         Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  inboundReceiptItemSource InboundReceiptItem? @relation("InboundReceiptItemSourceBatch", fields: [inboundReceiptItemId], references: [id], onDelete: SetNull)
   batchDocuments   BatchDocument[]
   exportOrderItems ExportOrderItem[]
+  postedInboundReceiptItems InboundReceiptItem[] @relation("InboundReceiptPostedBatch")
   inventoryTransactions InventoryTransaction[]
 
   @@index([productId, status, expiryDate])
+  @@index([inboundReceiptItemId])
   @@map("batches")
 }
 
@@ -287,6 +318,7 @@ model InventoryTransaction {
   batchId            BigInt                  @map("batch_id") @db.UnsignedBigInt
   userId             BigInt                  @map("user_id") @db.UnsignedBigInt
   exportOrderItemId  BigInt?                 @map("export_order_item_id") @db.UnsignedBigInt
+  inboundReceiptItemId BigInt?               @map("inbound_receipt_item_id") @db.UnsignedBigInt
   type               InventoryTransactionType
   quantityBase       Decimal                 @map("quantity_base") @db.Decimal(15, 4)
   notes              String?                 @db.Text
@@ -296,7 +328,10 @@ model InventoryTransaction {
   batch              Batch                   @relation(fields: [batchId], references: [id], onDelete: Restrict)
   user               User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
   exportOrderItem    ExportOrderItem?        @relation(fields: [exportOrderItemId], references: [id], onDelete: SetNull)
+  inboundReceiptItemSource InboundReceiptItem? @relation("InboundReceiptItemSourceTransaction", fields: [inboundReceiptItemId], references: [id], onDelete: SetNull)
+  postedInboundReceiptItems InboundReceiptItem[] @relation("InboundReceiptPostedTransaction")
 
+  @@index([inboundReceiptItemId])
   @@map("inventory_transactions")
 }
 
@@ -323,6 +358,7 @@ model PurchaseRequest {
   supplier      Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   receivingLocation CatalogLocation? @relation("PurchaseRequestReceivingLocation", fields: [receivingLocationId], references: [id], onDelete: SetNull)
   items         PurchaseRequestItem[]
+  inboundReceipts InboundReceipt[]
 
   @@index([status])
   @@index([exportOrderId])
@@ -335,6 +371,7 @@ model PurchaseRequestItem {
   productId           BigInt           @map("product_id") @db.UnsignedBigInt
   exportOrderItemId   BigInt?          @map("export_order_item_id") @db.UnsignedBigInt
   quantityNeededBase  Decimal          @map("quantity_needed_base") @db.Decimal(15, 4)
+  receivedQtyBase     Decimal          @default(0) @map("received_qty_base") @db.Decimal(15, 4)
   unitDisplay         String           @map("unit_display") @db.VarChar(50)
   quantityDisplay     Decimal          @map("quantity_display") @db.Decimal(15, 4)
   unitPrice           Decimal          @default(0) @map("unit_price") @db.Decimal(15, 2)
@@ -344,6 +381,7 @@ model PurchaseRequestItem {
   purchaseRequest     PurchaseRequest  @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
   product             Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
   exportOrderItem     ExportOrderItem? @relation(fields: [exportOrderItemId], references: [id], onDelete: SetNull)
+  inboundReceiptItems InboundReceiptItem[]
 
   @@map("purchase_request_items")
 }
@@ -384,8 +422,114 @@ model CatalogLocation {
   updatedAt DateTime  @updatedAt @map("updated_at")
   openingStockItems OpeningStockItem[]
   purchaseRequests PurchaseRequest[] @relation("PurchaseRequestReceivingLocation")
+  inboundReceipts InboundReceipt[] @relation("InboundReceiptReceivingLocation")
 
   @@map("inventory_locations")
+}
+
+model InboundReceipt {
+  id                 BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  receiptRef         String                @unique @map("receipt_ref") @db.VarChar(100)
+  purchaseRequestId  BigInt?               @map("purchase_request_id") @db.UnsignedBigInt
+  supplierId         BigInt?               @map("supplier_id") @db.UnsignedBigInt
+  receivingLocationId BigInt?              @map("receiving_location_id") @db.UnsignedBigInt
+  status             InboundReceiptStatus  @default(draft)
+  expectedDate       DateTime?             @map("expected_date") @db.Date
+  receivedAt         DateTime?             @map("received_at")
+  qcCheckedAt        DateTime?             @map("qc_checked_at")
+  currentStep        Int                   @default(2) @map("current_step") @db.UnsignedTinyInt
+  createdBy          BigInt                @map("created_by") @db.UnsignedBigInt
+  postedBy           BigInt?               @map("posted_by") @db.UnsignedBigInt
+  notes              String?               @db.Text
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  purchaseRequest    PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  supplier           Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  receivingLocation  CatalogLocation?      @relation("InboundReceiptReceivingLocation", fields: [receivingLocationId], references: [id], onDelete: SetNull)
+  creator            User                  @relation("InboundReceiptCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  poster             User?                 @relation("InboundReceiptPostedBy", fields: [postedBy], references: [id], onDelete: SetNull)
+  items              InboundReceiptItem[]
+  historyEntries     InboundReceiptHistory[]
+
+  @@index([status])
+  @@index([purchaseRequestId])
+  @@index([supplierId])
+  @@index([receivingLocationId])
+  @@map("inbound_receipts")
+}
+
+model InboundReceiptItem {
+  id                    BigInt                     @id @default(autoincrement()) @db.UnsignedBigInt
+  inboundReceiptId      BigInt                     @map("inbound_receipt_id") @db.UnsignedBigInt
+  purchaseRequestItemId BigInt?                    @map("purchase_request_item_id") @db.UnsignedBigInt
+  productId             BigInt                     @map("product_id") @db.UnsignedBigInt
+  lotNo                 String                     @map("lot_no") @db.VarChar(100)
+  invoiceNumber         String?                    @map("invoice_number") @db.VarChar(100)
+  invoiceDate           DateTime?                  @map("invoice_date") @db.Date
+  manufactureDate       DateTime?                  @map("manufacture_date") @db.Date
+  expiryDate            DateTime?                  @map("expiry_date") @db.Date
+  quantityBase          Decimal                    @map("quantity_base") @db.Decimal(15, 4)
+  unitUsed              String                     @map("unit_used") @db.VarChar(50)
+  quantityDisplay       Decimal                    @map("quantity_display") @db.Decimal(15, 4)
+  unitPricePerKg        Decimal                    @default(0) @map("unit_price_per_kg") @db.Decimal(15, 2)
+  lineAmount            Decimal                    @default(0) @map("line_amount") @db.Decimal(18, 2)
+  qcStatus              InboundReceiptItemQcStatus @default(pending) @map("qc_status")
+  hasDocument           Boolean                    @default(false) @map("has_document")
+  postedBatchId         BigInt?                    @map("posted_batch_id") @db.UnsignedBigInt
+  postedTxId            BigInt?                    @map("posted_tx_id") @db.UnsignedBigInt
+  notes                 String?                    @db.Text
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+  inboundReceipt        InboundReceipt             @relation(fields: [inboundReceiptId], references: [id], onDelete: Cascade)
+  purchaseRequestItem   PurchaseRequestItem?       @relation(fields: [purchaseRequestItemId], references: [id], onDelete: SetNull)
+  product               Product                    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  postedBatch           Batch?                     @relation("InboundReceiptPostedBatch", fields: [postedBatchId], references: [id], onDelete: SetNull)
+  postedTransaction     InventoryTransaction?      @relation("InboundReceiptPostedTransaction", fields: [postedTxId], references: [id], onDelete: SetNull)
+  sourceBatch           Batch[]                    @relation("InboundReceiptItemSourceBatch")
+  sourceTransactions    InventoryTransaction[]     @relation("InboundReceiptItemSourceTransaction")
+  documents             InboundReceiptItemDocument[]
+
+  @@index([productId])
+  @@index([purchaseRequestItemId])
+  @@index([postedBatchId])
+  @@index([postedTxId])
+  @@index([expiryDate])
+  @@unique([inboundReceiptId, productId, lotNo])
+  @@map("inbound_receipt_items")
+}
+
+model InboundReceiptItemDocument {
+  id           BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  itemId       BigInt                    @map("item_id") @db.UnsignedBigInt
+  docType      InboundReceiptItemDocType @map("doc_type")
+  filePath     String                    @map("file_path") @db.VarChar(500)
+  originalName String                    @map("original_name") @db.VarChar(255)
+  mimeType     String                    @map("mime_type") @db.VarChar(100)
+  fileSize     BigInt                    @map("file_size") @db.UnsignedBigInt
+  uploadedBy   BigInt                    @map("uploaded_by") @db.UnsignedBigInt
+  createdAt    DateTime                  @default(now()) @map("created_at")
+  updatedAt    DateTime                  @updatedAt @map("updated_at")
+  item         InboundReceiptItem        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uploader     User                      @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([itemId])
+  @@map("inbound_receipt_item_documents")
+}
+
+model InboundReceiptHistory {
+  id               BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  inboundReceiptId BigInt          @map("inbound_receipt_id") @db.UnsignedBigInt
+  actionType       String          @map("action_type") @db.VarChar(100)
+  actionLabel      String          @map("action_label") @db.VarChar(255)
+  actorId          BigInt          @map("actor_id") @db.UnsignedBigInt
+  data             Json?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  inboundReceipt   InboundReceipt  @relation(fields: [inboundReceiptId], references: [id], onDelete: Cascade)
+  actor            User            @relation("InboundReceiptHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([inboundReceiptId])
+  @@index([createdAt])
+  @@map("inbound_receipt_history")
 }
 
 model OpeningStockDeclaration {

@@ -312,6 +312,194 @@ GHI CHÚ TRIỂN KHAI:
 - CRUD đầy đủ: GET (list, filter deleted_at IS NULL), POST, PUT/:id, DELETE/:id (soft)
 - Không có FK sang bảng khác (bảng tra cứu độc lập)
 ```
+
+---
+
+### PROMPT 4 — Database Phần 4: Phiếu nhập kho (Inbound)
+
+```
+Bổ sung module Phiếu nhập kho (Inbound Receipt) để tách rõ khỏi Purchase Request.
+
+MỤC TIÊU NGHIỆP VỤ:
+- Purchase Request là kế hoạch mua hàng.
+- Inbound Receipt là chứng từ nhận hàng thực tế.
+- Một Purchase Request có thể được nhận nhiều lần.
+- Mỗi lần nhận có thể nhận một phần hoặc toàn bộ số lượng.
+- Chỉ khi phiếu nhập kho được xác nhận/posted thì mới tạo Batch và InventoryTransaction type='import'.
+
+YÊU CẦU THIẾT KẾ:
+- Giữ chuẩn DECIMAL(15,4) cho số lượng, DECIMAL(15,2) cho đơn giá, DECIMAL(18,2) cho thành tiền.
+- Tách rõ header, item, documents, history.
+- Hỗ trợ lưu nháp nhiều bước cho wizard nhập kho.
+- Hỗ trợ truy vết từ Purchase Request → Inbound Receipt → Batch → InventoryTransaction.
+- Hỗ trợ partial receiving.
+
+━━━ 1. inbound_receipts (header phiếu nhập kho) ━━━
+- id
+- receipt_ref            string, unique  (auto-gen: NK-YYYY-XXXX)
+- purchase_request_id    FK → purchase_requests.id, nullable
+- supplier_id            FK → suppliers.id, nullable
+- receiving_location_id  FK → inventory_locations.id, nullable
+- status                 ENUM('draft','pending_qc','posted','cancelled') DEFAULT 'draft'
+- expected_date          date, nullable
+- received_at            datetime, nullable
+- qc_checked_at          datetime, nullable
+- created_by             FK → users.id
+- posted_by              FK → users.id, nullable
+- notes                  text, nullable
+- timestamps
+
+INDEX:
+- (status)
+- (purchase_request_id)
+- (supplier_id)
+- (receiving_location_id)
+
+Mục đích:
+- Là header của chứng từ nhập kho thực tế.
+- Dùng cho wizard nhiều bước: Step 1, Step 2, Step 3, Step 4.
+- Chỉ khi status = posted thì mới sinh dữ liệu kho thật.
+
+━━━ 2. inbound_receipt_items (chi tiết từng dòng hàng nhận thực tế) ━━━
+- id
+- inbound_receipt_id         FK → inbound_receipts.id
+- purchase_request_item_id   FK → purchase_request_items.id, nullable
+- product_id                 FK → products.id
+- lot_no                     string
+- invoice_number             string, nullable
+- invoice_date               date, nullable
+- manufacture_date           date, nullable
+- expiry_date                date, nullable
+- quantity_base              DECIMAL(15,4)
+- unit_used                  string
+- quantity_display           DECIMAL(15,4)
+- unit_price_per_kg          DECIMAL(15,2), default 0
+- line_amount                DECIMAL(18,2), default 0
+- qc_status                  ENUM('pending','passed','failed') DEFAULT 'pending'
+- has_document               boolean, default false
+- posted_batch_id            FK → batches.id, nullable
+- posted_tx_id               FK → inventory_transactions.id, nullable
+- notes                      text, nullable
+- timestamps
+
+UNIQUE KEY:
+- (inbound_receipt_id, product_id, lot_no)
+
+INDEX:
+- (product_id)
+- (purchase_request_item_id)
+- (posted_batch_id)
+- (posted_tx_id)
+- (expiry_date)
+
+Mục đích:
+- Lưu số lượng thực nhận, lot, NSX, HSD, đơn giá, thành tiền theo từng dòng nhập thực tế.
+- Tại thời điểm posted, mỗi dòng có thể sinh ra đúng 1 Batch và 1 InventoryTransaction import.
+
+━━━ 3. inbound_receipt_item_documents (tài liệu đính kèm theo dòng nhập) ━━━
+- id
+- item_id                   FK → inbound_receipt_items.id
+- doc_type                  ENUM('Invoice','COA','MSDS','Other')
+- file_path                 string
+- original_name             string
+- mime_type                 string
+- file_size                 unsignedBigInteger
+- uploaded_by               FK → users.id
+- created_at
+- updated_at
+
+INDEX:
+- (item_id)
+
+Mục đích:
+- Lưu chứng từ upload ở Step 3.
+- COA, Invoice, MSDS gắn với lần nhập thực tế.
+- Có thể copy/sync sang batch_documents hoặc product_documents tùy loại tài liệu và quy trình QC.
+
+━━━ 4. inbound_receipt_history (nhật ký thao tác phiếu nhập) ━━━
+- id
+- inbound_receipt_id        FK → inbound_receipts.id
+- action_type               string
+- action_label              string
+- actor_id                  FK → users.id
+- data                      JSON, nullable
+- created_at
+
+INDEX:
+- (inbound_receipt_id)
+- (created_at)
+
+Mục đích:
+- Ghi log các hành động: tạo phiếu, lưu nháp, cập nhật Step 1/2/3, upload tài liệu, posted, hủy phiếu.
+
+━━━ 5. Điều chỉnh bảng hiện có để hỗ trợ partial receiving ━━━
+
+purchase_requests:
+- status nên đổi thành ENUM('draft','submitted','approved','ordered','partially_received','received','cancelled')
+- Giữ received_at như hiện tại.
+- Mục tiêu: phân biệt rõ PO đã nhận một phần với PO đã nhận đủ.
+
+purchase_request_items:
+- thêm received_qty_base DECIMAL(15,4), default 0
+- công thức nghiệp vụ:
+  pending_qty_base = quantity_needed_base - received_qty_base
+
+inventory_transactions:
+- thêm inbound_receipt_item_id FK → inbound_receipt_items.id, nullable
+- giúp truy vết giao dịch import được tạo từ dòng inbound nào.
+
+batches:
+- thêm inbound_receipt_item_id FK → inbound_receipt_items.id, nullable
+- giúp truy vết batch thực tế được sinh từ dòng inbound nào.
+
+━━━ 6. Luồng xử lý chuẩn ━━━
+
+1. Người dùng chọn Purchase Request và tạo inbound_receipt ở trạng thái draft.
+2. Wizard Step 1-3 lưu lần lượt vào inbound_receipts, inbound_receipt_items, inbound_receipt_item_documents.
+3. Step 4 chỉ là bước rà soát và xác nhận.
+4. Khi người dùng xác nhận posted:
+   - kiểm tra dữ liệu lot, số lượng, chứng từ bắt buộc
+   - tạo Batch cho từng dòng inbound_receipt_items
+   - tạo InventoryTransaction(type='import') tương ứng
+   - cập nhật posted_batch_id, posted_tx_id
+   - cập nhật purchase_request_items.received_qty_base
+   - nếu nhận đủ toàn bộ thì purchase_requests.status = 'received'
+   - nếu mới nhận một phần thì purchase_requests.status = 'partially_received'
+
+━━━ 7. Quan hệ model bắt buộc ━━━
+
+InboundReceipt:
+- belongsTo(PurchaseRequest)
+- belongsTo(Supplier)
+- belongsTo(CatalogLocation) qua receiving_location_id
+- belongsTo(User) qua created_by
+- belongsTo(User) qua posted_by
+- hasMany(InboundReceiptItem)
+- hasMany(InboundReceiptHistory)
+
+InboundReceiptItem:
+- belongsTo(InboundReceipt)
+- belongsTo(PurchaseRequestItem)
+- belongsTo(Product)
+- belongsTo(Batch) qua posted_batch_id
+- belongsTo(InventoryTransaction) qua posted_tx_id
+- hasMany(InboundReceiptItemDocument)
+
+InboundReceiptItemDocument:
+- belongsTo(InboundReceiptItem)
+- belongsTo(User) qua uploaded_by
+
+InboundReceiptHistory:
+- belongsTo(InboundReceipt)
+- belongsTo(User) qua actor_id
+
+GHI CHÚ TRIỂN KHAI:
+- Không dùng Purchase Request làm chứng từ nhập kho cuối cùng nữa.
+- Purchase Request chỉ giữ vai trò yêu cầu mua và theo dõi trạng thái mua/nhận.
+- Batch chỉ được tạo khi inbound_receipt được posted.
+- Step 3 upload chứng từ phải gắn với inbound_receipt_items hoặc draft inbound tương ứng, không gắn trực tiếp vào Purchase Request.
+```
+
 ---
 
 ## CONTEXT BLOCK MASTER
@@ -335,7 +523,7 @@ STACK:
 • React: .tsx, useForm @inertiajs/react, Shadcn/UI
 • Tiếng Việt 100%: UI, comment, validation, flash
 
-── DATABASE (18 bảng) ──────────────────────────────────────────
+── DATABASE (23 bảng) ──────────────────────────────────────────
 users                  | role: admin/warehouse_staff/viewer
 products               | product_type FK → product_classifications.id | base_unit FK → product_units.id | SoftDeletes
 product_units          | đơn vị + quy đổi (hybrid catalog/ theo sản phẩm) | conversion_to_base DEC(15,4)
@@ -354,6 +542,11 @@ product_classifications | danh mục phân loại sản phẩm
 inventory_locations    | danh mục vị trí kho
 opening_stock_declarations | phiếu khai báo tồn kho đầu kỳ (draft/posted/cancelled)
 opening_stock_items    | chi tiết dòng khai báo tồn kho đầu kỳ
+opening_stock_item_documents | chứng từ đính kèm của tồn kho đầu kỳ
+inbound_receipts       | phiếu nhập kho thực tế | draft/pending_qc/posted/cancelled
+inbound_receipt_items  | chi tiết dòng nhập kho | lot, SL thực nhận, đơn giá, line amount
+inbound_receipt_item_documents | chứng từ nhập kho theo dòng | Invoice/COA/MSDS/Other
+inbound_receipt_history | nhật ký thao tác phiếu nhập kho
 
 ```
 
