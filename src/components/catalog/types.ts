@@ -10,6 +10,7 @@ export type MaterialRow = {
   category: string
   unit: string
   orderUnit: string
+  orderUnitConversionToBase?: number
   minStockLevel: number
   status: string
 }

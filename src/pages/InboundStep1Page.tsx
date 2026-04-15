@@ -13,8 +13,14 @@ import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundStep1State, InboundWizardState } from '../components/inbound/types'
 import { fetchBasics } from '../lib/catalogApi'
-import { fetchPurchaseRequestDetail, fetchPurchaseRequests } from '../lib/purchaseShortageApi'
+import {
+  fetchPurchaseRequestDetail,
+  fetchPurchaseRequestInboundDrilldown,
+  fetchPurchaseRequests,
+  type PurchaseRequestInboundDrilldownResponse,
+} from '../lib/purchaseShortageApi'
 import { formatDateValue, parseDateValue } from '../components/purchaseOrder/format'
+import { PurchaseOrderLineSummarySection } from '../components/purchaseOrder/PurchaseOrderLineSummarySection'
 import {
   createDraftReceipt,
   deleteDraftReceipt,
@@ -96,6 +102,11 @@ export function InboundStep1Page() {
   const [poLoading, setPoLoading] = useState(false)
   const [poError, setPoError] = useState<string | null>(null)
   const [showPoDialog, setShowPoDialog] = useState(false)
+  const [showPoDetailDialog, setShowPoDetailDialog] = useState(false)
+  const [selectedPoDetailRef, setSelectedPoDetailRef] = useState('')
+  const [poDetailLoading, setPoDetailLoading] = useState(false)
+  const [poDetailError, setPoDetailError] = useState<string | null>(null)
+  const [poDetailData, setPoDetailData] = useState<PurchaseRequestInboundDrilldownResponse | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<'draftCode' | 'poNumber' | 'supplierKeyword' | 'receivingWarehouseId' | 'expectedDate', string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [cancelDialogVisible, setCancelDialogVisible] = useState(false)
@@ -283,12 +294,31 @@ export function InboundStep1Page() {
 
   const poDialogRows = useMemo(
     () => filteredPoOptions.map((option) => ({
+      purchaseId: option.purchaseId ?? '',
       requestRef: option.value,
       supplierName: option.supplierName || '—',
       poConditionLabel: option.poConditionLabel || 'New',
     })),
     [filteredPoOptions],
   )
+
+  const openPoDetailDialog = async (purchaseId: string, requestRef: string) => {
+    if (!purchaseId) return
+    setSelectedPoDetailRef(requestRef)
+    setShowPoDetailDialog(true)
+    setPoDetailLoading(true)
+    setPoDetailError(null)
+    setPoDetailData(null)
+
+    try {
+      const detail = await fetchPurchaseRequestInboundDrilldown(purchaseId)
+      setPoDetailData(detail)
+    } catch (error) {
+      setPoDetailError(error instanceof Error ? error.message : 'Không thể tải chi tiết dòng PO.')
+    } finally {
+      setPoDetailLoading(false)
+    }
+  }
 
   const selectedPoOption = useMemo(
     () => poOptions.find((option) => option.value === poNumber) ?? null,
@@ -694,19 +724,48 @@ export function InboundStep1Page() {
           />
           <Column
             header="Thao tác"
-            body={(row: { requestRef: string }) => (
-              <Button
-                type="button"
-                label="Chọn"
-                className="btn btn-primary"
-                onClick={() => {
-                  setPoNumber(row.requestRef)
-                  setShowPoDialog(false)
-                }}
-              />
+            body={(row: { purchaseId: string; requestRef: string }) => (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  type="button"
+                  label="Xem chi tiết"
+                  className="btn btn-ghost"
+                  onClick={() => { void openPoDetailDialog(row.purchaseId, row.requestRef) }}
+                />
+                <Button
+                  type="button"
+                  label="Chọn"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setPoNumber(row.requestRef)
+                    setShowPoDialog(false)
+                  }}
+                />
+              </div>
             )}
           />
         </DataTable>
+      </Dialog>
+
+      <Dialog
+        header={selectedPoDetailRef ? `Chi tiết dòng PO - ${selectedPoDetailRef}` : 'Chi tiết dòng PO'}
+        visible={showPoDetailDialog}
+        onHide={() => setShowPoDetailDialog(false)}
+        style={{ width: 'min(1200px, 96vw)' }}
+        modal
+      >
+        {poDetailLoading ? <p className="po-field-success">Đang tải chi tiết dòng PO...</p> : null}
+        {poDetailError ? <p className="po-field-error">{poDetailError}</p> : null}
+        {poDetailData ? (
+          <PurchaseOrderLineSummarySection
+            data={poDetailData}
+            onOpenReceipt={() => undefined}
+            showHeader={false}
+            compact
+            showLegend={false}
+            allowOpenReceipt={false}
+          />
+        ) : null}
       </Dialog>
     </section>
   )

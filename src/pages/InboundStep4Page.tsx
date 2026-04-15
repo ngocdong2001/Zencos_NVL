@@ -10,6 +10,7 @@ import { WizardStepBar } from '../components/inbound/WizardStepBar'
 import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
+import { getInboundDraftDocumentFileUrl } from '../lib/inboundDraftDocApi'
 import {
   createInboundVoidRereceive,
   createDraftReceipt,
@@ -190,6 +191,7 @@ export function InboundStep4Page() {
         docType: doc.docType,
       })))
     : (step3?.files ?? [])
+  const previewDraftCode = (dbDetail?.receiptRef ?? step1.draftCode).trim()
 
   const totalAmount = dbDetail
     ? Math.round(dbDetail.items.reduce((sum, item) => sum + Number(item.lineAmount), 0))
@@ -415,7 +417,7 @@ export function InboundStep4Page() {
       toast.current?.show({
         severity: 'success',
         summary: 'Đã tạo phiếu điều chỉnh',
-        detail: `Đã tạo phiếu ${detail.receiptRef} theo hướng Void & re-receive.`,
+        detail: `Đã tạo phiếu ${detail.receiptRef} theo hướng Hủy & tạo phiếu điều chỉnh.`,
         life: 3200,
       })
 
@@ -516,6 +518,11 @@ export function InboundStep4Page() {
       case 'MSDS': return 'MSDS'
       default: return 'Others'
     }
+  }
+
+  function handlePreviewAttachment(docId?: string) {
+    if (!docId || !previewDraftCode) return
+    window.open(getInboundDraftDocumentFileUrl(previewDraftCode, docId), '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -646,21 +653,32 @@ export function InboundStep4Page() {
                           </div>
                           <div style={{ marginTop: 10 }}>
                             <div className="inbound-step4-qc-radio-group">
-                              {QC_STATUS_OPTIONS.map((option) => (
-                                <div key={option.value} className="inbound-step4-qc-radio-item">
+                              {QC_STATUS_OPTIONS.map((option) => {
+                                const isChecked = (qcStatuses[item.id] ?? item.qcStatus) === option.value
+                                return (
+                                <div
+                                  key={option.value}
+                                  className={`inbound-step4-qc-radio-item inbound-step4-qc-${option.value}${isChecked ? ' is-selected' : ''}`}
+                                >
                                   <RadioButton
+                                    className="inbound-step4-qc-radio-native"
                                     inputId={`qc-${item.id}-${option.value}`}
                                     name={`qc-${item.id}`}
                                     value={option.value}
-                                    checked={(qcStatuses[item.id] ?? item.qcStatus) === option.value}
+                                    checked={isChecked}
                                     onChange={(e) => {
                                       setQcStatuses((prev) => ({ ...prev, [item.id]: e.value as QcStatus }))
                                     }}
                                     disabled={isPosted}
                                   />
-                                  <label htmlFor={`qc-${item.id}-${option.value}`}>{option.label}</label>
+                                  <label htmlFor={`qc-${item.id}-${option.value}`} className="inbound-step4-qc-option-label">
+                                    <span className={`inbound-step4-qc-tickbox${isChecked ? ' is-checked' : ''}`} aria-hidden="true">
+                                      <i className="pi pi-check" />
+                                    </span>
+                                    <span>{option.label}</span>
+                                  </label>
                                 </div>
-                              ))}
+                              )})}
                             </div>
                           </div>
                         </div>
@@ -722,7 +740,14 @@ export function InboundStep4Page() {
                 ) : (
                   <div className="inbound-step4-files-grid">
                     {attachedFiles.map((f, idx) => (
-                      <div key={idx} className="inbound-step4-file-card">
+                      <button
+                        key={`${f.id ?? 'local'}-${idx}`}
+                        type="button"
+                        className="inbound-step4-file-card"
+                        onClick={() => handlePreviewAttachment(f.id)}
+                        disabled={!f.id || !previewDraftCode}
+                        title={f.id ? 'Nhấn để xem preview tài liệu' : 'Tài liệu chưa sẵn sàng để preview'}
+                      >
                         <div className="inbound-step4-file-icon-wrap">
                           <i className="pi pi-file-edit" />
                         </div>
@@ -733,7 +758,7 @@ export function InboundStep4Page() {
                             <span className="inbound-step4-file-size">{formatFileSize(f.size)}</span>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -795,12 +820,12 @@ export function InboundStep4Page() {
             type="button"
             className="btn btn-ghost inbound-step3-draft-btn"
             icon={adjustBusy ? 'pi pi-spin pi-spinner' : 'pi pi-replay'}
-            label={adjustBusy ? 'Đang tạo phiếu điều chỉnh...' : 'Void & re-receive'}
+            label={adjustBusy ? 'Đang tạo phiếu điều chỉnh...' : 'Hủy & tạo phiếu điều chỉnh'}
             disabled={!canCreateAdjustment || adjustBusy || posting || qcSaving}
             onClick={() => {
               confirmDialog({
-                message: 'Hệ thống sẽ tạo một phiếu điều chỉnh mới theo hướng Void & re-receive. Tiếp tục?',
-                header: 'Xác nhận Void & re-receive',
+                message: 'Hệ thống sẽ tạo một phiếu điều chỉnh mới theo hướng Hủy & tạo phiếu điều chỉnh. Tiếp tục?',
+                header: 'Xác nhận Hủy & tạo phiếu điều chỉnh',
                 icon: 'pi pi-exclamation-triangle',
                 acceptLabel: 'Tạo phiếu điều chỉnh',
                 rejectLabel: 'Hủy',

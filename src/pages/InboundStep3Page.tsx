@@ -28,6 +28,7 @@ import {
   validateInboundReceiptRefFormat,
   validateInboundReceiptRefUniqueness,
 } from '../lib/inboundApi'
+import { formatQuantity } from '../components/purchaseOrder/format'
 
 const DOC_TYPE_OPTIONS = [
   { label: 'Bản phân tích (COA)', value: 'COA' },
@@ -117,7 +118,7 @@ export function InboundStep3Page() {
   const priceUnitLabel = (step2.selectedPriceUnit || quantityUnitLabel).trim() || 'đơn vị tính giá'
   const priceUnitEquivalent = 
     quantity != null && quantity > 0 && quantityUnitLabel !== priceUnitLabel
-      ? (quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1)).toFixed(3)
+      ? (quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1))
       : null
   const selectedConversionToBaseRaw = step2.selectedUnitConversionToBase ?? 1
   const selectedConversionToBase = Number.isFinite(selectedConversionToBaseRaw) && selectedConversionToBaseRaw > 0
@@ -638,8 +639,8 @@ export function InboundStep3Page() {
                 <span className="inbound-step3-qty-readonly-value">
                   {quantity != null ? `${quantity.toLocaleString('vi-VN')} ${quantityUnitLabel}` : '—'}
                 </span>
-                {priceUnitEquivalent && (
-                  <p className="inbound-step3-qty-equiv">Tương đương: {priceUnitEquivalent} {priceUnitLabel}</p>
+                {priceUnitEquivalent != null && (
+                  <p className="inbound-step3-qty-equiv">Tương đương: {formatQuantity(priceUnitEquivalent)} {priceUnitLabel}</p>
                 )}
               </div>
 

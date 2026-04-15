@@ -12,7 +12,7 @@ import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
 import { fetchPurchaseRequestDetail, fetchPurchaseRequests } from '../lib/purchaseShortageApi'
-import { formatDateValue, parseDateValue } from '../components/purchaseOrder/format'
+import { formatDateValue, formatQuantity, parseDateValue } from '../components/purchaseOrder/format'
 import {
   createDraftReceipt,
   deleteDraftReceipt,
@@ -35,6 +35,7 @@ type PoMaterialOption = {
   code: string
   name: string
   unitDisplay: string
+  orderUnit: string
   priceUnit: string
   conversionToBase: number
   priceUnitConversionToBase: number
@@ -139,6 +140,7 @@ export function InboundStep2Page() {
         selectedUnitDisplay: selectedMaterial?.unitDisplay ?? '',
         selectedPriceUnit: selectedMaterial?.priceUnit ?? '',
         selectedUnitConversionToBase: selectedMaterial?.conversionToBase ?? 1,
+        selectedPriceUnitConversionToBase: selectedMaterial?.priceUnitConversionToBase ?? 1,
       },
     }
   }
@@ -252,21 +254,26 @@ export function InboundStep2Page() {
         const detail = await fetchPurchaseRequestDetail(matched.id)
         if (cancelled) return
         const options: PoMaterialOption[] = detail.items.map((item) => {
-          // Đơn vị đặt hàng từ PO: item.unitDisplay
-          // Đơn vị đơn giá từ DB: product.orderUnitRef.unitName
+          // quantityNeededBase là đơn vị cơ sở, nên số lượng thực nhập ở Step 2 dùng đơn vị cơ sở.
+          const baseUnit = item.product.baseUnitRef?.unitCodeName || item.product.baseUnitRef?.unitName || item.unitDisplay || ''
+          const orderUnitFromPo = item.unitDisplay || item.product.orderUnitRef?.unitCodeName || item.product.orderUnitRef?.unitName || baseUnit
           const orderUnit = item.product.orderUnitRef
-          const priceUnitName = orderUnit?.unitName || 'đơn vị'
-          const conversionFactor = Number(item.quantityDisplay) > 0
-            ? Number(item.quantityNeededBase) / Number(item.quantityDisplay)
+          const priceUnitName = orderUnit?.unitCodeName || orderUnit?.unitName || 'đơn vị'
+          // Vì quantity nhập theo đơn vị cơ sở nên hệ số quy đổi của quantity về base là 1.
+          const conversionFactor = 1
+          // Bắt buộc dùng hệ số quy đổi từ orderUnitRef.
+          const orderUnitPriceConversion = Number(orderUnit?.conversionToBase ?? 1)
+          const priceUnitConversionFactor = Number.isFinite(orderUnitPriceConversion) && orderUnitPriceConversion > 0
+            ? orderUnitPriceConversion
             : 1
-          const priceUnitConversionFactor = orderUnit?.conversionToBase || 1
           
           return {
             conversionToBase: conversionFactor,
             value: String(item.product.id),
             code: item.product.code,
             name: item.product.name,
-            unitDisplay: item.unitDisplay || '', // Đơn vị đặt hàng từ PO
+            unitDisplay: baseUnit,
+            orderUnit: orderUnitFromPo,
             priceUnit: priceUnitName, // Đơn vị đơn giá từ DB
             priceUnitConversionToBase: priceUnitConversionFactor,
             label: `${item.product.code} - ${item.product.name}`,
@@ -307,7 +314,8 @@ export function InboundStep2Page() {
     ? selectedConversionToBaseRaw
     : 1
   const selectedUnitLabel = (selectedMaterial?.unitDisplay || wizState.step2.selectedUnitDisplay || '').trim()
-  const orderUnitLabel = selectedUnitLabel || 'đơn vị đặt hàng'
+  const quantityUnitLabel = selectedUnitLabel || 'đơn vị cơ sở'
+  const orderUnitLabel = (selectedMaterial?.orderUnit || '').trim() || 'đơn vị đặt hàng'
   const priceUnitLabel = (selectedMaterial?.priceUnit || wizState.step2.selectedPriceUnit || '').trim() || 'đơn vị tính đơn giá'
 
   async function handleSaveDraft() {
@@ -494,7 +502,7 @@ export function InboundStep2Page() {
                 <p className="inbound-step2-info-sub">Mã NCC: {supplierCodeDisplay}</p>
               </div>
             </div>
-            <div className="inbound-step2-dvt-tag">ĐV đặt hàng: {orderUnitLabel} · ĐV đơn giá: {priceUnitLabel}</div>
+            <div className="inbound-step2-dvt-tag">ĐV cơ sở: {quantityUnitLabel} · ĐV đặt hàng: {orderUnitLabel} · ĐV đơn giá: {priceUnitLabel}</div>
           </div>
           {poSummaryLoading ? <p className="inbound-step2-info-sub">Đang tải dữ liệu PO...</p> : null}
           {poSummaryError ? <p className="inbound-step2-info-sub">{poSummaryError}</p> : null}
@@ -551,7 +559,7 @@ export function InboundStep2Page() {
                     {fieldErrors.unitPrice ? <small className="inbound-create-field-error">{fieldErrors.unitPrice}</small> : null}
                   </label>
                   <label className="inbound-step2-field">
-                    <span>Số lượng thực nhập ({orderUnitLabel}) <span className="inbound-field-required">*</span></span>
+                    <span>Số lượng thực nhập ({quantityUnitLabel}) <span className="inbound-field-required">*</span></span>
                     <div className="inbound-step2-qty-wrap">
                       <InputNumber
                         value={quantity}
@@ -565,12 +573,12 @@ export function InboundStep2Page() {
                         maxFractionDigits={3}
                         min={0}
                       />
-                      <span className="inbound-step2-qty-unit">{orderUnitLabel}</span>
+                      <span className="inbound-step2-qty-unit">{quantityUnitLabel}</span>
                     </div>
                     {fieldErrors.quantity ? <small className="inbound-create-field-error">{fieldErrors.quantity}</small> : null}
-                    {quantity != null && quantity > 0 && orderUnitLabel !== priceUnitLabel && (
+                    {quantity != null && quantity > 0 && quantityUnitLabel !== priceUnitLabel && (
                       <p className="inbound-step2-qty-equiv">
-                        Tương đương: {((quantity * selectedConversionToBase / (selectedMaterial?.priceUnitConversionToBase ?? 1))).toFixed(3)} {priceUnitLabel}
+                        Tương đương: {formatQuantity(quantity * selectedConversionToBase / (selectedMaterial?.priceUnitConversionToBase ?? 1))} {priceUnitLabel}
                       </p>
                     )}
                   </label>
@@ -680,7 +688,7 @@ export function InboundStep2Page() {
                 <div className="inbound-step2-guidance-item">
                   <p className="inbound-guidance-title">Đơn giá nhập / 1 {priceUnitLabel}:</p>
                   <p className="inbound-guidance-text">
-                    Số lượng nhập được ghi nhận theo đơn vị đặt hàng: {orderUnitLabel}.
+                    Số lượng nhập được ghi nhận theo đơn vị cơ sở: {quantityUnitLabel}.
                     Đơn giá được tính theo đơn vị đơn giá: {priceUnitLabel}.
                   </p>
                 </div>
@@ -688,8 +696,8 @@ export function InboundStep2Page() {
                 <div className="inbound-step2-guidance-item">
                   <p className="inbound-guidance-title">Tính Thành tiền:</p>
                   <p className="inbound-guidance-text">
-                    Thành tiền được tính tự động từ công thức: <br />
-                    <strong>Thành tiền = Số lượng ({orderUnitLabel}) × Đơn giá (VND/{priceUnitLabel})</strong>
+                    Thành tiền được tính tự động từ công thức quy đổi: <br />
+                    <strong>Thành tiền = Số lượng ({quantityUnitLabel}) / hệ số quy đổi {priceUnitLabel} → cơ sở × Đơn giá (VND/{priceUnitLabel})</strong>
                   </p>
                 </div>
                 <hr className="inbound-step2-guidance-divider" />
@@ -725,7 +733,7 @@ export function InboundStep2Page() {
                   />
                 </div>
                 <p className="inbound-step2-status-quote">
-                  "Hãy đảm bảo đúng đơn vị đặt hàng ({orderUnitLabel}) và đơn vị tính đơn giá ({priceUnitLabel}) trước khi sang bước tải lên chứng từ COA/MSDS."
+                  "Hãy đảm bảo đúng đơn vị cơ sở ({quantityUnitLabel}) và đơn vị tính đơn giá ({priceUnitLabel}) trước khi sang bước tải lên chứng từ COA/MSDS."
                 </p>
               </div>
             </aside>

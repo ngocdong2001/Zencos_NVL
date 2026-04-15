@@ -119,6 +119,8 @@ export function PurchaseOrderDetailScreen({
     materialName: '',
     quantity: 0,
     unit: '',
+    orderUnit: '',
+    orderUnitConversionToBase: 1,
     unitPrice: 0,
   })
   const [newQuantityInput, setNewQuantityInput] = useState('')
@@ -152,6 +154,20 @@ export function PurchaseOrderDetailScreen({
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : Number.NaN
   }
 
+  const resolveOrderUnitConversion = (line: PurchaseDraftLine) => {
+    const conversion = Number(line.orderUnitConversionToBase)
+    return Number.isFinite(conversion) && conversion > 0 ? conversion : 1
+  }
+
+  const calculateLineAmount = (line: Pick<PurchaseDraftLine, 'quantity' | 'unitPrice' | 'orderUnitConversionToBase'>) => {
+    const quantityBase = Number(line.quantity)
+    const unitPrice = Number(line.unitPrice)
+    const conversion = Number(line.orderUnitConversionToBase)
+    if (!Number.isFinite(quantityBase) || !Number.isFinite(unitPrice)) return 0
+    const safeConversion = Number.isFinite(conversion) && conversion > 0 ? conversion : 1
+    return (quantityBase / safeConversion) * unitPrice
+  }
+
   const focusNewRowControlByTabIndex = (tabIndex: number) => {
     const target = document.querySelector(`[tabindex="${tabIndex}"]`) as HTMLElement | null
     target?.focus()
@@ -164,6 +180,8 @@ export function PurchaseOrderDetailScreen({
       materialName: '',
       quantity: 0,
       unit: '',
+      orderUnit: '',
+      orderUnitConversionToBase: 1,
       unitPrice: 0,
     })
     setNewQuantityInput('')
@@ -239,6 +257,10 @@ export function PurchaseOrderDetailScreen({
       materialCode: product.code,
       materialName: product.materialName,
       unit: product.unit || line.unit,
+      orderUnit: product.orderUnit || line.orderUnit || product.unit || line.unit,
+      orderUnitConversionToBase: Number(product.orderUnitConversionToBase) > 0
+        ? Number(product.orderUnitConversionToBase)
+        : resolveOrderUnitConversion(line),
     })
   }
 
@@ -249,6 +271,10 @@ export function PurchaseOrderDetailScreen({
       materialCode: product.code,
       materialName: product.materialName,
       unit: product.unit || prev.unit,
+      orderUnit: product.orderUnit || prev.orderUnit || product.unit || prev.unit,
+      orderUnitConversionToBase: Number(product.orderUnitConversionToBase) > 0
+        ? Number(product.orderUnitConversionToBase)
+        : (prev.orderUnitConversionToBase > 0 ? prev.orderUnitConversionToBase : 1),
     }))
   }
 
@@ -261,6 +287,8 @@ export function PurchaseOrderDetailScreen({
     const materialCode = newLineDraft.materialCode.trim()
     const materialName = newLineDraft.materialName.trim()
     const unit = newLineDraft.unit.trim()
+    const orderUnit = (newLineDraft.orderUnit || newLineDraft.unit).trim()
+    const orderUnitConversionToBase = Number(newLineDraft.orderUnitConversionToBase)
     const quantity = parsePositiveQuantity(newQuantityInput)
     const unitPrice = parseNonNegativeAmount(newUnitPriceInput || '0')
 
@@ -269,8 +297,13 @@ export function PurchaseOrderDetailScreen({
       return
     }
 
-    if (!materialCode || !materialName || !unit || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
+    if (!materialCode || !materialName || !unit || !orderUnit || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
       setNewLineError('Vui lòng nhập đủ mã, tên, ĐVT và số liệu hợp lệ trước khi thêm dòng.')
+      return
+    }
+
+    if (!Number.isFinite(orderUnitConversionToBase) || orderUnitConversionToBase <= 0) {
+      setNewLineError('Đơn vị đặt hàng chưa có tỷ lệ quy đổi hợp lệ. Vui lòng kiểm tra lại danh mục đơn vị.')
       return
     }
 
@@ -280,6 +313,8 @@ export function PurchaseOrderDetailScreen({
       materialName,
       quantity,
       unit,
+      orderUnit,
+      orderUnitConversionToBase,
       unitPrice,
     })
     resetNewLineDraft()
@@ -348,7 +383,13 @@ export function PurchaseOrderDetailScreen({
         onChange={(event) => {
           const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.code ?? '')
           setRowProductLookupValues((prev) => ({ ...prev, [line.id]: nextValue }))
-          onUpdateDetailLine(line.id, { materialCode: nextValue, productId: '', unit: '' })
+          onUpdateDetailLine(line.id, {
+            materialCode: nextValue,
+            productId: '',
+            unit: '',
+            orderUnit: '',
+            orderUnitConversionToBase: 1,
+          })
         }}
         onSelect={(event) => {
           applyProductToExistingRow(line.id, line, event.value as ProductSuggestion)
@@ -381,7 +422,13 @@ export function PurchaseOrderDetailScreen({
         onChange={(event) => {
           const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.materialName ?? '')
           setRowProductNameLookupValues((prev) => ({ ...prev, [line.id]: nextValue }))
-          onUpdateDetailLine(line.id, { materialName: nextValue, productId: '', unit: '' })
+          onUpdateDetailLine(line.id, {
+            materialName: nextValue,
+            productId: '',
+            unit: '',
+            orderUnit: '',
+            orderUnitConversionToBase: 1,
+          })
         }}
         onSelect={(event) => {
           applyProductToExistingRow(line.id, line, event.value as ProductSuggestion)
@@ -642,6 +689,8 @@ export function PurchaseOrderDetailScreen({
                                 productId: '',
                                 materialCode: String(event.value ?? ''),
                                 unit: '',
+                                orderUnit: '',
+                                orderUnitConversionToBase: 1,
                               }))
                             }
                           }}
@@ -668,6 +717,7 @@ export function PurchaseOrderDetailScreen({
                 <Column
                   field="materialName"
                   header="Tên nguyên liệu"
+                  style={{ width: '280px' }}
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID ? (
                       <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
@@ -683,7 +733,14 @@ export function PurchaseOrderDetailScreen({
                           onChange={(event) => {
                             const nextValue = typeof event.value === 'string' ? event.value : String(event.value?.materialName ?? '')
                             setNewProductNameLookupValue(nextValue)
-                            setNewLineDraft((prev) => ({ ...prev, productId: '', materialName: nextValue, unit: '' }))
+                            setNewLineDraft((prev) => ({
+                              ...prev,
+                              productId: '',
+                              materialName: nextValue,
+                              unit: '',
+                              orderUnit: '',
+                              orderUnitConversionToBase: 1,
+                            }))
                           }}
                           onSelect={(event) => {
                             const selected = event.value as ProductSuggestion
@@ -751,7 +808,7 @@ export function PurchaseOrderDetailScreen({
                 />
                 <Column
                   field="unit"
-                  header="ĐVT"
+                  header="ĐVT cơ sở"
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID
                       ? <span tabIndex={-1}>{newLineDraft.unit || '---'}</span>
@@ -761,7 +818,7 @@ export function PurchaseOrderDetailScreen({
                 />
                 <Column
                   field="unitPrice"
-                  header="Đơn giá (VND)"
+                  header="Đơn giá / ĐVĐH (VND)"
                   align="right"
                   bodyClassName="cell-number"
                   body={(line: PurchaseDraftLine) => (
@@ -810,7 +867,7 @@ export function PurchaseOrderDetailScreen({
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID
                       ? <span className="num-r">---</span>
-                      : <span className="num-r purchase-line-total">{formatCurrency(line.quantity * line.unitPrice)}</span>
+                      : <span className="num-r purchase-line-total">{formatCurrency(calculateLineAmount(line))}</span>
                   )}
                   style={{ width: '160px' }}
                 />

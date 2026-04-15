@@ -250,6 +250,7 @@ router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req:
         include: {
           product: {
             include: {
+              baseUnitRef: { select: { id: true, unitName: true, unitCodeName: true } },
               orderUnitRef: { select: { id: true, unitName: true, unitCodeName: true, conversionToBase: true } },
             },
           },
@@ -374,20 +375,39 @@ router.get('/:id/inbound-drilldown', requireAuth, requirePermission('purchases.r
       receivedQtyBaseTotal,
       remainingQtyBaseTotal: Number(Math.max(0, orderedQtyBaseTotal - receivedQtyBaseTotal).toFixed(4)),
     },
-    poItems: pr.items.map((item) => ({
-      id: item.id.toString(),
-      product: {
-        id: item.product.id.toString(),
-        code: item.product.code,
-        name: item.product.name,
-      },
-      quantityNeededBase: Number(item.quantityNeededBase),
-      receivedQtyBase: Number(item.receivedQtyBase),
-      unitDisplay: item.unitDisplay,
-      quantityDisplay: Number(item.quantityDisplay),
-      unitPrice: Number(item.unitPrice),
-      notes: item.notes,
-    })),
+    poItems: pr.items.map((item) => {
+      const quantityNeededBase = Number(item.quantityNeededBase)
+      const receivedQtyBase = Number(item.receivedQtyBase)
+      const quantityNeededDisplay = Number(item.quantityDisplay)
+      const conversionToBase = quantityNeededDisplay > 0
+        ? quantityNeededBase / quantityNeededDisplay
+        : null
+      const receivedQtyDisplay = conversionToBase && conversionToBase > 0
+        ? Number((receivedQtyBase / conversionToBase).toFixed(4))
+        : 0
+      const remainingQtyBase = Math.max(0, quantityNeededBase - receivedQtyBase)
+      const remainingQtyDisplay = conversionToBase && conversionToBase > 0
+        ? Number((remainingQtyBase / conversionToBase).toFixed(4))
+        : 0
+
+      return {
+        id: item.id.toString(),
+        product: {
+          id: item.product.id.toString(),
+          code: item.product.code,
+          name: item.product.name,
+        },
+        quantityNeededBase,
+        receivedQtyBase,
+        unitDisplay: item.unitDisplay,
+        quantityDisplay: quantityNeededDisplay,
+        receivedQtyDisplay,
+        remainingQtyDisplay,
+        conversionToBase,
+        unitPrice: Number(item.unitPrice),
+        notes: item.notes,
+      }
+    }),
     receipts: pr.inboundReceipts.map((receipt) => {
       const quantityBaseTotal = Number(receipt.items.reduce((sum, item) => sum + Number(item.quantityBase), 0).toFixed(4))
       const totalAmount = Number(receipt.items.reduce((sum, item) => sum + Number(item.lineAmount), 0).toFixed(2))

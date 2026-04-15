@@ -225,6 +225,7 @@ router.get('/materials', async (req, res) => {
       p.order_unit,
       pou.unit_code_name AS order_unit_code,
       pou.unit_name AS order_unit_name,
+      pou.conversion_to_base AS order_unit_conversion_to_base,
       p.deleted_at
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
@@ -243,6 +244,7 @@ router.get('/materials', async (req, res) => {
     category: String(row.product_type_code ?? row.product_type ?? ''),
     unit: String(row.base_unit_code ?? row.base_unit_name ?? row.base_unit ?? ''),
     orderUnit: String(row.order_unit_code ?? row.order_unit_name ?? row.base_unit_code ?? row.base_unit_name ?? row.order_unit ?? row.base_unit ?? ''),
+    orderUnitConversionToBase: Number(row.order_unit_conversion_to_base ?? 1),
     minStockLevel: Number(row.min_stock_level ?? 0),
     status: toStatusLabel(row.deleted_at),
   }))

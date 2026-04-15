@@ -8,6 +8,7 @@ import { RadioButton } from 'primereact/radiobutton'
 import { formatQuantity } from './format'
 import type { PurchaseRequestInboundDrilldownResponse } from '../../lib/purchaseShortageApi'
 import { recalculatePurchaseRequestReceived } from '../../lib/purchaseShortageApi'
+import { PurchaseOrderLineSummarySection } from './PurchaseOrderLineSummarySection'
 import { STATUS_LABELS, type PoStatus } from './types'
 import {
   fetchInboundReceiptDetail,
@@ -93,7 +94,6 @@ function toInboundStatusLabel(status: string): string {
 }
 
 export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBack, onRecalculated }: Props) {
-  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
   const [recalcLoading, setRecalcLoading] = useState(false)
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null)
   const [receiptDialogVisible, setReceiptDialogVisible] = useState(false)
@@ -145,68 +145,6 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
     }
   }
 
-  const receiptDetailsByPoItemId = useMemo(() => {
-    if (!data) return new Map<string, Array<{
-      receiptId: string
-      receiptRef: string
-      receiptStatus: string
-      isSuperseded: boolean
-      createdAt: string
-      receivedAt?: string | null
-      lotNo: string
-      quantityBase: number
-      quantityDisplay: number
-      unitUsed: string
-      unitPricePerKg: number
-      lineAmount: number
-      invoiceNumber?: string | null
-      qcStatus: 'pending' | 'passed' | 'failed'
-    }>>()
-
-    const nextMap = new Map<string, Array<{
-      receiptId: string
-      receiptRef: string
-      receiptStatus: string
-      isSuperseded: boolean
-      createdAt: string
-      receivedAt?: string | null
-      lotNo: string
-      quantityBase: number
-      quantityDisplay: number
-      unitUsed: string
-      unitPricePerKg: number
-      lineAmount: number
-      invoiceNumber?: string | null
-      qcStatus: 'pending' | 'passed' | 'failed'
-    }>>()
-
-    for (const receipt of data.receipts) {
-      for (const item of receipt.items) {
-        if (!item.purchaseRequestItemId) continue
-        const current = nextMap.get(item.purchaseRequestItemId) ?? []
-        current.push({
-          receiptId: receipt.id,
-          receiptRef: receipt.receiptRef,
-          receiptStatus: receipt.status,
-          isSuperseded: !!receipt.adjustedByReceipt,
-          createdAt: receipt.createdAt,
-          receivedAt: receipt.receivedAt,
-          lotNo: item.lotNo,
-          quantityBase: item.quantityBase,
-          quantityDisplay: item.quantityDisplay,
-          unitUsed: item.unitUsed,
-          unitPricePerKg: item.unitPricePerKg,
-          lineAmount: item.lineAmount,
-          invoiceNumber: item.invoiceNumber,
-          qcStatus: item.qcStatus,
-        })
-        nextMap.set(item.purchaseRequestItemId, current)
-      }
-    }
-
-    return nextMap
-  }, [data])
-
   const materialRollups = useMemo(() => {
     if (!data) return []
 
@@ -236,58 +174,6 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
     })
   }, [data])
 
-  const renderPoItemSubDetails = (row: PurchaseRequestInboundDrilldownResponse['poItems'][number]) => {
-    const details = receiptDetailsByPoItemId.get(row.id) ?? []
-
-    if (details.length === 0) {
-      return <p className="purchase-side-note">Dòng PO này chưa phát sinh phiếu nhập nào.</p>
-    }
-
-    return (
-      <div className="po-drilldown-subdetails">
-        <div className="inbound-table-wrap data-grid-wrap">
-          <DataTable value={details} stripedRows className="inbound-table prime-catalog-table" emptyMessage="Chưa có chi tiết phiếu nhập.">
-            <Column
-              field="receiptRef"
-              header="Phiếu nhập"
-              style={{ width: '150px' }}
-              body={(detail) => (
-                <button
-                  type="button"
-                  className="inbound-code-btn"
-                  onClick={() => {
-                    void openReceiptDialog(detail.receiptId, detail.receiptRef)
-                  }}
-                >
-                  {detail.receiptRef}
-                </button>
-              )}
-            />
-            <Column
-              header="Trạng thái"
-              body={(detail) => (
-                detail.isSuperseded
-                  ? <span className="inbound-status-badge cancelled">Đã điều chỉnh</span>
-                  : <span className={`inbound-status-badge ${detail.receiptStatus === 'posted' ? 'done' : detail.receiptStatus === 'pending_qc' ? 'waiting_qc' : detail.receiptStatus}`}>
-                      {toInboundStatusLabel(detail.receiptStatus)}
-                    </span>
-              )}
-              style={{ width: '130px' }}
-            />
-            <Column header="Ngày tạo" body={(detail) => formatDateTime(detail.createdAt)} style={{ width: '150px' }} />
-            <Column header="Ngày posted" body={(detail) => formatDateTime(detail.receivedAt)} style={{ width: '150px' }} />
-            <Column field="lotNo" header="Số lô" style={{ width: '150px' }} />
-            <Column header="SL" body={(detail) => formatQuantity(detail.quantityBase)} style={{ width: '120px' }} />
-            <Column header="Đơn giá" body={(detail) => formatCurrency(detail.unitPricePerKg)} style={{ width: '120px' }} />
-            <Column header="Thành tiền" body={(detail) => formatCurrency(detail.lineAmount)} style={{ width: '130px' }} />
-            <Column header="QC" body={(detail) => detail.qcStatus === 'passed' ? 'Đạt' : detail.qcStatus === 'failed' ? 'Không đạt' : 'Chờ QC'} style={{ width: '100px' }} />
-            <Column header="Hóa đơn" body={(detail) => detail.invoiceNumber || '---'} style={{ width: '140px' }} />
-          </DataTable>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <>
       <section className="purchase-detail-shell po-drilldown-shell">
@@ -307,7 +193,7 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
               {data ? <span className={`purchase-detail-draft-tag po-status-badge ${toPoBadgeStatus(data.status)}`}>{STATUS_LABELS[toPoBadgeStatus(data.status)]}</span> : null}
             </div>
               {data ? (
-                <div className="purchase-detail-actions" style={{ marginTop: '6px' }}>
+                <div hidden="true" className="purchase-detail-actions" style={{ marginTop: '6px' }}>
                   <Button
                     type="button"
                     className="purchase-detail-action-btn"
@@ -360,72 +246,15 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
           <section className="purchase-detail-card po-drilldown-card">
             <h3><i className="pi pi-chart-bar" aria-hidden /> Tổng quan nhận hàng</h3>
             <div className="po-drilldown-summary-grid">
-              <article className="po-drilldown-summary-card">
-                <span>Tổng số phiếu nhập</span>
-                <strong>{data.summary.receiptCount}</strong>
-              </article>
-              <article className="po-drilldown-summary-card">
-                <span>Tổng số dòng PO</span>
-                <strong>{data.summary.lineCount}</strong>
-              </article>
-              <article className="po-drilldown-summary-card">
-                <span>SL đặt mua</span>
-                <strong>{formatQuantity(data.summary.orderedQtyBaseTotal)}</strong>
-              </article>
-              <article className="po-drilldown-summary-card">
-                <span>SL đã nhận</span>
-                <strong>{formatQuantity(data.summary.receivedQtyBaseTotal)}</strong>
-              </article>
-              <article className="po-drilldown-summary-card warning">
-                <span>SL còn lại</span>
-                <strong>{formatQuantity(data.summary.remainingQtyBaseTotal)}</strong>
-              </article>
+              <p><strong>Tổng số phiếu nhập:</strong> {data.summary.receiptCount}</p>
+              <p><strong>Tổng số dòng PO:</strong> {data.summary.lineCount}</p>
+              <p><strong>SL đặt mua:</strong> {formatQuantity(data.summary.orderedQtyBaseTotal)}</p>
+              <p><strong>SL đã nhận:</strong> {formatQuantity(data.summary.receivedQtyBaseTotal)}</p>
+              <p><strong>SL còn lại:</strong> <span className={data.summary.remainingQtyBaseTotal > 0 ? 'po-drilldown-remaining warning' : 'po-drilldown-remaining'}>{formatQuantity(data.summary.remainingQtyBaseTotal)}</span></p>
             </div>
           </section>
 
-          <section className="purchase-detail-card po-drilldown-card">
-            <h3><i className="pi pi-list" aria-hidden /> Tổng hợp theo dòng PO</h3>
-            <div className="po-table-wrap">
-              <DataTable
-                value={data.poItems}
-                dataKey="id"
-                expandedRows={expandedRows}
-                onRowToggle={(event) => setExpandedRows((event.data ?? {}) as Record<string, boolean>)}
-                rowExpansionTemplate={renderPoItemSubDetails}
-                stripedRows
-                className="po-table prime-catalog-table"
-                emptyMessage="PO chưa có dòng vật tư."
-              >
-                <Column expander style={{ width: '52px' }} />
-                <Column field="product.code" header="Mã NVL" style={{ width: '160px' }} />
-                <Column field="product.name" header="Tên nguyên vật liệu" />
-                <Column header="SL đặt" body={(row) => `${formatQuantity(row.quantityDisplay)} ${row.unitDisplay || ''}`} style={{ width: '140px' }} />
-                <Column header="SL base đặt" body={(row) => formatQuantity(row.quantityNeededBase)} style={{ width: '140px' }} />
-                <Column header="SL base đã nhận" body={(row) => formatQuantity(row.receivedQtyBase)} style={{ width: '160px' }} />
-                <Column
-                  header="Phát sinh nhận hàng"
-                  style={{ width: '180px' }}
-                  body={(row) => {
-                    const details = receiptDetailsByPoItemId.get(row.id) ?? []
-                    const activeDetails = details.filter((d) => d.receiptStatus !== 'cancelled' && !d.isSuperseded)
-                    const receiptCount = new Set(activeDetails.map((detail) => detail.receiptId)).size
-                    const lotCount = new Set(activeDetails.map((detail) => detail.lotNo)).size
-                    return (
-                      <div className="po-drilldown-audit-cell">
-                        <strong>{receiptCount} phiếu / {lotCount} lô</strong>
-                        <span>Mở rộng để xem chi tiết từng phiếu nhập</span>
-                      </div>
-                    )
-                  }}
-                />
-                <Column
-                  header="Còn lại"
-                  body={(row) => formatQuantity(Math.max(0, row.quantityNeededBase - row.receivedQtyBase))}
-                  style={{ width: '140px' }}
-                />
-              </DataTable>
-            </div>
-          </section>
+          <PurchaseOrderLineSummarySection data={data} onOpenReceipt={openReceiptDialog} />
 
           <section className="purchase-detail-card po-drilldown-card">
             <h3><i className="pi pi-box" aria-hidden /> Gom nhóm theo nguyên vật liệu</h3>

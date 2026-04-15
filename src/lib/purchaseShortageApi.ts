@@ -130,6 +130,11 @@ export type PurchaseRequestDetailResponse = {
       id: string
       code: string
       name: string
+      baseUnitRef?: {
+        id: string
+        unitName: string
+        unitCodeName?: string | null
+      } | null
       orderUnitRef?: {
         id: string
         unitName: string
@@ -192,6 +197,9 @@ export type PurchaseRequestInboundDrilldownResponse = {
     receivedQtyBase: number
     unitDisplay: string
     quantityDisplay: number
+    receivedQtyDisplay: number
+    remainingQtyDisplay: number
+    conversionToBase: number | null
     unitPrice: number
     notes?: string | null
   }>

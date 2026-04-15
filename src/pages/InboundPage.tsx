@@ -404,12 +404,6 @@ export function InboundPage() {
       const detail = await fetchInboundReceiptDetail(created.id)
       const wizardState = mapDetailToWizardState(detail)
       const routeByStep = getEditRouteByStep(detail.currentStep)
-
-      setRows((prev) => prev.map((row) => (
-        row.id === adjustDialogRow.id
-          ? { ...row, adjustedByReceiptId: created.id }
-          : row
-      )))
       setAdjustDialogRow(null)
 
       navigate(routeByStep, {

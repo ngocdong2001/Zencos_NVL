@@ -24,7 +24,7 @@ import {
   type ShortageStatus,
   type SupplierOption,
 } from '../components/purchaseOrder/types'
-import { fetchBasics } from '../lib/catalogApi'
+import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
 import {
   createPurchaseRequest,
   deletePurchaseRequest,
@@ -76,6 +76,19 @@ function normalizeText(value: string): string {
     .replaceAll('đ', 'd')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+}
+
+function normalizeOrderUnitConversion(value: number | null | undefined): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+}
+
+function calculatePurchaseLineAmount(line: Pick<PurchaseDraftLine, 'quantity' | 'unitPrice' | 'orderUnitConversionToBase'>): number {
+  const quantityBase = Number(line.quantity)
+  const unitPrice = Number(line.unitPrice)
+  if (!Number.isFinite(quantityBase) || !Number.isFinite(unitPrice)) return 0
+  const conversion = normalizeOrderUnitConversion(line.orderUnitConversionToBase)
+  return (quantityBase / conversion) * unitPrice
 }
 
 function toPoStatus(value: string | null | undefined): PoStatus {
@@ -437,7 +450,7 @@ export function PurchaseOrderPage() {
   )
 
   const detailSubtotal = useMemo(
-    () => detailLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0),
+    () => detailLines.reduce((sum, line) => sum + calculatePurchaseLineAmount(line), 0),
     [detailLines],
   )
 
@@ -603,13 +616,21 @@ export function PurchaseOrderPage() {
     }
   }
 
-  const handleEnterDetailFromQuick = () => {
+  const handleEnterDetailFromQuick = async () => {
     setQuickSubmitError(null)
     setQuickSubmitSuccess(null)
 
     if (selectedQuickItems.length === 0) {
       setQuickSubmitError('Vui lòng chọn ít nhất 1 nguyên liệu trước khi vào chi tiết phiếu PO.')
       return
+    }
+
+    let materialById = new Map<string, Awaited<ReturnType<typeof fetchMaterials>>[number]>()
+    try {
+      const materials = await fetchMaterials()
+      materialById = new Map(materials.map((material) => [material.id, material]))
+    } catch {
+      // Fallback: still allow entering detail with base assumptions if catalog lookup fails.
     }
 
     const nextErrors: Record<string, string> = {}
@@ -626,6 +647,8 @@ export function PurchaseOrderPage() {
         materialName: item.materialName,
         quantity: Number.isFinite(parsed) ? parsed : 0,
         unit: item.unit || 'base',
+        orderUnit: materialById.get(item.id)?.orderUnit || item.unit || 'base',
+        orderUnitConversionToBase: normalizeOrderUnitConversion(materialById.get(item.id)?.orderUnitConversionToBase),
         unitPrice: 0,
       }
     })
@@ -654,15 +677,30 @@ export function PurchaseOrderPage() {
 
     try {
       const detail = await fetchPurchaseRequestDetail(row.id)
-      const mappedLines: PurchaseDraftLine[] = detail.items.map((item) => ({
-        id: `item-${item.id}`,
-        productId: String(item.productId),
-        materialCode: item.product.code,
-        materialName: item.product.name,
-        quantity: Number(item.quantityDisplay),
-        unit: item.unitDisplay || 'base',
-        unitPrice: Number(item.unitPrice ?? 0),
-      }))
+      const mappedLines: PurchaseDraftLine[] = detail.items.map((item) => {
+        const quantityNeededBase = Number(item.quantityNeededBase)
+        const quantityDisplay = Number(item.quantityDisplay)
+        const snapshotConversion = quantityDisplay > 0
+          ? quantityNeededBase / quantityDisplay
+          : Number.NaN
+
+        return {
+          id: `item-${item.id}`,
+          productId: String(item.productId),
+          materialCode: item.product.code,
+          materialName: item.product.name,
+          quantity: quantityNeededBase,
+          unit: item.product.baseUnitRef?.unitCodeName || item.product.baseUnitRef?.unitName || 'base',
+          // Keep pricing unit from saved line snapshot to avoid historical drift when unit config changes.
+          orderUnit: item.unitDisplay || item.product.orderUnitRef?.unitCodeName || item.product.orderUnitRef?.unitName || 'base',
+          orderUnitConversionToBase: normalizeOrderUnitConversion(
+            Number.isFinite(snapshotConversion) && snapshotConversion > 0
+              ? snapshotConversion
+              : item.product.orderUnitRef?.conversionToBase,
+          ),
+          unitPrice: Number(item.unitPrice ?? 0),
+        }
+      })
 
       setDetailPurchaseId(detail.id)
       setDetailDraftRef(detail.requestRef)
@@ -799,8 +837,8 @@ export function PurchaseOrderPage() {
       .map((line) => ({
         productId: line.productId,
         quantityNeededBase: line.quantity,
-        unitDisplay: line.unit || 'base',
-        quantityDisplay: line.quantity,
+        unitDisplay: line.orderUnit || line.unit || 'base',
+        quantityDisplay: line.quantity / normalizeOrderUnitConversion(line.orderUnitConversionToBase),
         unitPrice: line.unitPrice,
       }))
 
@@ -1120,7 +1158,9 @@ export function PurchaseOrderPage() {
           quickSubmitSuccess={quickSubmitSuccess}
           quickNote={quickNote}
           onQuickNoteChange={setQuickNote}
-          onEnterDetailFromQuick={handleEnterDetailFromQuick}
+          onEnterDetailFromQuick={() => {
+            void handleEnterDetailFromQuick()
+          }}
           quickSaving={quickSaving}
           onQuickSaveDraft={() => {
             void handleQuickSaveDraft()

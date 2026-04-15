@@ -22,6 +22,8 @@ export type PurchaseDraftLine = {
   materialName: string
   quantity: number
   unit: string
+  orderUnit: string
+  orderUnitConversionToBase: number
   unitPrice: number
 }
 
@@ -71,6 +73,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     materialName: 'Chiết xuất Cam thảo (Licorice Extract)',
     quantity: 50,
     unit: 'kg',
+    orderUnit: 'kg',
+    orderUnitConversionToBase: 1,
     unitPrice: 450000,
   },
   {
@@ -80,6 +84,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     materialName: 'Glycerin tinh khiết 99.5%',
     quantity: 200,
     unit: 'kg',
+    orderUnit: 'kg',
+    orderUnitConversionToBase: 1,
     unitPrice: 35000,
   },
   {
@@ -89,6 +95,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     materialName: 'Propylene Glycol USP',
     quantity: 150,
     unit: 'kg',
+    orderUnit: 'kg',
+    orderUnitConversionToBase: 1,
     unitPrice: 42000,
   },
 ]

@@ -609,7 +609,7 @@ router.delete('/receipts/:id', async (req, res) => {
 
   const receipt = await prisma.inboundReceipt.findUnique({
     where: { id: BigInt(idRaw) },
-    select: { id: true, status: true, sourceReceiptId: true },
+    select: { id: true, status: true, sourceReceiptId: true, receiptRef: true },
   })
 
   if (!receipt) {
@@ -633,6 +633,8 @@ router.delete('/receipts/:id', async (req, res) => {
     },
   })
 
+  const actorId = await getFirstActiveUserId()
+
   await prisma.$transaction(async (tx) => {
     if (receipt.sourceReceiptId) {
       await tx.inboundReceipt.updateMany({
@@ -642,6 +644,19 @@ router.delete('/receipts/:id', async (req, res) => {
         },
         data: {
           adjustedByReceiptId: null,
+        },
+      })
+
+      await tx.inboundReceiptHistory.create({
+        data: {
+          inboundReceiptId: receipt.sourceReceiptId,
+          actionType: 'adjustment_deleted',
+          actionLabel: `Hủy phiếu điều chỉnh nháp ${receipt.receiptRef}`,
+          actorId,
+          data: {
+            adjustmentReceiptId: receipt.id.toString(),
+            adjustmentReceiptRef: receipt.receiptRef,
+          },
         },
       })
     }
@@ -1232,6 +1247,24 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
     return
   }
 
+  const existingAdjustment = await prisma.inboundReceipt.findFirst({
+    where: {
+      sourceReceiptId: sourceReceipt.id,
+    },
+    select: {
+      id: true,
+      receiptRef: true,
+      status: true,
+    },
+  })
+
+  if (existingAdjustment) {
+    res.status(409).json({
+      error: `Phiếu này đã có phiếu điều chỉnh ${existingAdjustment.receiptRef} (${existingAdjustment.status}).`,
+    })
+    return
+  }
+
   if (sourceReceipt.items.length === 0) {
     res.status(400).json({ error: 'Phiếu posted không có dòng dữ liệu để điều chỉnh.' })
     return
@@ -1283,13 +1316,6 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
         currentStep: 4,
         createdBy: actorId,
         notes: `Phiếu điều chỉnh theo hướng Void & re-receive từ ${sourceReceipt.receiptRef}`,
-      },
-    })
-
-    await tx.inboundReceipt.update({
-      where: { id: sourceReceipt.id },
-      data: {
-        adjustedByReceiptId: created.id,
       },
     })
 
@@ -1345,7 +1371,7 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
         {
           inboundReceiptId: sourceReceipt.id,
           actionType: 'adjustment_created',
-          actionLabel: `Tạo phiếu điều chỉnh ${created.receiptRef}`,
+          actionLabel: `Tạo phiếu điều chỉnh nháp ${created.receiptRef}`,
           actorId,
           data: {
             adjustmentReceiptId: created.id.toString(),
