@@ -5,11 +5,11 @@ import { Calendar } from 'primereact/calendar'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dropdown } from 'primereact/dropdown'
-import { InputText } from 'primereact/inputtext'
 import { Dialog } from 'primereact/dialog'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import type { InboundWizardState } from '../components/inbound/types'
 import {
+  createInboundVoidRereceive,
   fetchInboundReceiptDetail,
   fetchInboundReceiptHistory,
   fetchInboundReceipts,
@@ -26,11 +26,13 @@ type InboundStatus = 'done' | 'waiting_qc' | 'processing' | 'draft' | 'cancelled
 type InboundRow = {
   id: string
   code: string
+  sourceReceiptId: string | null
+  adjustedByReceiptId: string | null
   receivedDate: string
   createdAt: string
-  qcCheckedAt: string | null
-  postedAt: string | null
   supplier: string
+  materialName: string
+  lotNo: string
   lotCount: number
   quantityGram: number
   totalValue: number
@@ -97,17 +99,6 @@ function formatHistoryData(data: Record<string, unknown> | null): string {
     .join(' | ')
 }
 
-function formatDateRangeLabel(range: Date[] | null): string {
-  if (!range || !range[0] || !range[1]) return 'Chọn khoảng ngày'
-  const format = (date: Date) => {
-    const dd = String(date.getDate()).padStart(2, '0')
-    const mm = String(date.getMonth() + 1).padStart(2, '0')
-    const yyyy = String(date.getFullYear())
-    return `${dd}/${mm}/${yyyy}`
-  }
-  return `${format(range[0])} - ${format(range[1])}`
-}
-
 function getDefaultMonthDateRange(): Date[] {
   const now = new Date()
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -130,11 +121,13 @@ function mapInboundRowFromApi(row: InboundReceiptRowResponse): InboundRow {
   return {
     id: row.id,
     code: row.receiptRef,
+    sourceReceiptId: row.sourceReceiptId,
+    adjustedByReceiptId: row.adjustedByReceiptId,
     receivedDate,
     createdAt: row.createdAt,
-    qcCheckedAt: row.qcCheckedAt,
-    postedAt: row.receivedAt,
     supplier: row.supplierName,
+    materialName: row.materialName?.trim() ? row.materialName : '---',
+    lotNo: row.lotNo?.trim() ? row.lotNo : '---',
     lotCount: Number.isFinite(row.lotCount) ? row.lotCount : 0,
     quantityGram: Number.isFinite(row.quantityBaseTotal) ? row.quantityBaseTotal : 0,
     totalValue: Number.isFinite(row.totalValue) ? row.totalValue : 0,
@@ -153,6 +146,14 @@ function formatCurrency(value: number): string {
 
 function isEditLocked(row: InboundRow): boolean {
   return row.status === 'done' || row.status === 'cancelled'
+}
+
+function canCreateAdjustment(row: InboundRow): boolean {
+  return row.status === 'done' && !row.adjustedByReceiptId
+}
+
+function isVoidedByAdjustment(row: InboundRow): boolean {
+  return row.status === 'done' && Boolean(row.adjustedByReceiptId)
 }
 
 function getEditRouteByStep(step: number | undefined): '/inbound/new/step2' | '/inbound/new/step3' | '/inbound/new/step4' {
@@ -209,13 +210,14 @@ function mapDetailToWizardState(detail: InboundReceiptDetailResponse): InboundWi
 export function InboundPage() {
   const navigate = useNavigate()
   const { search } = useOutletContext<OutletContext>()
-  const [quickSearch, setQuickSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | InboundStatus>('all')
   const [rows, setRows] = useState<InboundRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [actionBusyId, setActionBusyId] = useState<string | null>(null)
   const [lockedMessage, setLockedMessage] = useState<string | null>(null)
+  const [adjustDialogRow, setAdjustDialogRow] = useState<InboundRow | null>(null)
+  const [adjustBusy, setAdjustBusy] = useState(false)
   const [selectedRows, setSelectedRows] = useState<InboundRow[]>([])
   const [historyVisible, setHistoryVisible] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -224,7 +226,11 @@ export function InboundPage() {
   const [historyReceiptCode, setHistoryReceiptCode] = useState<string>('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-  const [dateRange, setDateRange] = useState<Date[] | null>(getDefaultMonthDateRange())
+  const [sortField, setSortField] = useState<keyof InboundRow | null>('createdAt')
+  const [sortOrder, setSortOrder] = useState<1 | -1>(-1)
+  const defaultDateRange = getDefaultMonthDateRange()
+  const [fromDate, setFromDate] = useState<Date | null>(defaultDateRange[0])
+  const [toDate, setToDate] = useState<Date | null>(defaultDateRange[1])
 
   useEffect(() => {
     let cancelled = false
@@ -254,9 +260,8 @@ export function InboundPage() {
 
   const filteredRows = useMemo(() => {
     const globalQuery = normalizeLookup(search)
-    const localQuery = normalizeLookup(quickSearch)
-    const from = dateRange?.[0] ?? null
-    const to = dateRange?.[1] ?? null
+    const from = fromDate
+    const to = toDate
 
     return rows.filter((row) => {
       if (statusFilter !== 'all' && row.status !== statusFilter) return false
@@ -269,6 +274,8 @@ export function InboundPage() {
         [
           row.code,
           row.supplier,
+          row.materialName,
+          row.lotNo,
           row.assignee,
           INBOUND_STATUS_LABELS[row.status],
           String(row.lotCount),
@@ -278,10 +285,9 @@ export function InboundPage() {
       )
 
       if (globalQuery && !searchable.includes(globalQuery)) return false
-      if (localQuery && !searchable.includes(localQuery)) return false
       return true
     })
-  }, [dateRange, quickSearch, rows, search, statusFilter])
+  }, [fromDate, rows, search, statusFilter, toDate])
 
   const stats = useMemo(() => {
     const now = new Date()
@@ -303,17 +309,43 @@ export function InboundPage() {
     }
   }, [rows])
 
-  const totalRows = filteredRows.length
+  const sortedRows = useMemo(() => {
+    if (!sortField) return filteredRows
+
+    const sign = sortOrder === -1 ? -1 : 1
+    const rowsForSort = [...filteredRows]
+
+    rowsForSort.sort((a, b) => {
+      const av = a[sortField]
+      const bv = b[sortField]
+
+      if (sortField === 'receivedDate' || sortField === 'createdAt') {
+        const at = typeof av === 'string' ? new Date(av).getTime() : 0
+        const bt = typeof bv === 'string' ? new Date(bv).getTime() : 0
+        return (at - bt) * sign
+      }
+
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return (av - bv) * sign
+      }
+
+      const aText = String(av ?? '')
+      const bText = String(bv ?? '')
+      return aText.localeCompare(bText, 'vi') * sign
+    })
+
+    return rowsForSort
+  }, [filteredRows, sortField, sortOrder])
+
+  const totalRows = sortedRows.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const safePage = Math.min(page, totalPages)
   const start = totalRows === 0 ? 0 : (safePage - 1) * pageSize
-  const visibleRows = filteredRows.slice(start, start + pageSize)
+  const visibleRows = sortedRows.slice(start, start + pageSize)
   const rangeStart = totalRows === 0 ? 0 : start + 1
   const rangeEnd = totalRows === 0 ? 0 : Math.min(totalRows, start + pageSize)
   const selectedIdSet = new Set(selectedRows.map((row) => row.id))
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((row) => selectedIdSet.has(row.id))
-
-  const selectedCount = selectedRows.length
 
   const openInboundAction = async (_event: React.MouseEvent<HTMLElement>, row: InboundRow, mode: 'view' | 'edit') => {
     if (mode === 'edit' && isEditLocked(row)) {
@@ -363,6 +395,33 @@ export function InboundPage() {
     }
   }
 
+  const executeCreateAdjustment = async () => {
+    if (!adjustDialogRow || adjustBusy) return
+    setAdjustBusy(true)
+    setError(null)
+    try {
+      const created = await createInboundVoidRereceive(adjustDialogRow.id)
+      const detail = await fetchInboundReceiptDetail(created.id)
+      const wizardState = mapDetailToWizardState(detail)
+      const routeByStep = getEditRouteByStep(detail.currentStep)
+
+      setRows((prev) => prev.map((row) => (
+        row.id === adjustDialogRow.id
+          ? { ...row, adjustedByReceiptId: created.id }
+          : row
+      )))
+      setAdjustDialogRow(null)
+
+      navigate(routeByStep, {
+        state: { ...wizardState, currentStep: detail.currentStep, maxReachedStep: detail.currentStep },
+      })
+    } catch (apiError) {
+      setError(apiError instanceof Error ? apiError.message : 'Không thể tạo phiếu điều chỉnh từ phiếu đã posted.')
+    } finally {
+      setAdjustBusy(false)
+    }
+  }
+
   return (
     <section className="inbound-shell">
       <Dialog
@@ -383,6 +442,40 @@ export function InboundPage() {
           <i className="pi pi-exclamation-triangle" style={{ fontSize: '1.4rem', color: 'var(--orange-500)' }} />
           <span>{lockedMessage}</span>
         </div>
+      </Dialog>
+      <Dialog
+        visible={adjustDialogRow !== null}
+        onHide={() => {
+          if (adjustBusy) return
+          setAdjustDialogRow(null)
+        }}
+        header="Xác nhận Void & re-receive"
+        footer={(
+          <div className="flex align-items-center justify-content-end gap-2">
+            <Button
+              type="button"
+              label="Hủy"
+              className="btn btn-ghost"
+              disabled={adjustBusy}
+              onClick={() => setAdjustDialogRow(null)}
+            />
+            <Button
+              type="button"
+              label={adjustBusy ? 'Đang tạo...' : 'Tạo phiếu điều chỉnh'}
+              className="btn btn-primary"
+              disabled={adjustBusy}
+              onClick={() => {
+                void executeCreateAdjustment()
+              }}
+            />
+          </div>
+        )}
+        style={{ width: '520px' }}
+      >
+        <p>
+          Hệ thống sẽ tạo một phiếu điều chỉnh mới từ phiếu <strong>{adjustDialogRow?.code}</strong> theo hướng Void & re-receive.
+          Khi bạn posted phiếu điều chỉnh, hệ thống sẽ tự đảo batch cũ và tạo batch mới.
+        </p>
       </Dialog>
       <Dialog
         visible={historyVisible}
@@ -432,7 +525,6 @@ export function InboundPage() {
           <div>
             <p>Tổng phiếu nhập (Tháng)</p>
             <strong>{formatQuantity(stats.monthTotal)}</strong>
-            <span>Theo dữ liệu hiện tại</span>
           </div>
           <div className="inbound-stat-icon">
             <i className="pi pi-truck" />
@@ -443,7 +535,6 @@ export function InboundPage() {
           <div>
             <p>Phiếu chờ QC Kiểm định</p>
             <strong>{formatQuantity(stats.pendingQcCount)}</strong>
-            <span>Cần xử lý kiểm định</span>
           </div>
           <div className="inbound-stat-icon muted">
             <i className="pi pi-verified" />
@@ -454,7 +545,6 @@ export function InboundPage() {
           <div>
             <p>Phiếu Nháp / Chỉnh sửa</p>
             <strong>{formatQuantity(stats.draftCount)}</strong>
-            <span>Đang chờ hoàn tất chứng từ</span>
           </div>
           <div className="inbound-stat-icon muted">
             <i className="pi pi-pencil" />
@@ -463,58 +553,50 @@ export function InboundPage() {
       </section>
 
       <section className="inbound-table-card">
-        <div className="inbound-toolbar">
-          <span className="inbound-search-wrap">
-            <i className="pi pi-search" />
-            <InputText
-              value={quickSearch}
-              onChange={(event) => setQuickSearch(event.target.value)}
-              placeholder="Tìm kiếm nhanh..."
+        <div className="app-table-toolbar">
+          <label className="app-filter-control">
+            <i className="pi pi-filter" aria-hidden />
+            <Dropdown
+              value={statusFilter}
+              options={INBOUND_STATUS_OPTIONS}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(event) => setStatusFilter(event.value as 'all' | InboundStatus)}
             />
-          </span>
+            <i className="pi pi-angle-down" aria-hidden />
+          </label>
 
-          <Dropdown
-            value={statusFilter}
-            options={INBOUND_STATUS_OPTIONS}
-            optionLabel="label"
-            optionValue="value"
-            onChange={(event) => setStatusFilter(event.value as 'all' | InboundStatus)}
-            className="inbound-status-filter"
-          />
+          <div className="app-filter-control app-date-control">
+            <i className="pi pi-calendar" aria-hidden />
+            <span>Từ ngày</span>
+            <Calendar
+              value={fromDate}
+              onChange={(event) => {
+                setFromDate((event.value as Date | null) ?? null)
+                setPage(1)
+              }}
+              dateFormat="dd/mm/yy"
+              readOnlyInput
+              showIcon
+              aria-label="Từ ngày"
+            />
+          </div>
 
-          <Button type="button" className="btn btn-ghost btn-advanced" icon="pi pi-filter" label="Bộ lọc nâng cao" />
-
-          <Calendar
-            value={dateRange}
-            selectionMode="range"
-            onChange={(event) => {
-              setDateRange((event.value as Date[] | null) ?? null)
-              setPage(1)
-            }}
-            dateFormat="dd/mm/yy"
-            hideOnRangeSelection
-            readOnlyInput
-            showIcon
-            placeholder="Chọn khoảng ngày"
-            inputClassName="inbound-date-input"
-            className="inbound-date-picker"
-          />
-        </div>
-
-        <div className="inbound-selection-bar">
-          <span>Đã chọn {selectedCount} mục</span>
-          <Button type="button" text icon="pi pi-pencil" label="Chỉnh sửa" disabled={selectedCount === 0} />
-          <Button type="button" text icon="pi pi-trash" label="Xóa" disabled={selectedCount === 0} />
-          <span className="inbound-selection-time">
-            <i className="pi pi-clock" />
-            {loading
-              ? 'Đang tải dữ liệu...'
-              : actionBusyId
-                ? 'Đang tải chi tiết phiếu nhập kho...'
-                : error
-                  ? `Lỗi tải dữ liệu: ${error}`
-                  : 'Dữ liệu đã đồng bộ API'}
-          </span>
+          <div className="app-filter-control app-date-control">
+            <i className="pi pi-calendar" aria-hidden />
+            <span>Đến ngày</span>
+            <Calendar
+              value={toDate}
+              onChange={(event) => {
+                setToDate((event.value as Date | null) ?? null)
+                setPage(1)
+              }}
+              dateFormat="dd/mm/yy"
+              readOnlyInput
+              showIcon
+              aria-label="Đến ngày"
+            />
+          </div>
         </div>
 
         <div className="inbound-table-wrap data-grid-wrap">
@@ -523,6 +605,12 @@ export function InboundPage() {
             dataKey="id"
             className="inbound-table prime-catalog-table"
             loading={loading}
+            sortField={sortField ?? undefined}
+            sortOrder={sortOrder}
+            onSort={(event) => {
+              setSortField((event.sortField as keyof InboundRow | undefined) ?? null)
+              setSortOrder((event.sortOrder === 1 ? 1 : -1))
+            }}
             selectionMode="checkbox"
             selection={selectedRows}
             onSelectionChange={(event) => setSelectedRows((event.value ?? []) as InboundRow[])}
@@ -545,6 +633,8 @@ export function InboundPage() {
             <Column
               field="code"
               header="Mã phiếu nhập"
+              sortable
+              style={{ width: '11rem' }}
               body={(row: InboundRow) => (
                 <button
                   type="button"
@@ -561,40 +651,53 @@ export function InboundPage() {
             <Column
               field="receivedDate"
               header="Ngày nhập"
+              sortable
+              style={{ width: '8.5rem' }}
               body={(row: InboundRow) => formatDisplayDate(row.receivedDate)}
             />
-            <Column field="supplier" header="Nhà cung cấp" />
-            <Column field="lotCount" header="Số lô" />
+            <Column field="supplier" header="Nhà cung cấp" sortable style={{ width: '10rem' }} />
+            <Column
+              field="materialName"
+              header="Tên nguyên vật liệu"
+              sortable
+              style={{ width: '18rem' }}
+              headerClassName="inbound-material-col"
+              bodyClassName="inbound-material-col"
+            />
+            <Column field="lotNo" header="Mã lô" sortable style={{ width: '12rem' }} />
             <Column
               field="quantityGram"
               header="Số lượng (g)"
+              sortable
+              style={{ width: '8.5rem' }}
               body={(row: InboundRow) => <span className="inbound-number">{formatQuantity(row.quantityGram)}</span>}
             />
             <Column
               field="totalValue"
               header="Tổng giá trị (đ)"
+              sortable
+              style={{ width: '10rem' }}
               body={(row: InboundRow) => <span className="inbound-number">{formatCurrency(row.totalValue)}</span>}
             />
             <Column
               field="status"
               header="Trạng thái"
+              sortable
+              style={{ width: '9rem' }}
               body={(row: InboundRow) => (
-                <span className={`inbound-status-badge ${row.status}`}>{INBOUND_STATUS_LABELS[row.status]}</span>
-              )}
-            />
-            <Column
-              header="Lịch sử QC / Posted"
-              body={(row: InboundRow) => (
-                <div style={{ display: 'grid', gap: 2, minWidth: 190 }}>
-                  <span>Tạo phiếu: {formatDisplayDateTime(row.createdAt)}</span>
-                  <span>QC: {row.qcCheckedAt ? formatDisplayDateTime(row.qcCheckedAt) : '---'}</span>
-                  <span>Posted: {row.postedAt ? formatDisplayDateTime(row.postedAt) : '---'}</span>
-                </div>
+                <span className="inbound-status-cell">
+                  <span className={`inbound-status-badge ${row.status}`}>{INBOUND_STATUS_LABELS[row.status]}</span>
+                  {isVoidedByAdjustment(row) ? (
+                    <span className="inbound-adjusted-flag">Hủy</span>
+                  ) : null}
+                </span>
               )}
             />
             <Column
               field="assignee"
               header="Người thực hiện"
+              sortable
+              style={{ width: '10rem' }}
               body={(row: InboundRow) => {
                 const initials = row.assignee
                   .split(' ')
@@ -611,6 +714,9 @@ export function InboundPage() {
             />
             <Column
               header="Thao tác"
+              style={{ width: '10.5rem' }}
+              headerClassName="inbound-actions-col"
+              bodyClassName="inbound-actions-col"
               body={(row: InboundRow) => (
                 <span className="inbound-actions-cell">
                   <Button
@@ -643,6 +749,22 @@ export function InboundPage() {
                       void openHistoryDialog(row)
                     }}
                   />
+                  <Button
+                    type="button"
+                    icon="pi pi-sync"
+                    text
+                    className="icon-btn"
+                    tooltip={row.adjustedByReceiptId ? 'Phiếu đã có điều chỉnh' : 'Void & re-receive'}
+                    tooltipOptions={{ position: 'top' }}
+                    disabled={actionBusyId === row.id || !canCreateAdjustment(row)}
+                    onClick={() => {
+                      if (!canCreateAdjustment(row)) {
+                        setLockedMessage('Chỉ phiếu đã posted và chưa có điều chỉnh mới được phép Void & re-receive.')
+                        return
+                      }
+                      setAdjustDialogRow(row)
+                    }}
+                  />
                 </span>
               )}
             />
@@ -667,7 +789,6 @@ export function InboundPage() {
         />
       </section>
 
-      <p className="inbound-date-label-helper">{formatDateRangeLabel(dateRange)}</p>
     </section>
   )
 }

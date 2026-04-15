@@ -11,6 +11,7 @@ import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
 import {
+  createInboundVoidRereceive,
   createDraftReceipt,
   deleteDraftReceipt,
   fetchInboundReceiptDetail,
@@ -51,6 +52,12 @@ function formatQty(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value)
 }
 
+function getEditRouteByStep(step: number | undefined): '/inbound/new/step2' | '/inbound/new/step3' | '/inbound/new/step4' {
+  if (step === 3) return '/inbound/new/step3'
+  if (step === 4) return '/inbound/new/step4'
+  return '/inbound/new/step2'
+}
+
 export function InboundStep4Page() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -73,6 +80,7 @@ export function InboundStep4Page() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [draftCodeError, setDraftCodeError] = useState<string | null>(null)
+  const [adjustBusy, setAdjustBusy] = useState(false)
 
   const mapHistoryRows = (rows: InboundReceiptHistoryRowResponse[]): HistoryTimelineEvent[] => {
     return rows.map((row) => ({
@@ -145,6 +153,8 @@ export function InboundStep4Page() {
   const dbItems = dbDetail?.items ?? []
   const currentStatus = dbDetail?.status ?? wizState.receiptStatus ?? 'draft'
   const isPosted = currentStatus === 'posted'
+  const isCancelledByAdjustment = Boolean(dbDetail?.adjustedByReceipt)
+  const canCreateAdjustment = Boolean(wizState.receiptId) && isPosted && !isCancelledByAdjustment
   const statusMeta = getInboundStatusMeta(currentStatus)
   const quantity = dbFirstItem ? Number(dbFirstItem.quantityDisplay) : (step2.quantity ?? null)
   const quantityBase = dbFirstItem ? Number(dbFirstItem.quantityBase) : null
@@ -226,7 +236,7 @@ export function InboundStep4Page() {
         receivingLocationId: step1.receivingWarehouseId || undefined,
         expectedDate: step1.expectedDate || undefined,
         currentStep: 4 as const,
-        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity > 0
+        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity >= 0
           ? {
               productId: step2.selectedMaterialId,
               lotNo: step2.lotNo.trim(),
@@ -347,6 +357,83 @@ export function InboundStep4Page() {
     }
   }
 
+  async function handleCreateAdjustment() {
+    if (!canCreateAdjustment || !wizState.receiptId || adjustBusy) return
+
+    setAdjustBusy(true)
+    try {
+      const created = await createInboundVoidRereceive(wizState.receiptId)
+      const detail = await fetchInboundReceiptDetail(created.id)
+      const firstItem = detail.items[0]
+
+      const nextWizardState: InboundWizardState = {
+        receiptId: detail.id,
+        receiptStatus: detail.status,
+        currentStep: detail.currentStep,
+        step1: {
+          draftCode: detail.receiptRef,
+          supplierKeyword: detail.supplier?.name ?? step1.supplierKeyword,
+          poNumber: detail.purchaseRequest?.requestRef ?? step1.poNumber,
+          expectedDate: detail.expectedDate ?? step1.expectedDate,
+          receivingWarehouseId: detail.receivingLocation?.id ?? step1.receivingWarehouseId,
+          receivingWarehouseName: detail.receivingLocation?.name ?? step1.receivingWarehouseName,
+          transportType: step1.transportType,
+        },
+        step2: {
+          lotNo: firstItem?.lotNo ?? '',
+          unitPrice: firstItem?.unitPricePerKg ?? null,
+          quantity: firstItem ? Number(firstItem.quantityDisplay) : null,
+          invoiceNumber: firstItem?.invoiceNumber ?? '',
+          invoiceDate: firstItem?.invoiceDate ?? '',
+          mfgDate: firstItem?.manufactureDate ?? '',
+          expDate: firstItem?.expiryDate ?? '',
+          selectedMaterialId: firstItem?.product.id ?? '',
+          selectedMaterialCode: firstItem?.product.code ?? '',
+          selectedMaterialName: firstItem?.product.name ?? '',
+          selectedUnitDisplay: firstItem?.unitUsed ?? '',
+          selectedPriceUnit: firstItem?.product?.orderUnitRef?.unitName ?? '',
+          selectedUnitConversionToBase: firstItem && Number(firstItem.quantityDisplay) > 0
+            ? Number(firstItem.quantityBase) / Number(firstItem.quantityDisplay)
+            : 1,
+          selectedPriceUnitConversionToBase: firstItem?.product?.orderUnitRef?.conversionToBase ?? 1,
+        },
+        step3: {
+          files: detail.items.flatMap((item) =>
+            item.documents.map((doc) => ({
+              id: doc.id,
+              name: doc.originalName,
+              size: doc.fileSize,
+              docType: doc.docType,
+              mimeType: doc.mimeType,
+              createdAt: doc.createdAt,
+            })),
+          ),
+        },
+        maxReachedStep: detail.currentStep,
+      }
+
+      toast.current?.show({
+        severity: 'success',
+        summary: 'Đã tạo phiếu điều chỉnh',
+        detail: `Đã tạo phiếu ${detail.receiptRef} theo hướng Void & re-receive.`,
+        life: 3200,
+      })
+
+      navigate(getEditRouteByStep(detail.currentStep), {
+        state: { ...nextWizardState, maxReachedStep: detail.currentStep },
+      })
+    } catch (err) {
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Không thể tạo phiếu điều chỉnh',
+        detail: err instanceof Error ? err.message : 'Lỗi khi tạo phiếu điều chỉnh từ phiếu posted.',
+        life: 4500,
+      })
+    } finally {
+      setAdjustBusy(false)
+    }
+  }
+
   function handleConfirm() {
     if (isPosted) return
     if (!wizState.receiptId || !dbDetail) {
@@ -454,6 +541,7 @@ export function InboundStep4Page() {
         <WizardStepBar
           activeStep={4}
           maxReachedStep={wizState.maxReachedStep}
+          navigationLocked={isPosted}
           onNavigate={(s) => {
             if (s === 1) navigate('/inbound/new', { state: wizState })
             if (s === 2) navigate('/inbound/new/step2', { state: wizState })
@@ -478,6 +566,7 @@ export function InboundStep4Page() {
           </aside>
 
           <div className="inbound-step4-main">
+            {isCancelledByAdjustment ? <div className="inbound-step4-adjustment-watermark">Hủy do điều chỉnh</div> : null}
             <div className="inbound-step4-body">
               {/* ── Header Banner ── */}
               <div className="inbound-step4-banner">
@@ -640,7 +729,7 @@ export function InboundStep4Page() {
                         <div className="inbound-step4-file-info">
                           <p className="inbound-step4-file-name">{f.name}</p>
                           <div className="inbound-step4-file-meta">
-                            <span className="inbound-step4-file-type-badge">{getDocTypeLabelShort(f.docType)}</span>
+                            <span className={`doc-type-badge doc-type-${String(f.docType).toLowerCase()}`}>{getDocTypeLabelShort(f.docType)}</span>
                             <span className="inbound-step4-file-size">{formatFileSize(f.size)}</span>
                           </div>
                         </div>
@@ -672,10 +761,10 @@ export function InboundStep4Page() {
         <div className="inbound-create-footer-actions">
           <Button
             type="button"
-            severity="danger"
-            outlined
+            className="btn btn-ghost inbound-cancel-btn"
             icon="pi pi-trash"
             label="Hủy phiếu"
+            disabled={isPosted}
             onClick={() => setCancelDialogVisible(true)}
           />
           <Button
@@ -701,6 +790,26 @@ export function InboundStep4Page() {
             label="Lưu kết quả QC"
             disabled={isPosted || qcSaving || posting || confirmed}
             onClick={() => { void handleSaveQc() }}
+          />
+          <Button
+            type="button"
+            className="btn btn-ghost inbound-step3-draft-btn"
+            icon={adjustBusy ? 'pi pi-spin pi-spinner' : 'pi pi-replay'}
+            label={adjustBusy ? 'Đang tạo phiếu điều chỉnh...' : 'Void & re-receive'}
+            disabled={!canCreateAdjustment || adjustBusy || posting || qcSaving}
+            onClick={() => {
+              confirmDialog({
+                message: 'Hệ thống sẽ tạo một phiếu điều chỉnh mới theo hướng Void & re-receive. Tiếp tục?',
+                header: 'Xác nhận Void & re-receive',
+                icon: 'pi pi-exclamation-triangle',
+                acceptLabel: 'Tạo phiếu điều chỉnh',
+                rejectLabel: 'Hủy',
+                acceptClassName: 'btn btn-primary',
+                accept: () => {
+                  void handleCreateAdjustment()
+                },
+              })
+            }}
           />
           <Button
             type="button"

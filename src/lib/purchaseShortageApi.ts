@@ -153,11 +153,124 @@ export type PurchaseRequestHistoryResponse = {
   data: PurchaseRequestHistoryEvent[]
 }
 
+export type PurchaseRequestInboundDrilldownResponse = {
+  id: string
+  requestRef: string
+  status: PurchaseRequestStatus
+  expectedDate?: string | null
+  orderedAt?: string | null
+  receivedAt?: string | null
+  supplier?: {
+    id: string
+    code: string
+    name: string
+  } | null
+  receivingLocation?: {
+    id: string
+    code: string
+    name: string
+  } | null
+  requester?: {
+    id: string
+    fullName: string
+  } | null
+  summary: {
+    lineCount: number
+    receiptCount: number
+    orderedQtyBaseTotal: number
+    receivedQtyBaseTotal: number
+    remainingQtyBaseTotal: number
+  }
+  poItems: Array<{
+    id: string
+    product: {
+      id: string
+      code: string
+      name: string
+    }
+    quantityNeededBase: number
+    receivedQtyBase: number
+    unitDisplay: string
+    quantityDisplay: number
+    unitPrice: number
+    notes?: string | null
+  }>
+  receipts: Array<{
+    id: string
+    receiptRef: string
+    status: 'draft' | 'pending_qc' | 'posted' | 'cancelled'
+    currentStep: number
+    createdAt: string
+    expectedDate?: string | null
+    receivedAt?: string | null
+    qcCheckedAt?: string | null
+    sourceReceipt?: {
+      id: string
+      receiptRef: string
+    } | null
+    adjustedByReceipt?: {
+      id: string
+      receiptRef: string
+    } | null
+    supplier?: {
+      id: string
+      code: string
+      name: string
+    } | null
+    receivingLocation?: {
+      id: string
+      code: string
+      name: string
+    } | null
+    creator?: {
+      id: string
+      fullName: string
+    } | null
+    poster?: {
+      id: string
+      fullName: string
+    } | null
+    summary: {
+      itemCount: number
+      quantityBaseTotal: number
+      totalAmount: number
+    }
+    items: Array<{
+      id: string
+      purchaseRequestItemId: string | null
+      product: {
+        id: string
+        code: string
+        name: string
+      }
+      lotNo: string
+      quantityBase: number
+      quantityDisplay: number
+      unitUsed: string
+      unitPricePerKg: number
+      lineAmount: number
+      qcStatus: 'pending' | 'passed' | 'failed'
+      invoiceNumber?: string | null
+      invoiceDate?: string | null
+      manufactureDate?: string | null
+      expiryDate?: string | null
+      hasDocument: boolean
+      documents: Array<{
+        id: string
+        docType: 'Invoice' | 'COA' | 'MSDS' | 'Other'
+        originalName: string
+        createdAt: string
+      }>
+    }>
+  }>
+}
+
 export type PurchaseRequestStatus =
   | 'draft'
   | 'submitted'
   | 'approved'
   | 'ordered'
+  | 'partially_received'
   | 'received'
   | 'cancelled'
 
@@ -245,6 +358,14 @@ export async function fetchPurchaseRequestDetail(id: string): Promise<PurchaseRe
 
 export async function fetchPurchaseRequestHistory(id: string): Promise<PurchaseRequestHistoryResponse> {
   return http<PurchaseRequestHistoryResponse>(`/api/purchases/${id}/history`)
+}
+
+export async function fetchPurchaseRequestInboundDrilldown(id: string): Promise<PurchaseRequestInboundDrilldownResponse> {
+  return http<PurchaseRequestInboundDrilldownResponse>(`/api/purchases/${id}/inbound-drilldown`)
+}
+
+export async function recalculatePurchaseRequestReceived(id: string): Promise<{ success: boolean; message: string }> {
+  return http<{ success: boolean; message: string }>(`/api/purchases/${id}/recalculate-received`, { method: 'POST' })
 }
 
 export async function fetchPurchaseRequests(params?: {

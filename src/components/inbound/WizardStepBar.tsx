@@ -2,6 +2,7 @@ type Props = {
   activeStep: number
   maxReachedStep?: number
   onNavigate?: (stepId: number) => void
+  navigationLocked?: boolean
 }
 
 const STEPS = [
@@ -11,13 +12,13 @@ const STEPS = [
   { id: 4, title: 'Xác nhận' },
 ]
 
-export function WizardStepBar({ activeStep, maxReachedStep, onNavigate }: Props) {
+export function WizardStepBar({ activeStep, maxReachedStep, onNavigate, navigationLocked = false }: Props) {
   return (
     <div className="inbound-create-steps">
       {STEPS.map((step, index) => {
         const isActive = step.id === activeStep
         const isDone = step.id <= (maxReachedStep ?? activeStep - 1)
-        const isClickable = isDone && step.id !== activeStep && !!onNavigate
+        const isClickable = !navigationLocked && isDone && step.id !== activeStep && !!onNavigate
         const circleContent = isDone ? <i className="pi pi-check" /> : step.id
         const circleClass = `inbound-step-circle${isActive ? ' active' : ''}${isDone ? ' done' : ''}${isClickable ? ' clickable' : ''}`
         return (

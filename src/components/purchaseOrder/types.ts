@@ -1,8 +1,8 @@
 import type { PurchaseRequestRowResponse, PurchaseShortageRow, ShortageStatus } from '../../lib/purchaseShortageApi'
 
-export type PurchaseView = 'tabs' | 'detail'
+export type PurchaseView = 'tabs' | 'detail' | 'inbound-drilldown'
 export type PurchaseTab = 'shortage' | 'po-list'
-export type PoStatus = 'draft' | 'submitted' | 'approved' | 'ordered' | 'received' | 'cancelled'
+export type PoStatus = 'draft' | 'submitted' | 'approved' | 'ordered' | 'partially_received' | 'received' | 'cancelled'
 
 export type PurchaseOrderRow = {
   id: string
@@ -37,6 +37,7 @@ export const STATUS_LABELS: Record<PoStatus, string> = {
   submitted: 'Đã gửi',
   approved: 'Đã duyệt',
   ordered: 'Đã đặt',
+  partially_received: 'Nhận một phần',
   received: 'Đã nhận',
   cancelled: 'Đã hủy',
 }
@@ -57,6 +58,7 @@ export const PO_STATUS_OPTIONS: Array<{ label: string; value: 'all' | PoStatus }
   { label: 'Đã gửi', value: 'submitted' },
   { label: 'Đã duyệt', value: 'approved' },
   { label: 'Đã đặt', value: 'ordered' },
+  { label: 'Nhận một phần', value: 'partially_received' },
   { label: 'Đã nhận', value: 'received' },
   { label: 'Đã hủy', value: 'cancelled' },
 ]

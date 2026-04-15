@@ -5,6 +5,7 @@ import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dialog } from 'primereact/dialog'
 import { PurchaseOrderDetailScreen } from '../components/purchaseOrder/PurchaseOrderDetailScreen'
+import { PurchaseOrderInboundDrilldownScreen } from '../components/purchaseOrder/PurchaseOrderInboundDrilldownScreen'
 import { PurchaseOrderListScreen } from '../components/purchaseOrder/PurchaseOrderListScreen'
 import { PurchaseShortageScreen } from '../components/purchaseOrder/PurchaseShortageScreen'
 import { showDangerConfirm } from '../lib/confirm'
@@ -27,12 +28,14 @@ import { fetchBasics } from '../lib/catalogApi'
 import {
   createPurchaseRequest,
   deletePurchaseRequest,
+  fetchPurchaseRequestInboundDrilldown,
   fetchPurchaseRequestDetail,
   fetchPurchaseRequestHistory,
   fetchPurchaseRequests,
   fetchPurchaseShortages,
   recallPurchaseRequest,
   type PurchaseRequestDetailResponse,
+  type PurchaseRequestInboundDrilldownResponse,
   type PurchaseRequestHistoryEvent,
   submitPurchaseRequest,
   updatePurchaseRequestDraft,
@@ -80,6 +83,7 @@ function toPoStatus(value: string | null | undefined): PoStatus {
   if (value === 'submitted') return 'submitted'
   if (value === 'approved') return 'approved'
   if (value === 'ordered') return 'ordered'
+  if (value === 'partially_received') return 'partially_received'
   if (value === 'received') return 'received'
   if (value === 'cancelled') return 'cancelled'
   return 'draft'
@@ -90,6 +94,7 @@ const RECALL_BLOCKED_REASON: Record<PoStatus, string> = {
   submitted: '',
   approved: 'Phiếu đã được duyệt, không thể thu hồi. Liên hệ bộ phận thu mua để điều chỉnh.',
   ordered: 'Phiếu đã đặt hàng với nhà cung cấp, không thể thu hồi.',
+  partially_received: 'Phiếu đã nhận một phần hàng, không thể thu hồi.',
   received: 'Phiếu đã nhận hàng về kho, không thể thu hồi.',
   cancelled: 'Phiếu đã hủy, không thể thu hồi.',
 }
@@ -158,6 +163,9 @@ export function PurchaseOrderPage() {
   const [quickViewError, setQuickViewError] = useState<string | null>(null)
   const [quickViewDetail, setQuickViewDetail] = useState<PurchaseRequestDetailResponse | null>(null)
   const [quickViewOpeningDetail, setQuickViewOpeningDetail] = useState(false)
+  const [drilldownData, setDrilldownData] = useState<PurchaseRequestInboundDrilldownResponse | null>(null)
+  const [drilldownLoading, setDrilldownLoading] = useState(false)
+  const [drilldownError, setDrilldownError] = useState<string | null>(null)
 
   const loadDetailHistory = async (purchaseId: string) => {
     setDetailHistoryLoading(true)
@@ -729,6 +737,22 @@ export function PurchaseOrderPage() {
     }
   }
 
+  const openInboundDrilldown = async (purchaseId: string) => {
+    setDrilldownLoading(true)
+    setDrilldownError(null)
+    setActiveView('inbound-drilldown')
+
+    try {
+      const data = await fetchPurchaseRequestInboundDrilldown(purchaseId)
+      setDrilldownData(data)
+    } catch (error) {
+      setDrilldownData(null)
+      setDrilldownError(error instanceof Error ? error.message : 'Không thể tải dữ liệu drill-down phiếu nhập.')
+    } finally {
+      setDrilldownLoading(false)
+    }
+  }
+
   const handleDeletePoFromList = (row: PurchaseOrderRow) => {
     showDangerConfirm({
       header: 'Xác nhận xóa phiếu PO',
@@ -991,7 +1015,12 @@ export function PurchaseOrderPage() {
         detailStatusLabel={STATUS_LABELS[detailStatus]}
         detailCanRecallToDraft={detailStatus === 'submitted' && Boolean(detailPurchaseId)}
         detailCanDelete={detailStatus === 'draft' && Boolean(detailPurchaseId)}
+        detailCanOpenInboundDrilldown={Boolean(detailPurchaseId)}
         detailEditable={detailStatus === 'draft'}
+        onOpenInboundDrilldown={() => {
+          if (!detailPurchaseId) return
+          void openInboundDrilldown(detailPurchaseId)
+        }}
         detailSubmitError={detailSubmitError}
         detailSubmitSuccess={detailSubmitSuccess}
         detailLoading={detailLoading}
@@ -1016,6 +1045,18 @@ export function PurchaseOrderPage() {
         detailHistoryLoading={detailHistoryLoading}
         detailHistoryError={detailHistoryError}
       />
+    )
+  }
+
+  if (activeView === 'inbound-drilldown') {
+    return (
+      <PurchaseOrderInboundDrilldownScreen
+        data={drilldownData}
+        loading={drilldownLoading}
+        error={drilldownError}
+        onBack={() => setActiveView('tabs')}
+          onRecalculated={() => { if (drilldownData) void openInboundDrilldown(drilldownData.id) }}
+        />
     )
   }
 
@@ -1107,6 +1148,9 @@ export function PurchaseOrderPage() {
           poLoading={poLoading}
           onEditPo={(row) => {
             void handleEditPoFromList(row)
+          }}
+          onOpenInboundDrilldown={(row) => {
+            void openInboundDrilldown(row.id)
           }}
           onQuickViewPo={(row) => {
             void handleQuickViewPoFromList(row)

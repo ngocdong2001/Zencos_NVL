@@ -160,15 +160,15 @@ export function InboundStep2Page() {
     if (lotNo.trim()) filled++
     if (invoiceNumber.trim()) filled++
     if (invoiceDate.trim()) filled++
-    if (unitPrice !== null && unitPrice > 0) filled++
-    if (quantity !== null && quantity > 0) filled++
+    if (unitPrice !== null && unitPrice >= 0) filled++
+    if (quantity !== null && quantity >= 0) filled++
     if (mfgDate) filled++
     if (expDate) filled++
     return Math.round((filled / 8) * 100)
   }, [selectedMaterial, lotNo, invoiceNumber, invoiceDate, unitPrice, quantity, mfgDate, expDate])
 
   const lineAmount = useMemo(() => {
-    if (unitPrice === null || unitPrice <= 0 || quantity === null || quantity <= 0) return null
+    if (unitPrice === null || unitPrice < 0 || quantity === null || quantity < 0) return null
     const orderUnitConv = selectedMaterial?.conversionToBase ?? 1
     const priceUnitConv = selectedMaterial?.priceUnitConversionToBase ?? 1
     // Công thức: lineAmount = (quantity × orderUnitConversionToBase / priceUnitConversionToBase) × unitPrice
@@ -334,7 +334,7 @@ export function InboundStep2Page() {
         receivingLocationId: step1.receivingWarehouseId || undefined,
         expectedDate: step1.expectedDate || undefined,
         currentStep: 2 as const,
-        item: selectedMaterial && lotNo.trim() && quantity !== null && quantity > 0
+        item: selectedMaterial && lotNo.trim() && quantity !== null && quantity >= 0
           ? {
               productId: selectedMaterial.value,
               lotNo: lotNo.trim(),
@@ -395,8 +395,8 @@ export function InboundStep2Page() {
     if (!lotNo.trim()) errors.lotNo = 'Vui lòng nhập LOT NO.'
     if (!invoiceNumber.trim()) errors.invoiceNumber = 'Vui lòng nhập số hóa đơn.'
     if (!invoiceDate.trim()) errors.invoiceDate = 'Vui lòng chọn ngày hóa đơn.'
-    if (unitPrice == null || unitPrice <= 0) errors.unitPrice = 'Vui lòng nhập đơn giá hợp lệ lớn hơn 0.'
-    if (quantity == null || quantity <= 0) errors.quantity = 'Vui lòng nhập số lượng thực nhập hợp lệ lớn hơn 0.'
+    if (unitPrice == null || unitPrice < 0) errors.unitPrice = 'Vui lòng nhập đơn giá hợp lệ (không âm).'
+    if (quantity == null || quantity < 0) errors.quantity = 'Vui lòng nhập số lượng thực nhập hợp lệ (không âm).'
     if (!mfgDate.trim()) errors.mfgDate = 'Vui lòng chọn ngày sản xuất (MFG).'
     if (!expDate.trim()) errors.expDate = 'Vui lòng chọn hạn sử dụng (EXP).'
 
@@ -446,6 +446,7 @@ export function InboundStep2Page() {
         <WizardStepBar
           activeStep={2}
           maxReachedStep={maxReachedStep}
+          navigationLocked={isPosted}
           onNavigate={(s) => {
             const wiz = buildCurrentWiz()
             if (s === 1) navigate('/inbound/new', { state: wiz })
@@ -757,10 +758,10 @@ export function InboundStep2Page() {
           <div className="inbound-create-footer-actions">
             <Button
               type="button"
-              severity="danger"
-              outlined
+              className="btn btn-ghost inbound-cancel-btn"
               icon="pi pi-trash"
               label="Hủy phiếu"
+              disabled={isPosted}
               onClick={() => setCancelDialogVisible(true)}
             />
             <Button

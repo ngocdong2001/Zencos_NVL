@@ -22,6 +22,19 @@ function readDraftStep(step: unknown): 1 | 2 | 3 | 4 {
   return parseDraftStep(step) ?? 2
 }
 
+async function buildAdjustmentReceiptRef(sourceReceiptRef: string): Promise<string> {
+  const base = `${sourceReceiptRef}-ADJ`
+  for (let suffix = 1; suffix < 1000; suffix += 1) {
+    const candidate = suffix === 1 ? base : `${base}-${suffix}`
+    const existed = await prisma.inboundReceipt.findUnique({
+      where: { receiptRef: candidate },
+      select: { id: true },
+    })
+    if (!existed) return candidate
+  }
+  throw new Error('Không thể tạo mã phiếu điều chỉnh mới. Vui lòng thử lại.')
+}
+
 async function getFirstActiveUserId(): Promise<bigint> {
   const user = await prisma.user.findFirst({
     where: { isActive: true },
@@ -115,6 +128,11 @@ router.get('/receipts', async (req, res) => {
             lotNo: true,
             quantityBase: true,
             lineAmount: true,
+            product: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
@@ -127,6 +145,8 @@ router.get('/receipts', async (req, res) => {
     receiptRef: string
     status: string
     currentStep: number
+    sourceReceiptId: bigint | null
+    adjustedByReceiptId: bigint | null
     expectedDate: Date | null
     qcCheckedAt: Date | null
     receivedAt: Date | null
@@ -135,7 +155,12 @@ router.get('/receipts', async (req, res) => {
     supplier: { code: string; name: string } | null
     creator: { fullName: string }
     poster: { fullName: string } | null
-    items: Array<{ lotNo: string; quantityBase: unknown; lineAmount: unknown }>
+    items: Array<{
+      lotNo: string
+      quantityBase: unknown
+      lineAmount: unknown
+      product: { name: string } | null
+    }>
   }) => {
     const quantityBaseTotal = Number(
       row.items
@@ -149,13 +174,21 @@ router.get('/receipts', async (req, res) => {
         .toFixed(0),
     )
 
+    const firstItem = row.items[0]
+    const materialName = firstItem?.product?.name?.trim() || '---'
+    const lotNo = firstItem?.lotNo?.trim() || '---'
+
     return {
       id: row.id.toString(),
       receiptRef: row.receiptRef,
       status: row.status,
       currentStep: readDraftStep(row.currentStep),
+      sourceReceiptId: row.sourceReceiptId ? row.sourceReceiptId.toString() : null,
+      adjustedByReceiptId: row.adjustedByReceiptId ? row.adjustedByReceiptId.toString() : null,
       supplierName: row.supplier?.name ?? '---',
       supplierCode: row.supplier?.code ?? null,
+      materialName,
+      lotNo,
       lotCount: row.items.length,
       quantityBaseTotal,
       totalValue,
@@ -198,6 +231,20 @@ router.get('/receipts/:id', async (req, res) => {
       receivingLocation: { select: { id: true, code: true, name: true } },
       creator: { select: { id: true, fullName: true } },
       poster: { select: { id: true, fullName: true } },
+      sourceReceipt: {
+        select: {
+          id: true,
+          receiptRef: true,
+          status: true,
+        },
+      },
+      adjustedByReceipt: {
+        select: {
+          id: true,
+          receiptRef: true,
+          status: true,
+        },
+      },
       items: {
         orderBy: { id: 'asc' },
         include: {
@@ -242,6 +289,20 @@ router.get('/receipts/:id', async (req, res) => {
     receiptRef: receipt.receiptRef,
     status: receipt.status,
     currentStep: readDraftStep(receipt.currentStep),
+    sourceReceipt: receipt.sourceReceipt
+      ? {
+        id: receipt.sourceReceipt.id.toString(),
+        receiptRef: receipt.sourceReceipt.receiptRef,
+        status: receipt.sourceReceipt.status,
+      }
+      : null,
+    adjustedByReceipt: receipt.adjustedByReceipt
+      ? {
+        id: receipt.adjustedByReceipt.id.toString(),
+        receiptRef: receipt.adjustedByReceipt.receiptRef,
+        status: receipt.adjustedByReceipt.status,
+      }
+      : null,
     expectedDate: receipt.expectedDate ? receipt.expectedDate.toISOString().slice(0, 10) : null,
     receivedAt: receipt.receivedAt ? receipt.receivedAt.toISOString() : null,
     qcCheckedAt: receipt.qcCheckedAt ? receipt.qcCheckedAt.toISOString() : null,
@@ -393,7 +454,7 @@ async function upsertDraftItem(
   const productIdStr = String(item.productId ?? '').trim()
   const lotNo = String(item.lotNo ?? '').trim()
   const quantityBase = Number(item.quantityBase)
-  if (!productIdStr || !/^\d+$/.test(productIdStr) || !lotNo || !Number.isFinite(quantityBase) || quantityBase <= 0) return
+  if (!productIdStr || !/^\d+$/.test(productIdStr) || !lotNo || !Number.isFinite(quantityBase) || quantityBase < 0) return
 
   const quantityDisplay = Number.isFinite(Number(item.quantityDisplay)) ? Number(item.quantityDisplay) : quantityBase
   const unitUsed = String(item.unitUsed ?? 'kg').trim() || 'kg'
@@ -403,6 +464,22 @@ async function upsertDraftItem(
   const expiryDate = typeof item.expiryDate === 'string' ? parseYmdDate(item.expiryDate) : null
   const invoiceNumber = typeof item.invoiceNumber === 'string' && item.invoiceNumber.trim() ? item.invoiceNumber.trim() : null
   const productId = BigInt(productIdStr)
+  const receipt = await prisma.inboundReceipt.findUnique({
+    where: { id: receiptId },
+    select: { purchaseRequestId: true },
+  })
+
+  const purchaseRequestItem = receipt?.purchaseRequestId
+    ? await prisma.purchaseRequestItem.findFirst({
+      where: {
+        purchaseRequestId: receipt.purchaseRequestId,
+        productId,
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    })
+    : null
+  const purchaseRequestItemId = purchaseRequestItem?.id ?? null
 
   // Tính lineAmount tại backend: (quantityBase / priceUnitConversionToBase) × unitPricePerKg
   // priceUnitConversionToBase = product.orderUnitRef.conversionToBase
@@ -425,6 +502,7 @@ async function upsertDraftItem(
     await prisma.inboundReceiptItem.update({
       where: { id: existing.id },
       data: {
+        purchaseRequestItemId,
         productId,
         lotNo,
         quantityBase,
@@ -444,6 +522,7 @@ async function upsertDraftItem(
   await prisma.inboundReceiptItem.create({
     data: {
       inboundReceiptId: receiptId,
+      purchaseRequestItemId,
       productId,
       lotNo,
       quantityBase,
@@ -530,7 +609,7 @@ router.delete('/receipts/:id', async (req, res) => {
 
   const receipt = await prisma.inboundReceipt.findUnique({
     where: { id: BigInt(idRaw) },
-    select: { id: true, status: true },
+    select: { id: true, status: true, sourceReceiptId: true },
   })
 
   if (!receipt) {
@@ -554,7 +633,21 @@ router.delete('/receipts/:id', async (req, res) => {
     },
   })
 
-  await prisma.inboundReceipt.delete({ where: { id: receipt.id } })
+  await prisma.$transaction(async (tx) => {
+    if (receipt.sourceReceiptId) {
+      await tx.inboundReceipt.updateMany({
+        where: {
+          id: receipt.sourceReceiptId,
+          adjustedByReceiptId: receipt.id,
+        },
+        data: {
+          adjustedByReceiptId: null,
+        },
+      })
+    }
+
+    await tx.inboundReceipt.delete({ where: { id: receipt.id } })
+  })
 
   await Promise.all(
     docs.map(async (doc) => {
@@ -811,27 +904,137 @@ router.post('/receipts/:id/post', async (req, res) => {
     return
   }
 
-  if (receipt.items.length === 0) {
+  const isAdjustment = Boolean(receipt.sourceReceiptId)
+
+  if (receipt.items.length === 0 && !isAdjustment) {
     res.status(400).json({ error: 'Phiếu chưa có dòng hàng nhập. Vui lòng bổ sung dữ liệu trước khi posted.' })
     return
   }
 
-  const failedItems = receipt.items.filter((item) => item.qcStatus !== 'passed')
-  if (failedItems.length > 0) {
-    res.status(400).json({ error: 'Chưa thể posted. Tất cả dòng phải có kết quả QC đạt (passed).' })
-    return
-  }
+  // Chỉ bắt buộc QC + chứng từ cho phiếu thường, hoặc phiếu điều chỉnh còn dòng hàng
+  if (receipt.items.length > 0) {
+    const failedItems = receipt.items.filter((item) => item.qcStatus !== 'passed')
+    if (failedItems.length > 0) {
+      res.status(400).json({ error: 'Chưa thể posted. Tất cả dòng phải có kết quả QC đạt (passed).' })
+      return
+    }
 
-  const missingDocs = receipt.items.filter((item) => !item.hasDocument || item.documents.length === 0)
-  if (missingDocs.length > 0) {
-    res.status(400).json({ error: 'Chưa thể posted. Một số dòng chưa có chứng từ bắt buộc.' })
-    return
+    const missingDocs = receipt.items.filter((item) => !item.hasDocument || item.documents.length === 0)
+    if (missingDocs.length > 0) {
+      res.status(400).json({ error: 'Chưa thể posted. Một số dòng chưa có chứng từ bắt buộc.' })
+      return
+    }
   }
 
   const actorId = await getFirstActiveUserId()
   const postedAt = new Date()
 
   await prisma.$transaction(async (tx) => {
+    const touchedPurchaseRequestIds = new Set<string>()
+    const touchedPurchaseRequestItemIds = new Set<string>()
+
+    if (receipt.sourceReceiptId) {
+      const sourceReceipt = await tx.inboundReceipt.findUnique({
+        where: { id: receipt.sourceReceiptId },
+        include: {
+          items: {
+            orderBy: { id: 'asc' },
+            select: {
+              id: true,
+              lotNo: true,
+              purchaseRequestItemId: true,
+              quantityBase: true,
+              postedBatchId: true,
+            },
+          },
+        },
+      })
+
+      if (!sourceReceipt) {
+        throw new Error('Không tìm thấy phiếu gốc để thực hiện void & re-receive.')
+      }
+
+      if (sourceReceipt.status !== 'posted') {
+        throw new Error('Phiếu gốc chưa ở trạng thái posted, không thể thực hiện void & re-receive.')
+      }
+
+      if (sourceReceipt.adjustedByReceiptId && sourceReceipt.adjustedByReceiptId !== receipt.id) {
+        throw new Error('Phiếu gốc đã có một phiếu điều chỉnh khác.')
+      }
+
+      if (sourceReceipt.purchaseRequestId) {
+        touchedPurchaseRequestIds.add(sourceReceipt.purchaseRequestId.toString())
+      }
+
+      for (const sourceItem of sourceReceipt.items) {
+        if (!sourceItem.postedBatchId) continue
+
+        const sourceBatch = await tx.batch.findUnique({
+          where: { id: sourceItem.postedBatchId },
+          select: { id: true, currentQtyBase: true },
+        })
+
+        if (!sourceBatch) {
+          throw new Error('Không tìm thấy batch gốc để void.')
+        }
+
+        const originalQtyBase = Number(sourceItem.quantityBase)
+        const currentQtyBase = Number(sourceBatch.currentQtyBase)
+        if (currentQtyBase < originalQtyBase) {
+          const issuedQty = (originalQtyBase - currentQtyBase).toFixed(3)
+          throw new Error(
+            `Không thể void lô ${sourceItem.lotNo}. Lô đã xuất ${issuedQty} g, còn lại ${currentQtyBase.toFixed(3)} g. ` +
+            `Vui lòng nhập trả kho toàn bộ trước khi điều chỉnh.`
+          )
+        }
+
+        await tx.inventoryTransaction.create({
+          data: {
+            batchId: sourceBatch.id,
+            userId: actorId,
+            inboundReceiptItemId: sourceItem.id,
+            type: 'adjustment',
+            quantityBase: -originalQtyBase,
+            notes: `Void & re-receive từ phiếu ${receipt.receiptRef}`,
+            transactionDate: postedAt,
+          },
+        })
+
+        await tx.batch.update({
+          where: { id: sourceBatch.id },
+          data: {
+            currentQtyBase: { decrement: originalQtyBase },
+            status: 'rejected',
+          },
+        })
+
+        if (sourceItem.purchaseRequestItemId) {
+          touchedPurchaseRequestItemIds.add(sourceItem.purchaseRequestItemId.toString())
+        }
+      }
+
+      await tx.inboundReceipt.update({
+        where: { id: sourceReceipt.id },
+        data: {
+          adjustedByReceiptId: receipt.id,
+        },
+      })
+
+      await tx.inboundReceiptHistory.create({
+        data: {
+          inboundReceiptId: sourceReceipt.id,
+          actionType: 'voided_for_rereceive',
+          actionLabel: `Void batch gốc bởi phiếu điều chỉnh ${receipt.receiptRef}`,
+          actorId,
+          data: {
+            adjustmentReceiptId: receipt.id.toString(),
+            adjustmentReceiptRef: receipt.receiptRef,
+            adjustedAt: postedAt.toISOString(),
+          },
+        },
+      })
+    }
+
     for (const item of receipt.items) {
       if (item.postedBatchId && item.postedTxId) continue
 
@@ -885,31 +1088,77 @@ router.post('/receipts/:id/post', async (req, res) => {
       })
 
       if (item.purchaseRequestItemId) {
-        await tx.purchaseRequestItem.update({
-          where: { id: item.purchaseRequestItemId },
-          data: {
-            receivedQtyBase: { increment: quantityBase },
-          },
-        })
+        touchedPurchaseRequestItemIds.add(item.purchaseRequestItemId.toString())
+
+        if (receipt.purchaseRequestId) {
+          touchedPurchaseRequestIds.add(receipt.purchaseRequestId.toString())
+        }
       }
     }
 
-    if (receipt.purchaseRequestId) {
+    // Recalculate receivedQtyBase from actual receipt lines in the same DB transaction
+    // to avoid drift caused by incremental add/subtract logic over time.
+    if (touchedPurchaseRequestItemIds.size > 0) {
+      const touchedPrItems = await tx.purchaseRequestItem.findMany({
+        where: {
+          id: {
+            in: Array.from(touchedPurchaseRequestItemIds).map((id) => BigInt(id)),
+          },
+        },
+        select: {
+          id: true,
+          purchaseRequestId: true,
+        },
+      })
+
+      for (const prItem of touchedPrItems) {
+        const aggregate = await tx.inboundReceiptItem.aggregate({
+          where: {
+            purchaseRequestItemId: prItem.id,
+            OR: [
+              { inboundReceiptId: receipt.id },
+              {
+                inboundReceipt: {
+                  status: 'posted',
+                  adjustedByReceiptId: null,
+                },
+              },
+            ],
+          },
+          _sum: {
+            quantityBase: true,
+          },
+        })
+
+        await tx.purchaseRequestItem.update({
+          where: { id: prItem.id },
+          data: {
+            receivedQtyBase: Number(aggregate._sum.quantityBase ?? 0),
+          },
+        })
+
+        touchedPurchaseRequestIds.add(prItem.purchaseRequestId.toString())
+      }
+    }
+
+    for (const purchaseRequestIdRaw of touchedPurchaseRequestIds) {
+      const purchaseRequestId = BigInt(purchaseRequestIdRaw)
       const prItems = await tx.purchaseRequestItem.findMany({
-        where: { purchaseRequestId: receipt.purchaseRequestId },
+        where: { purchaseRequestId },
         select: {
           quantityNeededBase: true,
           receivedQtyBase: true,
         },
       })
 
+      const hasAnyReceived = prItems.some((item) => Number(item.receivedQtyBase) > 0)
       const isFullyReceived = prItems.length > 0
         && prItems.every((item) => Number(item.receivedQtyBase) >= Number(item.quantityNeededBase))
 
       await tx.purchaseRequest.update({
-        where: { id: receipt.purchaseRequestId },
+        where: { id: purchaseRequestId },
         data: {
-          status: isFullyReceived ? 'received' : 'partially_received',
+          status: isFullyReceived ? 'received' : (hasAnyReceived ? 'partially_received' : 'ordered'),
           receivedAt: isFullyReceived ? postedAt : null,
         },
       })
@@ -944,6 +1193,176 @@ router.post('/receipts/:id/post', async (req, res) => {
     id: receipt.id.toString(),
     status: 'posted',
     receivedAt: postedAt.toISOString(),
+  })
+})
+
+router.post('/receipts/:id/void-rereceive', async (req, res) => {
+  const idRaw = String(req.params.id ?? '').trim()
+  if (!/^\d+$/.test(idRaw)) {
+    res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
+    return
+  }
+
+  const sourceReceipt = await prisma.inboundReceipt.findUnique({
+    where: { id: BigInt(idRaw) },
+    include: {
+      items: {
+        orderBy: { id: 'asc' },
+        include: {
+          documents: {
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+      },
+    },
+  })
+
+  if (!sourceReceipt) {
+    res.status(404).json({ error: 'Không tìm thấy phiếu nhập kho.' })
+    return
+  }
+
+  if (sourceReceipt.status !== 'posted') {
+    res.status(409).json({ error: 'Chỉ có thể điều chỉnh phiếu đã posted.' })
+    return
+  }
+
+  if (sourceReceipt.adjustedByReceiptId) {
+    res.status(409).json({ error: 'Phiếu này đã có phiếu điều chỉnh trước đó.' })
+    return
+  }
+
+  if (sourceReceipt.items.length === 0) {
+    res.status(400).json({ error: 'Phiếu posted không có dòng dữ liệu để điều chỉnh.' })
+    return
+  }
+
+  // Guard: kiểm tra các lô đã có xuất kho
+  const issuedBatches: Array<{ lotNo: string; issuedQty: number; currentQty: number }> = []
+  for (const item of sourceReceipt.items) {
+    if (!item.postedBatchId) continue
+    const batch = await prisma.batch.findUnique({
+      where: { id: item.postedBatchId },
+      select: { currentQtyBase: true },
+    })
+    if (!batch) continue
+    const originalQty = Number(item.quantityBase)
+    const currentQty = Number(batch.currentQtyBase)
+    if (currentQty < originalQty) {
+      issuedBatches.push({
+        lotNo: item.lotNo,
+        issuedQty: originalQty - currentQty,
+        currentQty,
+      })
+    }
+  }
+
+  if (issuedBatches.length > 0) {
+    const detail = issuedBatches
+      .map((b) => `Lô ${b.lotNo}: đã xuất ${b.issuedQty.toFixed(3)} g, còn lại ${b.currentQty.toFixed(3)} g`)
+      .join('; ')
+    res.status(409).json({
+      error: `Không thể điều chỉnh phiếu. Một số lô đã phát sinh xuất kho: ${detail}. Vui lòng nhập trả kho trước khi điều chỉnh.`,
+    })
+    return
+  }
+
+  const actorId = await getFirstActiveUserId()
+  const nextReceiptRef = await buildAdjustmentReceiptRef(sourceReceipt.receiptRef)
+
+  const adjustmentReceipt = await prisma.$transaction(async (tx) => {
+    const created = await tx.inboundReceipt.create({
+      data: {
+        receiptRef: nextReceiptRef,
+        purchaseRequestId: sourceReceipt.purchaseRequestId,
+        sourceReceiptId: sourceReceipt.id,
+        supplierId: sourceReceipt.supplierId,
+        receivingLocationId: sourceReceipt.receivingLocationId,
+        status: 'draft',
+        expectedDate: sourceReceipt.expectedDate,
+        currentStep: 4,
+        createdBy: actorId,
+        notes: `Phiếu điều chỉnh theo hướng Void & re-receive từ ${sourceReceipt.receiptRef}`,
+      },
+    })
+
+    await tx.inboundReceipt.update({
+      where: { id: sourceReceipt.id },
+      data: {
+        adjustedByReceiptId: created.id,
+      },
+    })
+
+    for (const item of sourceReceipt.items) {
+      const clonedItem = await tx.inboundReceiptItem.create({
+        data: {
+          inboundReceiptId: created.id,
+          purchaseRequestItemId: item.purchaseRequestItemId,
+          productId: item.productId,
+          lotNo: item.lotNo,
+          invoiceNumber: item.invoiceNumber,
+          invoiceDate: item.invoiceDate,
+          manufactureDate: item.manufactureDate,
+          expiryDate: item.expiryDate,
+          quantityBase: item.quantityBase,
+          unitUsed: item.unitUsed,
+          quantityDisplay: item.quantityDisplay,
+          unitPricePerKg: item.unitPricePerKg,
+          lineAmount: item.lineAmount,
+          qcStatus: 'passed',
+          hasDocument: item.hasDocument,
+          notes: item.notes,
+        },
+      })
+
+      if (item.documents.length > 0) {
+        await tx.inboundReceiptItemDocument.createMany({
+          data: item.documents.map((doc) => ({
+            itemId: clonedItem.id,
+            docType: doc.docType,
+            filePath: doc.filePath,
+            originalName: doc.originalName,
+            mimeType: doc.mimeType,
+            fileSize: doc.fileSize,
+            uploadedBy: doc.uploadedBy,
+          })),
+        })
+      }
+    }
+
+    await tx.inboundReceiptHistory.createMany({
+      data: [
+        {
+          inboundReceiptId: created.id,
+          actionType: 'created_adjustment',
+          actionLabel: `Khởi tạo phiếu điều chỉnh từ ${sourceReceipt.receiptRef}`,
+          actorId,
+          data: {
+            sourceReceiptId: sourceReceipt.id.toString(),
+            sourceReceiptRef: sourceReceipt.receiptRef,
+          },
+        },
+        {
+          inboundReceiptId: sourceReceipt.id,
+          actionType: 'adjustment_created',
+          actionLabel: `Tạo phiếu điều chỉnh ${created.receiptRef}`,
+          actorId,
+          data: {
+            adjustmentReceiptId: created.id.toString(),
+            adjustmentReceiptRef: created.receiptRef,
+          },
+        },
+      ],
+    })
+
+    return created
+  })
+
+  res.status(201).json({
+    id: adjustmentReceipt.id.toString(),
+    receiptRef: adjustmentReceipt.receiptRef,
+    currentStep: readDraftStep(adjustmentReceipt.currentStep),
+    sourceReceiptId: sourceReceipt.id.toString(),
   })
 })
 

@@ -265,6 +265,207 @@ router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req:
   })
 })
 
+router.get('/:id/inbound-drilldown', requireAuth, requirePermission('purchases.read'), async (req: AuthenticatedRequest, res) => {
+  const requestId = BigInt(req.params.id)
+
+  const pr = await prisma.purchaseRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      supplier: { select: { id: true, code: true, name: true } },
+      receivingLocation: { select: { id: true, code: true, name: true } },
+      requester: { select: { id: true, fullName: true } },
+      items: {
+        include: {
+          product: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+      },
+      inboundReceipts: {
+        orderBy: [
+          { receivedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        include: {
+          sourceReceipt: {
+            select: {
+              id: true,
+              receiptRef: true,
+            },
+          },
+          adjustedByReceipt: {
+            select: {
+              id: true,
+              receiptRef: true,
+            },
+          },
+          supplier: { select: { id: true, code: true, name: true } },
+          receivingLocation: { select: { id: true, code: true, name: true } },
+          creator: { select: { id: true, fullName: true } },
+          poster: { select: { id: true, fullName: true } },
+          items: {
+            orderBy: { id: 'asc' },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
+              documents: {
+                orderBy: { createdAt: 'asc' },
+                select: {
+                  id: true,
+                  docType: true,
+                  originalName: true,
+                  createdAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!pr) {
+    res.status(404).json({ error: 'Purchase request not found' })
+    return
+  }
+
+  const orderedQtyBaseTotal = Number(
+    pr.items.reduce((sum, item) => sum + Number(item.quantityNeededBase), 0).toFixed(4),
+  )
+  const receivedQtyBaseTotal = Number(
+    pr.items.reduce((sum, item) => sum + Number(item.receivedQtyBase), 0).toFixed(4),
+  )
+
+  const response = {
+    id: pr.id.toString(),
+    requestRef: pr.requestRef,
+    status: pr.status,
+    expectedDate: pr.expectedDate?.toISOString() ?? null,
+    orderedAt: pr.orderedAt?.toISOString() ?? null,
+    receivedAt: pr.receivedAt?.toISOString() ?? null,
+    supplier: pr.supplier ? {
+      id: pr.supplier.id.toString(),
+      code: pr.supplier.code,
+      name: pr.supplier.name,
+    } : null,
+    receivingLocation: pr.receivingLocation ? {
+      id: pr.receivingLocation.id.toString(),
+      code: pr.receivingLocation.code,
+      name: pr.receivingLocation.name,
+    } : null,
+    requester: pr.requester ? {
+      id: pr.requester.id.toString(),
+      fullName: pr.requester.fullName,
+    } : null,
+    summary: {
+      lineCount: pr.items.length,
+      receiptCount: pr.inboundReceipts.filter((r) => r.status !== 'cancelled' && !r.adjustedByReceiptId).length,
+      orderedQtyBaseTotal,
+      receivedQtyBaseTotal,
+      remainingQtyBaseTotal: Number(Math.max(0, orderedQtyBaseTotal - receivedQtyBaseTotal).toFixed(4)),
+    },
+    poItems: pr.items.map((item) => ({
+      id: item.id.toString(),
+      product: {
+        id: item.product.id.toString(),
+        code: item.product.code,
+        name: item.product.name,
+      },
+      quantityNeededBase: Number(item.quantityNeededBase),
+      receivedQtyBase: Number(item.receivedQtyBase),
+      unitDisplay: item.unitDisplay,
+      quantityDisplay: Number(item.quantityDisplay),
+      unitPrice: Number(item.unitPrice),
+      notes: item.notes,
+    })),
+    receipts: pr.inboundReceipts.map((receipt) => {
+      const quantityBaseTotal = Number(receipt.items.reduce((sum, item) => sum + Number(item.quantityBase), 0).toFixed(4))
+      const totalAmount = Number(receipt.items.reduce((sum, item) => sum + Number(item.lineAmount), 0).toFixed(2))
+
+      return {
+        id: receipt.id.toString(),
+        receiptRef: receipt.receiptRef,
+        status: receipt.status,
+        currentStep: Number(receipt.currentStep),
+        createdAt: receipt.createdAt.toISOString(),
+        expectedDate: receipt.expectedDate?.toISOString() ?? null,
+        receivedAt: receipt.receivedAt?.toISOString() ?? null,
+        qcCheckedAt: receipt.qcCheckedAt?.toISOString() ?? null,
+        sourceReceipt: receipt.sourceReceipt ? {
+          id: receipt.sourceReceipt.id.toString(),
+          receiptRef: receipt.sourceReceipt.receiptRef,
+        } : null,
+        adjustedByReceipt: receipt.adjustedByReceipt ? {
+          id: receipt.adjustedByReceipt.id.toString(),
+          receiptRef: receipt.adjustedByReceipt.receiptRef,
+        } : null,
+        supplier: receipt.supplier ? {
+          id: receipt.supplier.id.toString(),
+          code: receipt.supplier.code,
+          name: receipt.supplier.name,
+        } : null,
+        receivingLocation: receipt.receivingLocation ? {
+          id: receipt.receivingLocation.id.toString(),
+          code: receipt.receivingLocation.code,
+          name: receipt.receivingLocation.name,
+        } : null,
+        creator: receipt.creator ? {
+          id: receipt.creator.id.toString(),
+          fullName: receipt.creator.fullName,
+        } : null,
+        poster: receipt.poster ? {
+          id: receipt.poster.id.toString(),
+          fullName: receipt.poster.fullName,
+        } : null,
+        summary: {
+          itemCount: receipt.items.length,
+          quantityBaseTotal,
+          totalAmount,
+        },
+        items: receipt.items.map((item) => ({
+          id: item.id.toString(),
+          purchaseRequestItemId: item.purchaseRequestItemId?.toString() ?? null,
+          product: {
+            id: item.product.id.toString(),
+            code: item.product.code,
+            name: item.product.name,
+          },
+          lotNo: item.lotNo,
+          quantityBase: Number(item.quantityBase),
+          quantityDisplay: Number(item.quantityDisplay),
+          unitUsed: item.unitUsed,
+          unitPricePerKg: Number(item.unitPricePerKg),
+          lineAmount: Number(item.lineAmount),
+          qcStatus: item.qcStatus,
+          invoiceNumber: item.invoiceNumber,
+          invoiceDate: item.invoiceDate?.toISOString() ?? null,
+          manufactureDate: item.manufactureDate?.toISOString() ?? null,
+          expiryDate: item.expiryDate?.toISOString() ?? null,
+          hasDocument: item.hasDocument,
+          documents: item.documents.map((doc) => ({
+            id: doc.id.toString(),
+            docType: doc.docType,
+            originalName: doc.originalName,
+            createdAt: doc.createdAt.toISOString(),
+          })),
+        })),
+      }
+    }),
+  }
+
+  res.json(response)
+})
+
 router.get('/:id/history', requireAuth, requirePermission('purchases.read'), async (req: AuthenticatedRequest, res) => {
   const requestId = BigInt(req.params.id)
 
@@ -716,3 +917,57 @@ router.delete('/:id', requireAuth, requirePermission('purchases.write'), async (
 })
 
 export default router
+
+  // Recalculate receivedQtyBase for all items of a PO from actual active posted receipts.
+  router.post('/:id/recalculate-received', requireAuth, requirePermission('purchases.write'), async (req: AuthenticatedRequest, res) => {
+    const idRaw = String(req.params.id ?? '').trim()
+    if (!/^\d+$/.test(idRaw)) {
+      res.status(400).json({ error: 'ID không hợp lệ.' })
+      return
+    }
+    const requestId = BigInt(idRaw)
+
+    const pr = await prisma.purchaseRequest.findUnique({
+      where: { id: requestId },
+      select: { id: true, items: { select: { id: true, quantityNeededBase: true } } },
+    })
+    if (!pr) {
+      res.status(404).json({ error: 'Không tìm thấy phiếu PO.' })
+      return
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const poItem of pr.items) {
+        const activeReceiptItems = await tx.inboundReceiptItem.findMany({
+          where: {
+            purchaseRequestItemId: poItem.id,
+            inboundReceipt: { status: 'posted', adjustedByReceiptId: null },
+          },
+          select: { quantityBase: true },
+        })
+        const correctQty = activeReceiptItems.reduce((s, i) => s + Number(i.quantityBase), 0)
+        await tx.purchaseRequestItem.update({
+          where: { id: poItem.id },
+          data: { receivedQtyBase: correctQty },
+        })
+      }
+
+      const updatedItems = await tx.purchaseRequestItem.findMany({
+        where: { purchaseRequestId: requestId },
+        select: { quantityNeededBase: true, receivedQtyBase: true },
+      })
+      const hasAny = updatedItems.some((i) => Number(i.receivedQtyBase) > 0)
+      const isFull = updatedItems.length > 0 && updatedItems.every((i) => Number(i.receivedQtyBase) >= Number(i.quantityNeededBase))
+      const newStatus = isFull ? 'received' : (hasAny ? 'partially_received' : 'ordered')
+
+      await tx.purchaseRequest.update({
+        where: { id: requestId },
+        data: {
+          status: newStatus,
+          receivedAt: isFull ? new Date() : null,
+        },
+      })
+    })
+
+    res.json({ success: true, message: 'Đã tái tính số lượng đã nhận cho PO.' })
+  })

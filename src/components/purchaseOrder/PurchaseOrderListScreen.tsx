@@ -28,6 +28,7 @@ type Props = {
   onToggleVisibleRows: (checked: boolean) => void
   poLoading: boolean
   onEditPo: (row: PurchaseOrderRow) => void
+  onOpenInboundDrilldown: (row: PurchaseOrderRow) => void
   onQuickViewPo: (row: PurchaseOrderRow) => void
   onDeletePo: (row: PurchaseOrderRow) => void
   rangeStart: number
@@ -60,6 +61,7 @@ export function PurchaseOrderListScreen({
   onToggleVisibleRows,
   poLoading,
   onEditPo,
+  onOpenInboundDrilldown,
   onQuickViewPo,
   onDeletePo,
   rangeStart,
@@ -118,8 +120,8 @@ export function PurchaseOrderListScreen({
       </div>
       
       <section className="po-table-card">
-        <div className="po-toolbar">
-          <label className="po-filter-control">
+        <div className="app-table-toolbar po-toolbar">
+          <label className="app-filter-control po-filter-control">
             <i className="pi pi-filter" aria-hidden />
             <Dropdown
               value={statusFilter}
@@ -131,7 +133,7 @@ export function PurchaseOrderListScreen({
             <i className="pi pi-angle-down" aria-hidden />
           </label>
 
-          <label className="po-filter-control">
+          <label className="app-filter-control po-filter-control">
             <Dropdown
               value={supplierFilter}
               options={poSupplierOptions}
@@ -142,7 +144,7 @@ export function PurchaseOrderListScreen({
             <i className="pi pi-angle-down" aria-hidden />
           </label>
 
-          <div className="po-filter-control po-date-control">
+          <div className="app-filter-control app-date-control po-filter-control po-date-control">
             <i className="pi pi-calendar" aria-hidden />
             <span>Từ ngày</span>
             <Calendar
@@ -154,7 +156,7 @@ export function PurchaseOrderListScreen({
             />
           </div>
 
-          <div className="po-filter-control po-date-control">
+          <div className="app-filter-control app-date-control po-filter-control po-date-control">
             <i className="pi pi-calendar" aria-hidden />
             <span>Đến ngày</span>
             <Calendar
@@ -225,6 +227,14 @@ export function PurchaseOrderListScreen({
               header="Thao tác"
               body={(row: PurchaseOrderRow) => (
                 <span className="po-actions-cell">
+                  <Button
+                    type="button"
+                    className="po-icon-btn"
+                    icon="pi pi-sitemap"
+                    text
+                    aria-label={`Drill down phiếu nhập của ${row.code}`}
+                    onClick={() => onOpenInboundDrilldown(row)}
+                  />
                   <Button
                     type="button"
                     className="po-icon-btn"

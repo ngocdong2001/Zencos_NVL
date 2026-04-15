@@ -34,8 +34,10 @@ type Props = {
   detailStatusLabel: string
   detailCanRecallToDraft: boolean
   detailCanDelete: boolean
+  detailCanOpenInboundDrilldown: boolean
   detailEditable: boolean
   onBack: () => void
+  onOpenInboundDrilldown: () => void
   onSaveDraft: () => void
   onSubmit: () => void
   onRecallToDraft: () => void
@@ -76,8 +78,10 @@ export function PurchaseOrderDetailScreen({
   detailStatusLabel,
   detailCanRecallToDraft,
   detailCanDelete,
+  detailCanOpenInboundDrilldown,
   detailEditable,
   onBack,
+  onOpenInboundDrilldown,
   onSaveDraft,
   onSubmit,
   onRecallToDraft,
@@ -459,6 +463,16 @@ export function PurchaseOrderDetailScreen({
               label={detailDeleting ? 'Đang xóa...' : 'Xóa phiếu'}
               disabled={detailDeleting || detailRecalling || detailLoading || detailSaving || detailSubmitting}
               onClick={onDelete}
+            />
+          ) : null}
+          {detailCanOpenInboundDrilldown ? (
+            <Button
+              type="button"
+              className="btn btn-ghost"
+              icon="pi pi-sitemap"
+              label="Tra phiếu nhập"
+              disabled={detailLoading || detailSaving || detailSubmitting || detailRecalling || detailDeleting}
+              onClick={onOpenInboundDrilldown}
             />
           ) : null}
           <Button

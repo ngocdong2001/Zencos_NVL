@@ -455,6 +455,7 @@ export function InboundStep1Page() {
         <WizardStepBar 
           activeStep={1} 
           maxReachedStep={wizRest.maxReachedStep}
+          navigationLocked={isPosted}
           onNavigate={(s) => {
             const wiz = buildCurrentWiz()
             if (s === 2) navigate('/inbound/new/step2', { state: { ...wiz, maxReachedStep: Math.max(2, wiz.maxReachedStep ?? 0) } })
@@ -610,10 +611,10 @@ export function InboundStep1Page() {
           <div className="inbound-create-footer-actions">
             <Button
               type="button"
-              severity="danger"
-              outlined
+              className="btn btn-ghost inbound-cancel-btn"
               icon="pi pi-trash"
               label="Hủy phiếu"
+              disabled={isPosted}
               onClick={() => setCancelDialogVisible(true)}
             />
             <Button

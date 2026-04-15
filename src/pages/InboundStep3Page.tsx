@@ -158,7 +158,7 @@ export function InboundStep3Page() {
         receivingLocationId: step1.receivingWarehouseId || undefined,
         expectedDate: step1.expectedDate || undefined,
         currentStep: 3 as const,
-        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity > 0
+        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity >= 0
           ? {
               productId: step2.selectedMaterialId,
               lotNo: step2.lotNo.trim(),
@@ -245,7 +245,7 @@ export function InboundStep3Page() {
         receivingLocationId: step1.receivingWarehouseId || undefined,
         expectedDate: step1.expectedDate || undefined,
         currentStep: 4 as const,
-        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity > 0
+        item: step2.selectedMaterialId && step2.lotNo.trim() && step2.quantity !== null && step2.quantity >= 0
           ? {
               productId: step2.selectedMaterialId,
               lotNo: step2.lotNo.trim(),
@@ -496,6 +496,7 @@ export function InboundStep3Page() {
         <WizardStepBar
           activeStep={3}
           maxReachedStep={maxReachedStep}
+          navigationLocked={isPosted}
           onNavigate={(s) => {
             const wiz = buildCurrentWiz()
             if (s === 1) navigate('/inbound/new', { state: wiz })
@@ -698,10 +699,10 @@ export function InboundStep3Page() {
           <div className="inbound-create-footer-actions">
             <Button
               type="button"
-              severity="danger"
-              outlined
+              className="btn btn-ghost inbound-cancel-btn"
               icon="pi pi-trash"
               label="Hủy phiếu"
+              disabled={isPosted}
               onClick={() => setCancelDialogVisible(true)}
             />
             <Button

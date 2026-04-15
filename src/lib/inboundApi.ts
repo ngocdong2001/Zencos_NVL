@@ -9,8 +9,12 @@ export type InboundReceiptRowResponse = {
   receiptRef: string
   status: InboundReceiptStatusApi
   currentStep: 1 | 2 | 3 | 4
+  sourceReceiptId: string | null
+  adjustedByReceiptId: string | null
   supplierName: string
   supplierCode: string | null
+  materialName: string
+  lotNo: string
   lotCount: number
   quantityBaseTotal: number
   totalValue: number
@@ -34,6 +38,16 @@ export type InboundReceiptDetailResponse = {
   receiptRef: string
   status: InboundReceiptStatusApi
   currentStep: 1 | 2 | 3 | 4
+  sourceReceipt: {
+    id: string
+    receiptRef: string
+    status: InboundReceiptStatusApi
+  } | null
+  adjustedByReceipt: {
+    id: string
+    receiptRef: string
+    status: InboundReceiptStatusApi
+  } | null
   expectedDate: string | null
   receivedAt: string | null
   qcCheckedAt: string | null
@@ -252,6 +266,19 @@ export type PostInboundReceiptResponse = {
 
 export function postInboundReceipt(id: string): Promise<PostInboundReceiptResponse> {
   return http<PostInboundReceiptResponse>(`/api/inbound/receipts/${encodeURIComponent(id)}/post`, {
+    method: 'POST',
+  })
+}
+
+export type CreateInboundVoidRereceiveResponse = {
+  id: string
+  receiptRef: string
+  currentStep: 1 | 2 | 3 | 4
+  sourceReceiptId: string
+}
+
+export function createInboundVoidRereceive(id: string): Promise<CreateInboundVoidRereceiveResponse> {
+  return http<CreateInboundVoidRereceiveResponse>(`/api/inbound/receipts/${encodeURIComponent(id)}/void-rereceive`, {
     method: 'POST',
   })
 }
