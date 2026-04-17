@@ -38,6 +38,7 @@ function mapHistoryStyle(actionType: string) {
   if (actionType === 'received') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã nhận' }
   if (actionType === 'qc_reviewed') return { tone: 'tone-approved', icon: 'pi pi-verified', badge: 'QC kiểm tra' }
   if (actionType === 'posted') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã posted' }
+  if (actionType === 'adjustment_restored') return { tone: 'tone-approved', icon: 'pi pi-history', badge: 'Đã phục hồi' }
   return { tone: 'tone-cancelled', icon: 'pi pi-times-circle', badge: 'Đã hủy' }
 }
 

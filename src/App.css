@@ -4877,6 +4877,12 @@ input {
   background: #fff;
 }
 
+.po-drill-branch-item.is-active-receipt {
+  border: 2px dotted #2f64d8;
+  background: #f5f9ff;
+  box-shadow: 0 0 0 2px rgba(47, 100, 216, 0.12);
+}
+
 .po-drill-branch-item::before {
   content: '';
   position: absolute;

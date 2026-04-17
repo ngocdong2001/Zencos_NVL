@@ -7,10 +7,15 @@ import { RadioButton } from 'primereact/radiobutton'
 import { Toast } from 'primereact/toast'
 import { InputText } from 'primereact/inputtext'
 import { WizardStepBar } from '../components/inbound/WizardStepBar'
+import { PurchaseOrderLineSummarySection } from '../components/purchaseOrder/PurchaseOrderLineSummarySection'
 import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
 import { getInboundDraftDocumentFileUrl } from '../lib/inboundDraftDocApi'
+import {
+  fetchPurchaseRequestInboundDrilldown,
+  type PurchaseRequestInboundDrilldownResponse,
+} from '../lib/purchaseShortageApi'
 import {
   createInboundVoidRereceive,
   createDraftReceipt,
@@ -82,6 +87,10 @@ export function InboundStep4Page() {
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [draftCodeError, setDraftCodeError] = useState<string | null>(null)
   const [adjustBusy, setAdjustBusy] = useState(false)
+  const [poDrilldownVisible, setPoDrilldownVisible] = useState(false)
+  const [poDrilldownLoading, setPoDrilldownLoading] = useState(false)
+  const [poDrilldownError, setPoDrilldownError] = useState<string | null>(null)
+  const [poDrilldownData, setPoDrilldownData] = useState<PurchaseRequestInboundDrilldownResponse | null>(null)
 
   const mapHistoryRows = (rows: InboundReceiptHistoryRowResponse[]): HistoryTimelineEvent[] => {
     return rows.map((row) => ({
@@ -177,6 +186,7 @@ export function InboundStep4Page() {
       : null
   const unitPrice = dbFirstItem?.unitPricePerKg ?? step2.unitPrice ?? null
   const supplierDisplay = (dbDetail?.supplier?.name ?? step1.supplierKeyword) || '—'
+  const poRefDisplay = (dbDetail?.purchaseRequest?.requestRef ?? step1.poNumber) || '—'
   const warehouseDisplay = (dbDetail?.receivingLocation?.name ?? step1.receivingWarehouseName ?? step1.receivingWarehouseId) || '—'
   const materialNameDisplay = (dbFirstItem?.product?.name ?? step2.selectedMaterialName) || '—'
   const materialCodeDisplay = (dbFirstItem?.product?.code ?? step2.selectedMaterialCode) || '—'
@@ -436,6 +446,33 @@ export function InboundStep4Page() {
     }
   }
 
+  async function handleOpenPoDrilldown() {
+    const purchaseId = dbDetail?.purchaseRequest?.id
+    if (!purchaseId) {
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'Không có dữ liệu PO',
+        detail: 'Phiếu nhập kho này chưa liên kết được tới phiếu PO để xem drilldown.',
+        life: 3000,
+      })
+      return
+    }
+
+    setPoDrilldownVisible(true)
+    setPoDrilldownLoading(true)
+    setPoDrilldownError(null)
+    setPoDrilldownData(null)
+
+    try {
+      const data = await fetchPurchaseRequestInboundDrilldown(purchaseId)
+      setPoDrilldownData(data)
+    } catch (error) {
+      setPoDrilldownError(error instanceof Error ? error.message : 'Không thể tải drilldown phiếu PO.')
+    } finally {
+      setPoDrilldownLoading(false)
+    }
+  }
+
   function handleConfirm() {
     if (isPosted) return
     if (!wizState.receiptId || !dbDetail) {
@@ -609,6 +646,18 @@ export function InboundStep4Page() {
                   <div>
                     <p className="inbound-step4-info-label">Nhà cung cấp</p>
                     <p className="inbound-step4-info-value">{supplierDisplay}</p>
+                  </div>
+                  <div>
+                    <p className="inbound-step4-info-label">Phiếu PO</p>
+                    {dbDetail?.purchaseRequest?.id ? (
+                      <p className="inbound-step4-info-value">
+                        <button type="button" className="inbound-code-btn" onClick={() => { void handleOpenPoDrilldown() }}>
+                          {poRefDisplay}
+                        </button>
+                      </p>
+                    ) : (
+                      <p className="inbound-step4-info-value">{poRefDisplay}</p>
+                    )}
                   </div>
                   <div>
                     <p className="inbound-step4-info-label">Kho lưu trữ</p>
@@ -873,6 +922,28 @@ export function InboundStep4Page() {
         }
       >
         <p>Bạn có chắc muốn hủy phiếu này không? Tất cả dữ liệu đã nhập sẽ bị xóa.</p>
+      </Dialog>
+
+      <Dialog
+        header={poRefDisplay !== '—' ? `Chi tiết dòng PO - ${poRefDisplay}` : 'Chi tiết dòng PO'}
+        visible={poDrilldownVisible}
+        onHide={() => setPoDrilldownVisible(false)}
+        style={{ width: 'min(1200px, 96vw)' }}
+        modal
+      >
+        {poDrilldownLoading ? <p className="po-field-success">Đang tải chi tiết dòng PO...</p> : null}
+        {poDrilldownError ? <p className="po-field-error">{poDrilldownError}</p> : null}
+        {poDrilldownData ? (
+          <PurchaseOrderLineSummarySection
+            data={poDrilldownData}
+            onOpenReceipt={() => undefined}
+            activeReceiptId={dbDetail?.id ?? wizState.receiptId ?? null}
+            showHeader={false}
+            compact
+            showLegend={false}
+            allowOpenReceipt={false}
+          />
+        ) : null}
       </Dialog>
     </section>
   )

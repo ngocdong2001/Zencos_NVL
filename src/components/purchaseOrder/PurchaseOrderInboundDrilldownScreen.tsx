@@ -34,20 +34,6 @@ const QC_STATUS_OPTIONS: Array<{ label: string; value: QcStatus }> = [
   { label: 'Không đạt', value: 'failed' },
 ]
 
-function formatDateTime(value?: string | null): string {
-  if (!value) return '---'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-}
-
 function formatDateOnly(value?: string | null): string {
   if (!value) return '---'
   const date = new Date(value)
@@ -193,7 +179,7 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
               {data ? <span className={`purchase-detail-draft-tag po-status-badge ${toPoBadgeStatus(data.status)}`}>{STATUS_LABELS[toPoBadgeStatus(data.status)]}</span> : null}
             </div>
               {data ? (
-                <div hidden="true" className="purchase-detail-actions" style={{ marginTop: '6px' }}>
+                <div hidden className="purchase-detail-actions" style={{ marginTop: '6px' }}>
                   <Button
                     type="button"
                     className="purchase-detail-action-btn"

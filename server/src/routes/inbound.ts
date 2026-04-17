@@ -650,12 +650,13 @@ router.delete('/receipts/:id', async (req, res) => {
       await tx.inboundReceiptHistory.create({
         data: {
           inboundReceiptId: receipt.sourceReceiptId,
-          actionType: 'adjustment_deleted',
-          actionLabel: `Hủy phiếu điều chỉnh nháp ${receipt.receiptRef}`,
+            actionType: 'adjustment_restored',
+            actionLabel: `Phục hồi phiếu gốc do hủy phiếu điều chỉnh ${receipt.receiptRef}`,
           actorId,
           data: {
             adjustmentReceiptId: receipt.id.toString(),
             adjustmentReceiptRef: receipt.receiptRef,
+              restoredBecause: 'adjustment_cancelled',
           },
         },
       })

@@ -14,6 +14,7 @@ type Props = {
   compact?: boolean
   showLegend?: boolean
   allowOpenReceipt?: boolean
+  activeReceiptId?: string | null
 }
 
 type ReceiptDetailNode = {
@@ -35,6 +36,7 @@ export function PurchaseOrderLineSummarySection({
   compact = false,
   showLegend = true,
   allowOpenReceipt = true,
+  activeReceiptId = null,
 }: Props) {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
   const [drillSearch, setDrillSearch] = useState('')
@@ -200,7 +202,10 @@ export function PurchaseOrderLineSummarySection({
                   {node.details.length === 0 ? <p className="purchase-side-note">Chưa có phiếu nhập phát sinh.</p> : null}
 
                   {node.details.map((detail) => (
-                    <div key={`${detail.receiptId}-${detail.lotNo}-${detail.createdAt}`} className="po-drill-branch-item">
+                    <div
+                      key={`${detail.receiptId}-${detail.lotNo}-${detail.createdAt}`}
+                      className={`po-drill-branch-item${activeReceiptId === detail.receiptId ? ' is-active-receipt' : ''}`}
+                    >
                       <div className="po-drill-branch-col main">
                         <span>PHIẾU / LOT</span>
                         <div className="po-drill-branch-receipt-line">
