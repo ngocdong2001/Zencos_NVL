@@ -223,7 +223,7 @@ export function PurchaseOrderLineSummarySection({
                         </div>
                         <div className="po-drill-branch-lot-line">
                           <strong>{detail.lotNo}</strong>
-                          {detail.isSuperseded ? <span className="inbound-status-badge cancelled">Đã điều chỉnh</span> : null}
+                          {detail.isSuperseded ? <span className="app-status-badge cancelled">Đã điều chỉnh</span> : null}
                         </div>
                       </div>
 

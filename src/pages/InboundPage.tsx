@@ -599,6 +599,7 @@ export function InboundPage() {
             dataKey="id"
             className="inbound-table prime-catalog-table"
             loading={loading}
+            stripedRows
             sortField={sortField ?? undefined}
             sortOrder={sortOrder}
             onSort={(event) => {
@@ -680,7 +681,7 @@ export function InboundPage() {
               style={{ width: '9rem' }}
               body={(row: InboundRow) => (
                 <span className="inbound-status-cell">
-                  <span className={`inbound-status-badge ${row.status}`}>{INBOUND_STATUS_LABELS[row.status]}</span>
+                  <span className={`app-status-badge ${row.status}`}>{INBOUND_STATUS_LABELS[row.status]}</span>
                   {isVoidedByAdjustment(row) ? (
                     <span className="inbound-adjusted-flag">Hủy</span>
                   ) : null}

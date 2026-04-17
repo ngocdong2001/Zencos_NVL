@@ -26,6 +26,48 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
   res.json(batches)
 })
 
+const fefoQuerySchema = z.object({
+  productId: z.string().min(1),
+  limit: z.string().optional(),
+})
+
+router.get('/fefo-suggestions', requireAuth, requirePermission('inventory.read'), async (req: Request, res: Response) => {
+  const parsed = fefoQuerySchema.safeParse(req.query)
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() })
+    return
+  }
+
+  const productId = BigInt(parsed.data.productId)
+  const limitRaw = Number(parsed.data.limit ?? 5)
+  const take = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 50) : 5
+
+  const suggestions = await prisma.batch.findMany({
+    where: {
+      deletedAt: null,
+      productId,
+      currentQtyBase: { gt: 0 },
+    },
+    select: {
+      id: true,
+      lotNo: true,
+      expiryDate: true,
+      currentQtyBase: true,
+      product: {
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: [{ expiryDate: 'asc' }, { lotNo: 'asc' }],
+    take,
+  })
+
+  res.json(suggestions)
+})
+
 // ──────────────────────────────────────────────────────────────────────
 // INVENTORY TRANSACTIONS
 // ──────────────────────────────────────────────────────────────────────

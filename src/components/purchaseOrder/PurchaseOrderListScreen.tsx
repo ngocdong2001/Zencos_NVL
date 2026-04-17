@@ -219,7 +219,7 @@ export function PurchaseOrderListScreen({
               header="Trạng thái"
               sortable
               body={(row: PurchaseOrderRow) => (
-                <span className={`po-status-badge ${row.status}`}>{STATUS_LABELS[row.status]}</span>
+                <span className={`app-status-badge ${row.status}`}>{STATUS_LABELS[row.status]}</span>
               )}
             />
             <Column field="creator" header="Người tạo" sortable />

@@ -176,7 +176,7 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
           <div>
             <div className="purchase-detail-title-row">
               <h2>Drill Down Phiếu Nhập Theo PO</h2>
-              {data ? <span className={`purchase-detail-draft-tag po-status-badge ${toPoBadgeStatus(data.status)}`}>{STATUS_LABELS[toPoBadgeStatus(data.status)]}</span> : null}
+              {data ? <span className={`purchase-detail-draft-tag app-status-badge ${toPoBadgeStatus(data.status)}`}>{STATUS_LABELS[toPoBadgeStatus(data.status)]}</span> : null}
             </div>
               {data ? (
                 <div hidden className="purchase-detail-actions" style={{ marginTop: '6px' }}>

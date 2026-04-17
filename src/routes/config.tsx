@@ -6,6 +6,8 @@ import { InboundStep2Page } from '../pages/InboundStep2Page'
 import { InboundStep3Page } from '../pages/InboundStep3Page'
 import { InboundStep4Page } from '../pages/InboundStep4Page'
 import { OpeningStockPage } from '../pages/OpeningStockPage'
+import { OutboundListPage } from '../pages/OutboundListPage'
+import { OutboundPage } from '../pages/OutboundPage'
 import { PlaceholderPage } from '../pages/PlaceholderPage'
 import { ProductCreatePage } from '../pages/ProductCreatePage'
 import { PurchaseOrderPage } from '../pages/PurchaseOrderPage'
@@ -26,7 +28,9 @@ export const appRoutes: RouteConfig[] = [
   { path: '/inbound/new/step2', label: 'Chi tiết Lô hàng', icon: 'pi pi-list', component: InboundStep2Page, showInNav: false },
   { path: '/inbound/new/step3', label: 'Số lượng & Chứng từ', icon: 'pi pi-paperclip', component: InboundStep3Page, showInNav: false },
   { path: '/inbound/new/step4', label: 'Xác nhận & Hoàn tất', icon: 'pi pi-check-circle', component: InboundStep4Page, showInNav: false },
-  { path: '/outbound', label: 'Xuất kho', icon: 'pi pi-upload', component: () => <PlaceholderPage title="Xuất kho" /> },
+  { path: '/outbound', label: 'Xuất kho', icon: 'pi pi-upload', component: OutboundListPage },
+  { path: '/outbound/new', label: 'Tạo lệnh xuất mới', icon: 'pi pi-plus', component: OutboundPage, showInNav: false },
+  { path: '/outbound/:orderId/edit', label: 'Chỉnh sửa lệnh xuất', icon: 'pi pi-pencil', component: OutboundPage, showInNav: false },
   { path: '/purchase', label: 'Yêu cầu mua hàng', icon: 'pi pi-shopping-cart', component: PurchaseOrderPage },
   { path: '/catalog', label: 'Danh mục (Catalogs)', icon: 'pi pi-database', component: CatalogPage },
   { path: '/catalog/products/new', label: 'Tạo Product Mới', icon: 'pi pi-plus-circle', component: ProductCreatePage, showInNav: false },
