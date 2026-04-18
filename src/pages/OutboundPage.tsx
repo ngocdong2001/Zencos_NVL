@@ -5,6 +5,7 @@ import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
 import { Tag } from 'primereact/tag'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
+import { Dialog } from 'primereact/dialog'
 import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
 import type { BasicRow, MaterialRow } from '../components/catalog/types'
 import {
@@ -126,7 +127,6 @@ export function OutboundPage() {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
 
-  const [customerOptions, setCustomerOptions] = useState<SelectOption[]>([])
   const [customerRows, setCustomerRows] = useState<BasicRow[]>([])
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
@@ -139,11 +139,13 @@ export function OutboundPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
+  const [newOrderRef, setNewOrderRef] = useState(() => buildOutboundRef())
   const [editingOrderRef, setEditingOrderRef] = useState<string | null>(null)
   const [editingStatus, setEditingStatus] = useState<ExportOrderStatus | null>(null)
   const [canMarkFulfilled, setCanMarkFulfilled] = useState(true)
   const [fulfilBlockedReason, setFulfilBlockedReason] = useState<string | null>(null)
   const [processingAction, setProcessingAction] = useState<'fulfil' | 'cancel' | 'adjust' | null>(null)
+  const [showPrintDialog, setShowPrintDialog] = useState(false)
   const [sourceOrderId, setSourceOrderId] = useState<string | null>(null)
   const [adjustedByOrderId, setAdjustedByOrderId] = useState<string | null>(null)
 
@@ -226,6 +228,20 @@ export function OutboundPage() {
     [customerRows, customerId],
   )
 
+  const customerNameOptions = useMemo(
+    () => customerRows
+      .filter((row) => row.id && row.name)
+      .map((row) => ({ value: row.id, label: row.name })),
+    [customerRows],
+  )
+
+  const customerCodeOptions = useMemo(
+    () => customerRows
+      .filter((row) => row.id)
+      .map((row) => ({ value: row.id, label: row.code?.trim() ? row.code : '---' })),
+    [customerRows],
+  )
+
   /* ── initial data + edit load ── */
   useEffect(() => {
     let cancelled = false
@@ -240,14 +256,6 @@ export function OutboundPage() {
         ])
         if (cancelled) return
 
-        setCustomerOptions(
-          customers
-            .filter((r: BasicRow) => r.id && r.name)
-            .map((r: BasicRow) => ({
-              value: r.id,
-              label: r.code ? `${r.code} - ${r.name}` : r.name,
-            })),
-        )
         setCustomerRows(customers.filter((r: BasicRow) => r.id && r.name))
         setMaterials(catalogMaterials)
         setMaterialOptions(
@@ -643,7 +651,7 @@ export function OutboundPage() {
         : undefined
 
       const payload = {
-        orderRef: isEditMode ? (editingOrderRef ?? undefined) : buildOutboundRef(),
+        orderRef: isEditMode ? (editingOrderRef ?? undefined) : (newOrderRef.trim() || buildOutboundRef()),
         customerId,
         exportedAt: new Date().toISOString(),
         notes: shortageNote,
@@ -654,6 +662,29 @@ export function OutboundPage() {
       const savedOrder = isEditMode && orderId
         ? await updateExportOrder(orderId, payload)
         : await createExportOrder(payload)
+
+      // Nếu tạo mới và không có thiếu hàng → hỏi hoàn thành luôn
+      if (!isEditMode && shortages.length === 0) {
+        setSubmitting(false)
+        showConfirmAction({
+          header: 'Xác nhận hoàn thành',
+          message: `Phiếu ${savedOrder.orderRef ?? `#${savedOrder.id}`} đã được tạo. Bạn có muốn đánh dấu hoàn thành luôn không?`,
+          acceptLabel: 'Hoàn thành luôn',
+          rejectLabel: 'Để sau',
+          onAccept: async () => {
+            try {
+              await fulfilExportOrder(savedOrder.id)
+            } catch {
+              // ignore, still navigate
+            }
+            navigate('/outbound', { state: { createdOrderId: savedOrder.id, createdOrderRef: savedOrder.orderRef } })
+          },
+          onReject: () => {
+            navigate('/outbound', { state: { createdOrderId: savedOrder.id, createdOrderRef: savedOrder.orderRef } })
+          },
+        })
+        return
+      }
 
       navigate('/outbound', { state: { createdOrderId: savedOrder.id, createdOrderRef: savedOrder.orderRef } })
     } catch (error) {
@@ -757,11 +788,23 @@ export function OutboundPage() {
           {watermarkText}
         </div>
       )}
-      <header className="outbound-page-header">
+      <header className="outbound-page-header outbound-page-title-row">
         <div>
           <h1>{isEditMode ? (isLockedEditMode ? 'Chi tiết lệnh xuất kho' : 'Chỉnh sửa lệnh xuất kho') : 'Tạo lệnh xuất kho mới'}</h1>
           <p>{isEditMode ? (isLockedEditMode ? 'Phiếu đang ở chế độ chỉ xem, không cho phép chỉnh sửa.' : 'Cập nhật thông tin và phân bổ lô cho lệnh xuất đã tạo.') : 'Tạo phiếu xuất theo FEFO từ danh sách LOT hiện có.'}</p>
         </div>
+        {isEditMode ? (
+          editingOrderRef ? <span className="inbound-create-code-tag">{editingOrderRef}</span> : null
+        ) : (
+          <span className="inbound-create-code-tag inbound-create-code-editable">
+            <InputText
+              value={newOrderRef}
+              onChange={(e) => setNewOrderRef(e.target.value)}
+              placeholder="Mã lệnh xuất"
+              className="inbound-create-code-input"
+            />
+          </span>
+        )}
       </header>
 
       {(formError || formSuccess) && (
@@ -778,41 +821,60 @@ export function OutboundPage() {
 
       {/* ── Customer card ── */}
       <article className="outbound-card">
-        <h2>Thông tin chung</h2>
-        <label className="outbound-field">
-          <span>Khách hàng hoặc phòng ban</span>
-          <Dropdown
-            value={customerId}
-            options={customerOptions}
-            onChange={(e) => setCustomerId(String(e.value ?? ''))}
-            placeholder="Chọn khách hàng..."
-            className="outbound-dropdown"
-            filter
-            showClear
-            disabled={loading || isLockedEditMode}
-          />
-        </label>
+        <div className="outbound-customer-section-header">
+          <i className="pi pi-info-circle" aria-hidden />
+          <span>1. THÔNG TIN KHÁCH HÀNG</span>
+        </div>
+        <div className="outbound-customer-section-divider" />
 
-        {selectedCustomer && (
-          <div className="outbound-customer-meta">
-            <div>
-              <small>Mã khách hàng</small>
-              <strong>{selectedCustomer.code?.trim() ? selectedCustomer.code : '---'}</strong>
-            </div>
-            <div>
-              <small>Số điện thoại</small>
-              <strong>{selectedCustomer.phone?.trim() ? selectedCustomer.phone : '---'}</strong>
-            </div>
-            <div>
-              <small>Email</small>
-              <strong>{selectedCustomer.email?.trim() ? selectedCustomer.email : '---'}</strong>
-            </div>
-            <div className="outbound-customer-meta-address">
-              <small>Địa chỉ</small>
-              <strong>{selectedCustomer.address?.trim() ? selectedCustomer.address : '---'}</strong>
-            </div>
+        <div className="outbound-customer-select-column">
+          <label className="outbound-field">
+            <span>Mã khách hàng</span>
+            <Dropdown
+              value={customerId}
+              options={customerCodeOptions}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(e) => setCustomerId(String(e.value ?? ''))}
+              placeholder="Chọn mã khách hàng..."
+              className="outbound-dropdown outbound-customer-select"
+              filter
+              showClear
+              disabled={loading || isLockedEditMode}
+            />
+          </label>
+
+          <label className="outbound-field">
+            <span>Khách hàng / Bộ phận nhận</span>
+            <Dropdown
+              value={customerId}
+              options={customerNameOptions}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(e) => setCustomerId(String(e.value ?? ''))}
+              placeholder="Chọn khách hàng..."
+              className="outbound-dropdown outbound-customer-select"
+              filter
+              showClear
+              disabled={loading || isLockedEditMode}
+            />
+          </label>
+        </div>
+
+        <div className="outbound-customer-info-grid">
+          <div className="outbound-customer-info-item">
+            <p className="outbound-customer-info-label"><i className="pi pi-phone" /> Số điện thoại</p>
+            <p className="outbound-customer-info-value">{selectedCustomer?.phone?.trim() ?? '---'}</p>
           </div>
-        )}
+          <div className="outbound-customer-info-item">
+            <p className="outbound-customer-info-label"><i className="pi pi-envelope" /> Email</p>
+            <p className="outbound-customer-info-value">{selectedCustomer?.email?.trim() ?? '---'}</p>
+          </div>
+          <div className="outbound-customer-info-item">
+            <p className="outbound-customer-info-label"><i className="pi pi-map-marker" /> Địa chỉ</p>
+            <p className="outbound-customer-info-value">{selectedCustomer?.address?.trim() ?? '---'}</p>
+          </div>
+        </div>
       </article>
 
       <div className="outbound-layout">
@@ -1103,8 +1165,8 @@ export function OutboundPage() {
       </aside>
       </div>
 
-      {/* ── History panel (edit mode) ── */}
-      {isEditMode && (
+      {/* ── History panel (edit mode / new mode placeholder) ── */}
+      {isEditMode ? (
         <aside className="outbound-history-panel">
           <div className="outbound-history-panel-header">
             <i className="pi pi-history" />
@@ -1116,6 +1178,14 @@ export function OutboundPage() {
             error={historyError}
             emptyMessage="Chưa có lịch sử thao tác cho lệnh xuất kho này."
           />
+        </aside>
+      ) : (
+        <aside className="outbound-history-panel outbound-history-panel-placeholder">
+          <div className="outbound-history-panel-header">
+            <i className="pi pi-history" />
+            <span>LỊCH SỬ THAO TÁC</span>
+          </div>
+          <p className="outbound-history-placeholder-copy">Lịch sử thao tác sẽ hiển thị sau khi lưu phiếu.</p>
         </aside>
       )}
       </div>
@@ -1133,6 +1203,14 @@ export function OutboundPage() {
 
         <div className="outbound-actions">
           <Button label="Quay lại" outlined onClick={() => navigate('/outbound')} />
+          {isFulfilledViewMode && (
+            <Button
+              label="In phiếu"
+              icon="pi pi-print"
+              outlined
+              onClick={() => setShowPrintDialog(true)}
+            />
+          )}
           {isFulfilledViewMode && !sourceOrderId && !adjustedByOrderId && (
             <Button
               label="Void & Tạo phiếu điều chỉnh"
@@ -1175,6 +1253,119 @@ export function OutboundPage() {
           />
         </div>
       </div>
+
+      {/* ── Print: Phiếu Soạn Hàng ── */}
+      <Dialog
+        header={
+          <span className="plp-dialog-header">
+            <i className="pi pi-print" aria-hidden />
+            Xác nhận &amp; In Phiếu Soạn Hàng (Picking List)
+          </span>
+        }
+        visible={showPrintDialog}
+        onHide={() => setShowPrintDialog(false)}
+        style={{ width: '720px' }}
+        className="plp-dialog"
+        footer={
+          <div className="plp-dialog-footer">
+            <Button label="Quay lại chỉnh sửa" outlined onClick={() => setShowPrintDialog(false)} />
+            <Button label="Tải/In PDF" icon="pi pi-print" onClick={() => window.print()} />
+          </div>
+        }
+      >
+        <p className="plp-dialog-subtitle">
+          Vui lòng kiểm tra kỹ danh sách các lô hàng đã phân bổ trước khi xác nhận trừ kho.
+        </p>
+
+        <div id="picking-list-printable" className="plp-sheet">
+          {/* ── Sheet header ── */}
+          <div className="plp-sheet-header">
+            <div className="plp-brand">
+              <strong className="plp-brand-name">ZENCOS MS</strong>
+              <span className="plp-brand-tagline">Hệ thống Quản lý Nguyên liệu chuyên sâu</span>
+            </div>
+            <div className="plp-title-block">
+              <h2 className="plp-title">PHIẾU SOẠN HÀNG</h2>
+              <p className="plp-ref">Mã phiếu: {editingOrderRef ?? '---'}</p>
+              <p className="plp-date">Ngày: {new Date().toLocaleDateString('vi-VN')}</p>
+            </div>
+          </div>
+
+          <div className="plp-divider" />
+
+          {/* ── Customer info (once) ── */}
+          <div className="plp-meta-customer plp-meta-customer-once">
+            <p className="plp-meta-label"><i className="pi pi-user" aria-hidden /> Khách hàng nhận:</p>
+            <strong className="plp-meta-value">{selectedCustomer?.name?.trim() ?? 'Chưa xác định'}</strong>
+            {selectedCustomer?.address?.trim() && (
+              <p className="plp-meta-sub">{selectedCustomer.address.trim()}</p>
+            )}
+          </div>
+
+          {/* ── Per-material sections ── */}
+          {lines.map((line) => {
+            const mat = materials.find((m) => m.id === line.materialId)
+            if (!mat) return null
+            const totalQty = line.allocationRows.reduce((s, r) => s + r.exportQty, 0)
+            return (
+              <div key={line.key} className="plp-material-section">
+                <div className="plp-meta-material">
+                  <p className="plp-meta-label">Nguyên liệu:</p>
+                  <strong className="plp-meta-value">{mat.materialName}</strong>
+                  <p className="plp-meta-sub">Mã: {mat.code}</p>
+                </div>
+
+                <table className="plp-table">
+                  <thead>
+                    <tr>
+                      <th>STT</th>
+                      <th>SỐ LÔ (LOT NO)</th>
+                      <th>HẠN SỬ DỤNG</th>
+                      <th>SỐ LƯỢNG</th>
+                      <th>SOẠN XONG</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {line.allocationRows.map((row, i) => (
+                      <tr key={row.batchId}>
+                        <td className="plp-td-center">{i + 1}</td>
+                        <td>{row.lotNo}</td>
+                        <td>{formatDateVi(row.expiryDate)}</td>
+                        <td className="plp-td-right">{formatQuantity(row.exportQty)} {mat.unit}</td>
+                        <td className="plp-td-center"><span className="plp-checkbox-placeholder" aria-hidden /></td>
+                      </tr>
+                    ))}
+                    <tr className="plp-total-row">
+                      <td colSpan={3}><strong>TỔNG CỘNG XUẤT</strong></td>
+                      <td className="plp-total-qty">{formatQuantity(totalQty)} {mat.unit}</td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )
+          })}
+
+          <div className="plp-divider" />
+
+          {/* ── Signature ── */}
+          <div className="plp-signature-row">
+            <div className="plp-signature-col">
+              <p className="plp-sig-role">NGƯỜI LẬP LỆNH</p>
+              <div className="plp-sig-space" />
+              <strong className="plp-sig-name">Admin Zencos</strong>
+            </div>
+            <div className="plp-signature-col">
+              <p className="plp-sig-role">THỦ KHO XÁC NHẬN</p>
+              <div className="plp-sig-space" />
+            </div>
+            <div className="plp-signature-col">
+              <p className="plp-sig-role">NGƯỜI NHẬN HÀNG</p>
+              <div className="plp-sig-space" />
+            </div>
+          </div>
+        </div>
+      </Dialog>
     </section>
   )
 }

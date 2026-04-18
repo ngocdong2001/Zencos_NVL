@@ -43,7 +43,7 @@ type SelectOption = {
   expectedDate?: string
 }
 
-const INBOUND_ELIGIBLE_PO_STATUSES = new Set(['submitted', 'approved', 'ordered'])
+const INBOUND_ELIGIBLE_PO_STATUSES = new Set(['submitted', 'approved', 'ordered', 'partially_received'])
 
 function normalizeApiDate(value?: string | null): string {
   if (!value) return ''
@@ -253,7 +253,7 @@ export function InboundStep1Page() {
             value: row.requestRef,
             label: row.supplier?.name ? `${row.requestRef} - ${row.supplier.name}` : row.requestRef,
             poStatus: row.status,
-            poConditionLabel: row.status === 'ordered' ? 'Nhận 1 phần hàng' : 'New',
+            poConditionLabel: row.status === 'partially_received' ? 'Nhận 1 phần hàng' : 'New',
             supplierName: row.supplier?.name ?? '',
             warehouseId: row.receivingLocation?.id ?? '',
             warehouseName: row.receivingLocation?.name ?? '',
