@@ -9,6 +9,7 @@ import { Dropdown } from 'primereact/dropdown'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import {
   cancelExportOrder,
+  createExportVoidRerelease,
   fetchExportOrderDetail,
   fetchExportOrders,
   fulfilExportOrder,
@@ -32,6 +33,8 @@ type OutboundRow = {
   itemCount: number
   totalQty: number
   status: ExportOrderStatus
+  sourceOrderId: string | null
+  adjustedByOrderId: string | null
   canFulfil: boolean
   fulfilBlockedReason: string | null
 }
@@ -101,18 +104,42 @@ function toNumeric(value: unknown): number {
 
 function mapOutboundRow(row: ExportOrderListRow): OutboundRow {
   const exportedDate = row.exportedAt ? row.exportedAt.slice(0, 10) : row.createdAt.slice(0, 10)
+  const uniqueProductCount = new Set(row.items.map((item) => item.product.id)).size
+  const itemsByProduct = new Map<string, ExportOrderListRow['items']>()
+  for (const item of row.items) {
+    const key = item.product.id
+    const bucket = itemsByProduct.get(key)
+    if (bucket) {
+      bucket.push(item)
+    } else {
+      itemsByProduct.set(key, [item])
+    }
+  }
+
+  const totalQty = Array.from(itemsByProduct.values()).reduce((sum, productItems) => {
+    const summaryRow = productItems.find((item) => !item.batchId)
+    if (summaryRow) return sum + toNumeric(summaryRow.quantityBase)
+    return sum + productItems.reduce((inner, item) => inner + toNumeric(item.quantityBase), 0)
+  }, 0)
+
   return {
     id: row.id,
     code: row.orderRef ?? `XK-${row.id}`,
     exportedDate,
     createdAt: row.createdAt,
     customer: row.customer?.name ?? '---',
-    itemCount: row.items.length,
-    totalQty: row.items.reduce((sum, item) => sum + toNumeric(item.quantityBase), 0),
+    itemCount: uniqueProductCount,
+    totalQty,
     status: row.status,
+    sourceOrderId: row.sourceOrderId ?? null,
+    adjustedByOrderId: row.adjustedByOrderId ?? null,
     canFulfil: row.canFulfil ?? true,
     fulfilBlockedReason: row.fulfilBlockedReason ?? null,
   }
+}
+
+function canCreateAdjustment(row: OutboundRow): boolean {
+  return row.status === 'fulfilled' && !row.adjustedByOrderId && !row.sourceOrderId
 }
 
 export function OutboundListPage() {
@@ -136,6 +163,10 @@ export function OutboundListPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [detailData, setDetailData] = useState<ExportOrderDetail | null>(null)
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null)
+  const detailLotItems = useMemo(
+    () => (detailData ? detailData.items.filter((item) => Boolean(item.batch)) : []),
+    [detailData],
+  )
 
   const refreshHistory = async () => {
     setLoading(true)
@@ -275,6 +306,25 @@ export function OutboundListPage() {
     }
   }
 
+  const processCreateAdjustment = async (orderId: string) => {
+    setProcessingOrderId(orderId)
+    setError(null)
+    setDetailError(null)
+    try {
+      const created = await createExportVoidRerelease(orderId)
+      await refreshHistory()
+      navigate(`/outbound/${created.id}/edit`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không thể tạo phiếu điều chỉnh.'
+      setError(message)
+      if (detailData?.id === orderId) {
+        setDetailError(message)
+      }
+    } finally {
+      setProcessingOrderId(null)
+    }
+  }
+
   const confirmFulfilOrder = (row: OutboundRow) => {
     showConfirmAction({
       header: 'Xác nhận hoàn thành lệnh xuất',
@@ -315,6 +365,28 @@ export function OutboundListPage() {
       acceptLabel: 'Hủy lệnh',
       onAccept: () => {
         void processStatus(orderId, 'cancel')
+      },
+    })
+  }
+
+  const confirmCreateAdjustment = (row: OutboundRow) => {
+    showConfirmAction({
+      header: 'Xác nhận Void & điều chỉnh',
+      message: `Tạo phiếu điều chỉnh từ lệnh ${row.code}? Hệ thống sẽ void phiếu gốc khi bạn hoàn thành phiếu điều chỉnh mới.`,
+      acceptLabel: 'Tạo phiếu điều chỉnh',
+      onAccept: () => {
+        void processCreateAdjustment(row.id)
+      },
+    })
+  }
+
+  const confirmCreateAdjustmentByInfo = (orderId: string, orderCode: string) => {
+    showConfirmAction({
+      header: 'Xác nhận Void & điều chỉnh',
+      message: `Tạo phiếu điều chỉnh từ lệnh ${orderCode}? Hệ thống sẽ void phiếu gốc khi bạn hoàn thành phiếu điều chỉnh mới.`,
+      acceptLabel: 'Tạo phiếu điều chỉnh',
+      onAccept: () => {
+        void processCreateAdjustment(orderId)
       },
     })
   }
@@ -511,6 +583,19 @@ export function OutboundListPage() {
                       />
                     </>
                   ) : null}
+                  {canCreateAdjustment(row) ? (
+                    <Button
+                      type="button"
+                      icon="pi pi-history"
+                      text
+                      className="icon-btn"
+                      aria-label="Tạo phiếu điều chỉnh"
+                      tooltip="Void & tạo phiếu điều chỉnh"
+                      tooltipOptions={{ position: 'top' }}
+                      onClick={() => confirmCreateAdjustment(row)}
+                      disabled={isProcessing}
+                    />
+                  ) : null}
                 </span>
               )
             }}
@@ -575,6 +660,13 @@ export function OutboundListPage() {
               </div>
             </div>
 
+            {detailData.sourceOrder && (
+              <p className="purchase-side-note">Phiếu điều chỉnh từ: <strong>{detailData.sourceOrder.orderRef ?? `#${detailData.sourceOrder.id}`}</strong></p>
+            )}
+            {detailData.adjustedByOrder && (
+              <p className="purchase-side-note">Đã có phiếu điều chỉnh: <strong>{detailData.adjustedByOrder.orderRef ?? `#${detailData.adjustedByOrder.id}`}</strong></p>
+            )}
+
             {detailData.status === 'pending' && (
               <div className="outbound-status-actions outbound-status-actions-detail">
                 <Button
@@ -594,8 +686,21 @@ export function OutboundListPage() {
                 />
               </div>
             )}
+            {detailData.status === 'fulfilled' && !detailData.adjustedByOrder && !detailData.sourceOrder && (
+              <div className="outbound-status-actions outbound-status-actions-detail">
+                <Button
+                  type="button"
+                  label="Void & Tạo phiếu điều chỉnh"
+                  icon="pi pi-history"
+                  outlined
+                  onClick={() => confirmCreateAdjustmentByInfo(detailData.id, detailData.orderRef ?? `XK-${detailData.id}`)}
+                  loading={processingOrderId === detailData.id}
+                  disabled={processingOrderId === detailData.id}
+                />
+              </div>
+            )}
 
-            <DataTable value={detailData.items} emptyMessage="Không có dòng hàng nào.">
+            <DataTable value={detailLotItems} emptyMessage="Không có dòng lô nào.">
               <Column header="Nguyên liệu" body={(row: ExportOrderDetail['items'][number]) => `${row.product.code} - ${row.product.name}`} />
               <Column header="LOT" body={(row: ExportOrderDetail['items'][number]) => row.batch?.lotNo ?? '---'} />
               <Column header="Hạn dùng" body={(row: ExportOrderDetail['items'][number]) => formatDateVi(row.batch?.expiryDate ?? null)} />

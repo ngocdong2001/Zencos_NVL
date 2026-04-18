@@ -112,6 +112,7 @@ model User {
   createdInboundReceipts InboundReceipt[] @relation("InboundReceiptCreatedBy")
   postedInboundReceipts InboundReceipt[] @relation("InboundReceiptPostedBy")
   inboundReceiptHistoryEntries InboundReceiptHistory[] @relation("InboundReceiptHistoryActor")
+  exportOrderHistoryEntries ExportOrderHistory[] @relation("ExportOrderHistoryActor")
   createdOpeningStockDeclarations OpeningStockDeclaration[] @relation("OpeningStockCreatedBy")
   postedOpeningStockDeclarations  OpeningStockDeclaration[] @relation("OpeningStockPostedBy")
   notifications Notification[]
@@ -277,6 +278,8 @@ model BatchDocument {
 model ExportOrder {
   id          BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
   customerId  BigInt?           @map("customer_id") @db.UnsignedBigInt
+  sourceOrderId BigInt?         @map("source_order_id") @db.UnsignedBigInt
+  adjustedByOrderId BigInt?     @map("adjusted_by_order_id") @db.UnsignedBigInt
   orderRef    String?           @map("order_ref") @db.VarChar(100)
   exportedAt  DateTime?         @map("exported_at")
   createdBy   BigInt            @map("created_by") @db.UnsignedBigInt
@@ -285,11 +288,36 @@ model ExportOrder {
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
   customer    Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sourceOrder ExportOrder?      @relation("ExportOrderAdjustmentSource", fields: [sourceOrderId], references: [id], onDelete: SetNull)
+  adjustedByOrder ExportOrder?  @relation("ExportOrderAdjustmentTarget", fields: [adjustedByOrderId], references: [id], onDelete: SetNull)
+  adjustmentOrders ExportOrder[] @relation("ExportOrderAdjustmentSource")
+  adjustedOrders ExportOrder[]  @relation("ExportOrderAdjustmentTarget")
   creator     User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   items       ExportOrderItem[]
   purchaseRequests PurchaseRequest[]
+  historyEntries ExportOrderHistory[]
 
+  @@index([sourceOrderId])
+  @@index([adjustedByOrderId])
+  @@unique([sourceOrderId])
+  @@unique([adjustedByOrderId])
   @@map("export_orders")
+}
+
+model ExportOrderHistory {
+  id             BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  exportOrderId  BigInt      @map("export_order_id") @db.UnsignedBigInt
+  actionType     String      @map("action_type") @db.VarChar(100)
+  actionLabel    String      @map("action_label") @db.VarChar(255)
+  actorId        BigInt      @map("actor_id") @db.UnsignedBigInt
+  data           Json?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  exportOrder    ExportOrder @relation(fields: [exportOrderId], references: [id], onDelete: Cascade)
+  actor          User        @relation("ExportOrderHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([exportOrderId])
+  @@index([createdAt])
+  @@map("export_order_history")
 }
 
 model ExportOrderItem {

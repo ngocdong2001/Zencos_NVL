@@ -32,12 +32,16 @@ function formatHistoryDateTime(raw: string) {
 function mapHistoryStyle(actionType: string) {
   if (actionType === 'created') return { tone: 'tone-created', icon: 'pi pi-file-edit', badge: 'Tạo mới' }
   if (actionType === 'updated') return { tone: 'tone-updated', icon: 'pi pi-pencil', badge: 'Cập nhật' }
+  if (actionType === 'fulfilled') return { tone: 'tone-received', icon: 'pi pi-check-circle', badge: 'Hoàn thành' }
+  if (actionType === 'cancelled' || actionType === 'canceled') return { tone: 'tone-cancelled', icon: 'pi pi-times-circle', badge: 'Đã hủy' }
   if (actionType === 'submitted') return { tone: 'tone-submitted', icon: 'pi pi-send', badge: 'Đã gửi' }
   if (actionType === 'approved') return { tone: 'tone-approved', icon: 'pi pi-check-circle', badge: 'Đã duyệt' }
   if (actionType === 'ordered') return { tone: 'tone-ordered', icon: 'pi pi-shopping-cart', badge: 'Đặt hàng' }
   if (actionType === 'received') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã nhận' }
   if (actionType === 'qc_reviewed') return { tone: 'tone-approved', icon: 'pi pi-verified', badge: 'QC kiểm tra' }
   if (actionType === 'posted') return { tone: 'tone-received', icon: 'pi pi-check-square', badge: 'Đã posted' }
+  if (actionType === 'adjustment_created') return { tone: 'tone-ordered', icon: 'pi pi-history', badge: 'Tạo điều chỉnh' }
+  if (actionType === 'adjusted') return { tone: 'tone-approved', icon: 'pi pi-sync', badge: 'Đã void điều chỉnh' }
   if (actionType === 'adjustment_restored') return { tone: 'tone-approved', icon: 'pi pi-history', badge: 'Đã phục hồi' }
   return { tone: 'tone-cancelled', icon: 'pi pi-times-circle', badge: 'Đã hủy' }
 }

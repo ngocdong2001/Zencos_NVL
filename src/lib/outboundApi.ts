@@ -65,6 +65,8 @@ export type ExportOrderListRow = {
   id: string
   orderRef: string | null
   status: ExportOrderStatus
+  sourceOrderId?: string | null
+  adjustedByOrderId?: string | null
   canFulfil?: boolean
   fulfilBlockedReason?: string | null
   exportedAt: string | null
@@ -75,6 +77,7 @@ export type ExportOrderListRow = {
   } | null
   items: Array<{
     id: string
+    batchId?: string | null
     product: {
       id: string
       code: string
@@ -96,6 +99,16 @@ export type ExportOrderDetail = {
   id: string
   orderRef: string | null
   status: ExportOrderStatus
+  sourceOrder: {
+    id: string
+    orderRef: string | null
+    status: ExportOrderStatus
+  } | null
+  adjustedByOrder: {
+    id: string
+    orderRef: string | null
+    status: ExportOrderStatus
+  } | null
   exportedAt: string | null
   createdAt: string
   notes: string | null
@@ -203,4 +216,23 @@ export async function cancelExportOrder(orderId: string): Promise<ExportOrderDet
   return http<ExportOrderDetail>(`/api/sales/${encodeURIComponent(orderId)}/cancel`, {
     method: 'PATCH',
   })
+}
+
+export async function createExportVoidRerelease(orderId: string): Promise<CreateExportOrderResponse> {
+  return http<CreateExportOrderResponse>(`/api/sales/${encodeURIComponent(orderId)}/void-rerelease`, {
+    method: 'POST',
+  })
+}
+
+export type ExportOrderHistoryRow = {
+  id: string
+  actionType: string
+  actionLabel: string
+  actorName: string
+  createdAt: string
+  data: Record<string, unknown> | null
+}
+
+export async function fetchExportOrderHistory(orderId: string): Promise<ExportOrderHistoryRow[]> {
+  return http<ExportOrderHistoryRow[]>(`/api/sales/${encodeURIComponent(orderId)}/history`)
 }

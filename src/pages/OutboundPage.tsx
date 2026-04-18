@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Dropdown } from 'primereact/dropdown'
@@ -10,7 +10,9 @@ import type { BasicRow, MaterialRow } from '../components/catalog/types'
 import {
   cancelExportOrder,
   createExportOrder,
+  createExportVoidRerelease,
   fetchExportOrderDetail,
+  fetchExportOrderHistory,
   fetchFefoSuggestions,
   fetchInventoryStock,
   fulfilExportOrder,
@@ -20,6 +22,7 @@ import {
 } from '../lib/outboundApi'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../components/purchaseOrder/format'
 import { showConfirmAction, showDangerConfirm } from '../lib/confirm'
+import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 
 type SelectOption = { label: string; value: string }
 
@@ -120,7 +123,11 @@ export function OutboundPage() {
   const { orderId } = useParams<{ orderId: string }>()
   const isEditMode = Boolean(orderId)
 
+  const fefoWrapRef = useRef<HTMLDivElement>(null)
+  const fefoPanelRef = useRef<HTMLElement>(null)
+
   const [customerOptions, setCustomerOptions] = useState<SelectOption[]>([])
+  const [customerRows, setCustomerRows] = useState<BasicRow[]>([])
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
 
@@ -136,7 +143,62 @@ export function OutboundPage() {
   const [editingStatus, setEditingStatus] = useState<ExportOrderStatus | null>(null)
   const [canMarkFulfilled, setCanMarkFulfilled] = useState(true)
   const [fulfilBlockedReason, setFulfilBlockedReason] = useState<string | null>(null)
-  const [processingAction, setProcessingAction] = useState<'fulfil' | 'cancel' | null>(null)
+  const [processingAction, setProcessingAction] = useState<'fulfil' | 'cancel' | 'adjust' | null>(null)
+  const [sourceOrderId, setSourceOrderId] = useState<string | null>(null)
+  const [adjustedByOrderId, setAdjustedByOrderId] = useState<string | null>(null)
+
+  const [historyEvents, setHistoryEvents] = useState<HistoryTimelineEvent[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const isLockedEditMode = isEditMode && (editingStatus === 'fulfilled' || editingStatus === 'cancelled')
+  const isFulfilledViewMode = isEditMode && editingStatus === 'fulfilled'
+  const isCancelledViewMode = isEditMode && editingStatus === 'cancelled'
+
+  const loadHistory = async (id: string) => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const rows = await fetchExportOrderHistory(id)
+      setHistoryEvents(rows.map((r) => ({
+        id: r.id,
+        actionType: r.actionType,
+        action: r.actionLabel,
+        actorName: r.actorName,
+        at: r.createdAt,
+      })))
+    } catch (err) {
+      setHistoryEvents([])
+      setHistoryError(err instanceof Error ? err.message : 'Không thể tải lịch sử thao tác.')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  /* ── JS-based sticky for FEFO panel (bypass CSS overflow blocking) ── */
+  useEffect(() => {
+    const wrap = fefoWrapRef.current
+    const panel = fefoPanelRef.current
+    if (!wrap || !panel) return
+
+    const OFFSET_TOP = 16
+
+    const updatePosition = () => {
+      const wrapRect = wrap.getBoundingClientRect()
+      const maxTranslate = Math.max(0, wrap.offsetHeight - panel.offsetHeight)
+      const rawTranslate = Math.max(0, OFFSET_TOP - wrapRect.top)
+      const translate = Math.min(rawTranslate, maxTranslate)
+      panel.style.transform = translate > 0 ? `translateY(${translate}px)` : ''
+    }
+
+    window.addEventListener('scroll', updatePosition, { passive: true })
+    window.addEventListener('resize', updatePosition, { passive: true })
+    updatePosition()
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [])
 
   /* ── derived values for FEFO sidebar (active line) ── */
   const activeLine = lines[activeLineIdx] ?? lines[0] ?? null
@@ -150,12 +212,18 @@ export function OutboundPage() {
   )
 
   const updateLine = (idx: number, updater: (line: MaterialLine) => MaterialLine) => {
+    if (isLockedEditMode) return
     setLines((prev) => prev.map((l, i) => (i === idx ? updater(l) : l)))
   }
 
   const usedMaterialIds = useMemo(
     () => new Set(lines.map((l) => l.materialId).filter(Boolean)),
     [lines],
+  )
+
+  const selectedCustomer = useMemo(
+    () => customerRows.find((row) => row.id === customerId) ?? null,
+    [customerRows, customerId],
   )
 
   /* ── initial data + edit load ── */
@@ -180,6 +248,7 @@ export function OutboundPage() {
               label: r.code ? `${r.code} - ${r.name}` : r.name,
             })),
         )
+        setCustomerRows(customers.filter((r: BasicRow) => r.id && r.name))
         setMaterials(catalogMaterials)
         setMaterialOptions(
           catalogMaterials.map((r) => ({
@@ -192,12 +261,10 @@ export function OutboundPage() {
           const detail = await fetchExportOrderDetail(orderId)
           if (cancelled) return
 
-          if (detail.status === 'cancelled') {
-            setFormError('Không thể chỉnh sửa phiếu đã huỷ.')
-            return
-          }
-
           setEditingStatus(detail.status)
+          setSourceOrderId(detail.sourceOrder?.id ?? null)
+          setAdjustedByOrderId(detail.adjustedByOrder?.id ?? null)
+          setFormSuccess(null)
           setEditingOrderRef(detail.orderRef)
           setCustomerId(detail.customer?.id ?? '')
 
@@ -270,15 +337,35 @@ export function OutboundPage() {
 
           const finalLines = editLines.map((line, i) => {
             const { stock, fefo } = stockResults[i]
-            const stockMap = new Map(stock.map((lot) => [lot.id, toNumeric(lot.currentQtyBase)]))
+            const allocatedByBatch = new Map<string, number>()
+            for (const row of line.allocationRows) {
+              allocatedByBatch.set(row.batchId, (allocatedByBatch.get(row.batchId) ?? 0) + row.exportQty)
+            }
+            const shouldRestoreCurrentOrderAllocation = detail.status === 'fulfilled'
+
+            // Restore current order allocation only for fulfilled orders.
+            // Pending drafts no longer deduct stock, so we keep API stock as-is.
+            const restoredStock = stock.map((lot) => ({
+              ...lot,
+              currentQtyBase: toNumeric(lot.currentQtyBase)
+                + (shouldRestoreCurrentOrderAllocation ? (allocatedByBatch.get(lot.id) ?? 0) : 0),
+            }))
+
+            const restoredFefo = fefo.map((lot) => ({
+              ...lot,
+              currentQtyBase: toNumeric(lot.currentQtyBase)
+                + (shouldRestoreCurrentOrderAllocation ? (allocatedByBatch.get(lot.id) ?? 0) : 0),
+            }))
+
+            const stockMap = new Map(restoredStock.map((lot) => [lot.id, toNumeric(lot.currentQtyBase)]))
             return {
               ...line,
-              stockRows: stock,
-              fefoSuggestions: fefo,
+              stockRows: restoredStock,
+              fefoSuggestions: restoredFefo,
               stockLoading: false,
               allocationRows: line.allocationRows.map((row) => ({
                 ...row,
-                availableQty: (stockMap.get(row.batchId) ?? 0) + row.exportQty,
+                availableQty: stockMap.get(row.batchId) ?? row.exportQty,
               })),
             }
           })
@@ -298,13 +385,23 @@ export function OutboundPage() {
     return () => { cancelled = true }
   }, [isEditMode, orderId])
 
+  useEffect(() => {
+    if (!orderId) {
+      setHistoryEvents([])
+      return
+    }
+    void loadHistory(orderId)
+  }, [orderId])
+
   /* ── line management ── */
   const addLine = () => {
+    if (isLockedEditMode) return
     setLines((prev) => [...prev, createEmptyLine()])
     setActiveLineIdx(lines.length)
   }
 
   const removeLine = (idx: number) => {
+    if (isLockedEditMode) return
     if (lines.length <= 1) return
     setLines((prev) => prev.filter((_, i) => i !== idx))
     setActiveLineIdx((prev) => {
@@ -316,6 +413,7 @@ export function OutboundPage() {
   }
 
   const handleLineMaterialChange = async (idx: number, newMaterialId: string) => {
+    if (isLockedEditMode) return
     updateLine(idx, (l) => ({
       ...l,
       materialId: newMaterialId,
@@ -343,10 +441,12 @@ export function OutboundPage() {
 
   /* ── per-line qty ── */
   const handleLineQtyChange = (idx: number, raw: string) => {
+    if (isLockedEditMode) return
     updateLine(idx, (l) => ({ ...l, requestedQtyInput: raw }))
   }
 
   const handleLineQtyFocus = (idx: number) => {
+    if (isLockedEditMode) return
     setActiveLineIdx(idx)
     updateLine(idx, (l) => ({
       ...l,
@@ -356,6 +456,7 @@ export function OutboundPage() {
   }
 
   const handleLineQtyBlur = (idx: number) => {
+    if (isLockedEditMode) return
     const line = lines[idx]
     if (!line) return
     const raw = line.requestedQtyInput.trim()
@@ -381,6 +482,7 @@ export function OutboundPage() {
 
   /* ── per-line allocation ── */
   const applyFefoAutoAllocation = (idx: number) => {
+    if (isLockedEditMode) return
     const line = lines[idx]
     if (!line || line.requestedQtyValue <= 0) {
       setFormError('Vui lòng nhập số lượng yêu cầu trước khi phân bổ FEFO.')
@@ -409,6 +511,7 @@ export function OutboundPage() {
   }
 
   const addLotToLine = (idx: number, lot: InventoryStockBatch) => {
+    if (isLockedEditMode) return
     updateLine(idx, (l) => {
       if (l.allocationRows.some((r) => r.batchId === lot.id)) return l
       const prevAllocated = l.allocationRows.reduce((s, r) => s + r.exportQty, 0)
@@ -433,10 +536,12 @@ export function OutboundPage() {
   }
 
   const removeAllocationRow = (lineIdx: number, batchId: string) => {
+    if (isLockedEditMode) return
     updateLine(lineIdx, (l) => ({ ...l, allocationRows: l.allocationRows.filter((r) => r.batchId !== batchId) }))
   }
 
   const updateAllocationInput = (lineIdx: number, batchId: string, raw: string) => {
+    if (isLockedEditMode) return
     updateLine(lineIdx, (l) => ({
       ...l,
       allocationRows: l.allocationRows.map((r) => (r.batchId === batchId ? { ...r, inputValue: raw } : r)),
@@ -444,6 +549,7 @@ export function OutboundPage() {
   }
 
   const commitAllocationInput = (lineIdx: number, batchId: string) => {
+    if (isLockedEditMode) return
     updateLine(lineIdx, (l) => ({
       ...l,
       allocationRows: l.allocationRows.map((r) => {
@@ -500,6 +606,10 @@ export function OutboundPage() {
 
   /* ── submit ── */
   const submitExport = async () => {
+    if (isLockedEditMode) {
+      setFormError(editingStatus === 'cancelled' ? 'Phiếu đã hủy nên không thể chỉnh sửa.' : 'Phiếu đã hoàn thành nên không thể chỉnh sửa.')
+      return
+    }
     if (!validateBeforeSubmit()) return
     if (isEditMode && !orderId) return
 
@@ -603,15 +713,54 @@ export function OutboundPage() {
     })
   }
 
+  const triggerCreateAdjustmentOrder = () => {
+    if (!isEditMode || !orderId) return
+    if (!isFulfilledViewMode) {
+      setFormError('Chỉ tạo điều chỉnh từ phiếu đã hoàn thành.')
+      return
+    }
+    if (sourceOrderId || adjustedByOrderId) {
+      setFormError('Phiếu này đã thuộc luồng điều chỉnh hoặc đã có phiếu điều chỉnh.')
+      return
+    }
+
+    showConfirmAction({
+      header: 'Xác nhận Void & điều chỉnh',
+      message: `Tạo phiếu điều chỉnh từ lệnh ${editingOrderRef ?? `#${orderId}`}? Hệ thống sẽ void phiếu gốc khi bạn hoàn thành phiếu điều chỉnh mới.`,
+      acceptLabel: 'Tạo phiếu điều chỉnh',
+      onAccept: () => {
+        void (async () => {
+          try {
+            setProcessingAction('adjust')
+            setFormError(null)
+            const created = await createExportVoidRerelease(orderId)
+            navigate(`/outbound/${created.id}/edit`)
+          } catch (error) {
+            setFormError(error instanceof Error ? error.message : 'Không thể tạo phiếu điều chỉnh.')
+          } finally {
+            setProcessingAction(null)
+          }
+        })()
+      },
+    })
+  }
+
   /* ── render ── */
   const anyStockLoading = lines.some((l) => l.stockLoading)
+  const watermarkText = isFulfilledViewMode ? 'ĐÃ HOÀN THÀNH' : (isCancelledViewMode ? 'ĐÃ HỦY' : null)
+  const watermarkClass = isFulfilledViewMode ? 'fulfilled' : (isCancelledViewMode ? 'cancelled' : '')
 
   return (
     <section className="outbound-page">
+      {watermarkText && (
+        <div className={`outbound-status-watermark ${watermarkClass}`} aria-hidden>
+          {watermarkText}
+        </div>
+      )}
       <header className="outbound-page-header">
         <div>
-          <h1>{isEditMode ? 'Chỉnh sửa lệnh xuất kho' : 'Tạo lệnh xuất kho mới'}</h1>
-          <p>{isEditMode ? 'Cập nhật thông tin và phân bổ lô cho lệnh xuất đã tạo.' : 'Tạo phiếu xuất theo FEFO từ danh sách LOT hiện có.'}</p>
+          <h1>{isEditMode ? (isLockedEditMode ? 'Chi tiết lệnh xuất kho' : 'Chỉnh sửa lệnh xuất kho') : 'Tạo lệnh xuất kho mới'}</h1>
+          <p>{isEditMode ? (isLockedEditMode ? 'Phiếu đang ở chế độ chỉ xem, không cho phép chỉnh sửa.' : 'Cập nhật thông tin và phân bổ lô cho lệnh xuất đã tạo.') : 'Tạo phiếu xuất theo FEFO từ danh sách LOT hiện có.'}</p>
         </div>
       </header>
 
@@ -640,9 +789,30 @@ export function OutboundPage() {
             className="outbound-dropdown"
             filter
             showClear
-            disabled={loading}
+            disabled={loading || isLockedEditMode}
           />
         </label>
+
+        {selectedCustomer && (
+          <div className="outbound-customer-meta">
+            <div>
+              <small>Mã khách hàng</small>
+              <strong>{selectedCustomer.code?.trim() ? selectedCustomer.code : '---'}</strong>
+            </div>
+            <div>
+              <small>Số điện thoại</small>
+              <strong>{selectedCustomer.phone?.trim() ? selectedCustomer.phone : '---'}</strong>
+            </div>
+            <div>
+              <small>Email</small>
+              <strong>{selectedCustomer.email?.trim() ? selectedCustomer.email : '---'}</strong>
+            </div>
+            <div className="outbound-customer-meta-address">
+              <small>Địa chỉ</small>
+              <strong>{selectedCustomer.address?.trim() ? selectedCustomer.address : '---'}</strong>
+            </div>
+          </div>
+        )}
       </article>
 
       <div className="outbound-layout">
@@ -683,7 +853,7 @@ export function OutboundPage() {
                       className="ob-drill-dropdown"
                       filter
                       showClear
-                      disabled={loading}
+                      disabled={loading || isLockedEditMode}
                     />
                   </div>
 
@@ -706,6 +876,7 @@ export function OutboundPage() {
                           onBlur={() => handleLineQtyBlur(idx)}
                           placeholder="Nhập SL"
                           className="ob-drill-qty-input"
+                          disabled={isLockedEditMode}
                         />
                       </div>
                       <div className="ob-drill-stock-info">
@@ -719,7 +890,7 @@ export function OutboundPage() {
                         rounded
                         size="small"
                         onClick={() => applyFefoAutoAllocation(idx)}
-                        disabled={!line.materialId || line.requestedQtyValue <= 0 || d.lots.length === 0}
+                        disabled={isLockedEditMode || !line.materialId || line.requestedQtyValue <= 0 || d.lots.length === 0}
                         tooltip="Tự phân bổ FEFO"
                         tooltipOptions={{ position: 'top' }}
                       />
@@ -738,6 +909,7 @@ export function OutboundPage() {
                             type="button"
                             className="ob-drill-fefo-hint-btn"
                             onClick={() => addLotToLine(idx, lot)}
+                            disabled={isLockedEditMode}
                             title={`${lot.lotNo} \u2013 T\u1ed3n: ${formatQuantity(toNumeric(lot.currentQtyBase))} \u2013 HSD: ${formatDateVi(lot.expiryDate)}`}
                           >
                             <Tag value={lot.lotNo} severity={expTag.severity === 'danger' ? 'danger' : expTag.severity === 'warning' ? 'warning' : 'success'} />
@@ -771,6 +943,7 @@ export function OutboundPage() {
                         <Checkbox
                           checked={line.shortageAcknowledged}
                           onChange={(e: CheckboxChangeEvent) => updateLine(idx, (l) => ({ ...l, shortageAcknowledged: Boolean(e.checked) }))}
+                          disabled={isLockedEditMode}
                         />
                         <span>Xác nhận xuất thiếu</span>
                       </label>
@@ -788,6 +961,7 @@ export function OutboundPage() {
                       onClick={(e) => { e.stopPropagation(); removeLine(idx) }}
                       aria-label={`Xóa dòng ${idx + 1}`}
                       title="Xóa dòng"
+                      disabled={isLockedEditMode}
                     >
                       <i className="pi pi-trash" style={{ color: '#ef4444', fontSize: '0.85rem' }} />
                     </button>
@@ -832,6 +1006,7 @@ export function OutboundPage() {
                               onBlur={() => commitAllocationInput(idx, row.batchId)}
                               placeholder="0"
                               className="ob-drill-branch-input"
+                              disabled={isLockedEditMode}
                             />
                           </div>
 
@@ -842,6 +1017,7 @@ export function OutboundPage() {
                               onClick={() => removeAllocationRow(idx, row.batchId)}
                               aria-label={`Xóa lô ${row.lotNo}`}
                               title="Xóa lô"
+                              disabled={isLockedEditMode}
                             >
                             <i className="pi pi-times" style={{ color: '#ef4444', fontSize: '0.8rem' }} />
                           </button>
@@ -858,7 +1034,8 @@ export function OutboundPage() {
       </div>
 
       {/* ── FEFO sidebar (active line) ── */}
-      <aside className="outbound-fefo-panel">
+      <div ref={fefoWrapRef} className="outbound-fefo-wrap">
+      <aside ref={fefoPanelRef} className="outbound-fefo-panel">
         <header>
           <div className="outbound-fefo-title">
             <i className="pi pi-exclamation-triangle" aria-hidden />
@@ -897,6 +1074,7 @@ export function OutboundPage() {
                   onClick={() => addLotToLine(activeLineIdx, lot)}
                   aria-label={`Thêm lô ${lot.lotNo}`}
                   title="Thêm vào phân bổ"
+                  disabled={isLockedEditMode}
                 >
                   <i className="pi pi-arrow-right" aria-hidden />
                 </button>
@@ -925,6 +1103,23 @@ export function OutboundPage() {
       </aside>
       </div>
 
+      {/* ── History panel (edit mode) ── */}
+      {isEditMode && (
+        <aside className="outbound-history-panel">
+          <div className="outbound-history-panel-header">
+            <i className="pi pi-history" />
+            <span>LỊCH SỬ THAO TÁC</span>
+          </div>
+          <HistoryTimeline
+            events={historyEvents}
+            loading={historyLoading}
+            error={historyError}
+            emptyMessage="Chưa có lịch sử thao tác cho lệnh xuất kho này."
+          />
+        </aside>
+      )}
+      </div>
+
       {/* ── Add line + Actions ── */}
       <div className="outbound-bottom-actions">
         <Button
@@ -933,11 +1128,21 @@ export function OutboundPage() {
           outlined
           className="outbound-add-line-btn"
           onClick={addLine}
-          disabled={loading}
+          disabled={loading || isLockedEditMode}
         />
 
         <div className="outbound-actions">
           <Button label="Quay lại" outlined onClick={() => navigate('/outbound')} />
+          {isFulfilledViewMode && !sourceOrderId && !adjustedByOrderId && (
+            <Button
+              label="Void & Tạo phiếu điều chỉnh"
+              icon="pi pi-history"
+              outlined
+              onClick={triggerCreateAdjustmentOrder}
+              loading={processingAction === 'adjust'}
+              disabled={submitting || loading || anyStockLoading || processingAction !== null}
+            />
+          )}
           {isEditMode && (
             <>
               <Button
@@ -947,7 +1152,7 @@ export function OutboundPage() {
                 outlined
                 onClick={triggerFulfilOrder}
                 loading={processingAction === 'fulfil'}
-                disabled={submitting || loading || anyStockLoading || processingAction !== null || editingStatus === 'fulfilled' || !canMarkFulfilled}
+                disabled={isLockedEditMode || submitting || loading || anyStockLoading || processingAction !== null || editingStatus === 'fulfilled' || !canMarkFulfilled}
               />
               <Button
                 label="Xóa phiếu"
@@ -956,7 +1161,7 @@ export function OutboundPage() {
                 outlined
                 onClick={triggerDeleteOrder}
                 loading={processingAction === 'cancel'}
-                disabled={submitting || loading || anyStockLoading || processingAction !== null}
+                disabled={isLockedEditMode || submitting || loading || anyStockLoading || processingAction !== null}
               />
             </>
           )}
@@ -966,7 +1171,7 @@ export function OutboundPage() {
             iconPos="right"
             onClick={submitExport}
             loading={submitting}
-            disabled={submitting || loading || anyStockLoading}
+            disabled={isLockedEditMode || submitting || loading || anyStockLoading}
           />
         </div>
       </div>
