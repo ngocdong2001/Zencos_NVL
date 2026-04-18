@@ -14,6 +14,7 @@ export type DashboardKpi = {
   expiringBatchCount: number
   pendingInboundCount: number
   pendingOutboundCount: number
+  pendingPurchaseCount: number
 }
 
 export type DashboardAlert = {

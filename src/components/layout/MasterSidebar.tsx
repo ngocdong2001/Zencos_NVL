@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 
-type NavItem = { path: string; label: string; icon?: string }
+type NavItem = { path: string; label: string; icon?: string; badge?: number }
 
 type MasterSidebarProps = {
   brandName: string
@@ -29,6 +29,23 @@ export function MasterSidebar({ brandName, navItems, footerItems }: MasterSideba
               ? <i className={item.icon} />
               : <span className="item-dot" />}
             {item.label}
+            {!!item.badge && item.badge > 0 && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                marginLeft: 6,
+                background: '#2626d9',
+                color: '#fff',
+                borderRadius: 8,
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '1px 5px',
+                lineHeight: '14px',
+                minWidth: 14,
+                verticalAlign: 'middle',
+              }}>
+                {item.badge > 99 ? '99+' : item.badge}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

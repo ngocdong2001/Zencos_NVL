@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ConfirmDialog } from 'primereact/confirmdialog'
 import { MasterHeader } from './components/layout/MasterHeader'
 import { MasterPage } from './components/layout/MasterPage'
 import { MasterSidebar } from './components/layout/MasterSidebar'
 import { appRoutes } from './routes/config'
+import { fetchDashboard } from './lib/dashboardApi'
 import './App.css'
 
 const sidebarFooterItems = [
@@ -14,13 +15,35 @@ const sidebarFooterItems = [
 
 function AppLayout() {
   const [search, setSearch] = useState('')
+  const [navBadges, setNavBadges] = useState<{ inbound: number; outbound: number; purchase: number }>({ inbound: 0, outbound: 0, purchase: 0 })
+
+  useEffect(() => {
+    fetchDashboard().then((d) => {
+      setNavBadges({
+        inbound: d.kpi.pendingInboundCount,
+        outbound: d.kpi.pendingOutboundCount,
+        purchase: d.kpi.pendingPurchaseCount,
+      })
+    }).catch(() => {/* silent */})
+  }, [])
+
+  const navItems = appRoutes
+    .filter((route) => route.showInNav !== false)
+    .map(({ path, label, icon }) => ({
+      path, label, icon,
+      badge:
+        path === '/inbound' ? (navBadges.inbound || undefined) :
+        path === '/outbound' ? (navBadges.outbound || undefined) :
+        path === '/purchase' ? (navBadges.purchase || undefined) :
+        undefined,
+    }))
 
   return (
     <MasterPage
       sidebar={
         <MasterSidebar
           brandName="ZencosMS"
-          navItems={appRoutes.filter((route) => route.showInNav !== false).map(({ path, label, icon }) => ({ path, label, icon }))}
+          navItems={navItems}
           footerItems={sidebarFooterItems}
         />
       }

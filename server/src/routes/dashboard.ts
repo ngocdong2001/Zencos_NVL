@@ -52,6 +52,7 @@ router.get('/', async (_req: Request, res: Response) => {
     expiringBatchCount,
     pendingInboundCount,
     pendingOutboundCount,
+    pendingPurchaseCount,
     criticalBatches,
     lowStockProducts,
     fefoData,
@@ -86,6 +87,11 @@ router.get('/', async (_req: Request, res: Response) => {
     // KPI 4: pending export orders
     prisma.exportOrder.count({
       where: { status: 'pending' },
+    }),
+
+    // KPI 5: pending purchase requests (draft, submitted, approved, ordered)
+    prisma.purchaseRequest.count({
+      where: { status: { in: ['draft', 'submitted', 'approved', 'ordered', 'partially_received'] } },
     }),
 
     // Alerts: lots expiring in 30 days (critical = ≤7 days, warning = 8–30 days)
@@ -185,6 +191,7 @@ router.get('/', async (_req: Request, res: Response) => {
     expiringBatchCount,
     pendingInboundCount,
     pendingOutboundCount,
+    pendingPurchaseCount,
   }
 
   // ── Build alerts ─────────────────────────────────────────────────────────
