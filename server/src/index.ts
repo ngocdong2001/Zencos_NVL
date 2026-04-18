@@ -19,6 +19,7 @@ import catalogRouter from './routes/catalog.js'
 import inventoryOpeningRouter from './routes/inventoryOpening.js'
 import inboundDraftsRouter from './routes/inboundDrafts.js'
 import inboundRouter from './routes/inbound.js'
+import dashboardRouter from './routes/dashboard.js'
 
 // Normalize BigInt values in API responses to avoid JSON serialization failures.
 if (!(BigInt.prototype as any).toJSON) {
@@ -53,6 +54,7 @@ app.use('/api/catalog', catalogRouter)
 app.use('/api/inventory-opening', inventoryOpeningRouter)
 app.use('/api/inbound-drafts', inboundDraftsRouter)
 app.use('/api/inbound', inboundRouter)
+app.use('/api/dashboard', dashboardRouter)
 
 // Global error handler — prevents unhandled DB/Prisma errors from crashing the process
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

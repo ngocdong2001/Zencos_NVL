@@ -46,7 +46,7 @@ export default function App() {
       <ConfirmDialog />
       <Routes>
         <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/catalog" replace />} />
+          <Route index element={<Navigate to="/overview" replace />} />
           {appRoutes.map(({ path, component: Component }) => (
             <Route key={path} path={path} element={<Component />} />
           ))}

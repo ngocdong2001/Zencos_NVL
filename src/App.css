@@ -8241,6 +8241,11 @@ input {
   text-transform: uppercase;
 }
 
+.inbound-step4-posted-watermark {
+  border-color: rgba(21, 128, 61, 0.5);
+  color: rgba(21, 128, 61, 0.76);
+}
+
 .inbound-step4-history-panel .inbound-step4-section-header {
   margin-bottom: 14px;
 }

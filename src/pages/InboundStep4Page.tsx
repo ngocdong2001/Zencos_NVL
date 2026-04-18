@@ -610,7 +610,11 @@ export function InboundStep4Page() {
           </aside>
 
           <div className="inbound-step4-main">
-            {isCancelledByAdjustment ? <div className="inbound-step4-adjustment-watermark">Hủy do điều chỉnh</div> : null}
+            {isCancelledByAdjustment
+              ? <div className="inbound-step4-adjustment-watermark">Hủy do điều chỉnh</div>
+              : isPosted
+                ? <div className="inbound-step4-adjustment-watermark inbound-step4-posted-watermark">Đã hoàn thành</div>
+                : null}
             <div className="inbound-step4-body">
               {/* ── Header Banner ── */}
               <div className="inbound-step4-banner">

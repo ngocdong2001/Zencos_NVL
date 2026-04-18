@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { CatalogPage } from '../pages/CatalogPage'
+import { DashboardPage } from '../pages/DashboardPage'
 import { InboundPage } from '../pages/InboundPage'
 import { InboundStep1Page } from '../pages/InboundStep1Page'
 import { InboundStep2Page } from '../pages/InboundStep2Page'
@@ -21,7 +22,7 @@ export type RouteConfig = {
 }
 
 export const appRoutes: RouteConfig[] = [
-  { path: '/overview', label: 'Tổng quan', icon: 'pi pi-home', component: () => <PlaceholderPage title="Tổng quan" /> },
+  { path: '/overview', label: 'Tổng quan', icon: 'pi pi-home', component: DashboardPage },
   { path: '/warehouse', label: 'Quản lý kho', icon: 'pi pi-building', component: () => <PlaceholderPage title="Quản lý kho" /> },
   { path: '/inbound', label: 'Nhập kho', icon: 'pi pi-download', component: InboundPage },
   { path: '/inbound/new', label: 'Tạo phiếu nhập mới', icon: 'pi pi-plus', component: InboundStep1Page, showInNav: false },
