@@ -1,0 +1,370 @@
+/* ─── Qty header with info icon ──────────────────────────── */
+.qty-col-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.qty-info-icon {
+  font-size: 0.8rem;
+  color: rgba(86, 93, 109, 0.7);
+  cursor: help;
+}
+
+/* ─── Actions column header ──────────────────────────────── */
+.actions-col-header {
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: #565d6d;
+  text-align: center;
+}
+
+/* ─── Cell content types ─────────────────────────────────── */
+.material-code {
+  font-weight: 700;
+  color: #171a1f;
+}
+
+.inci-name {
+  font-style: italic;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.material-code-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 700;
+  color: #2563eb;
+  font-size: inherit;
+  font-family: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+}
+.material-code-link:hover {
+  color: #1d4ed8;
+}
+
+.trade-name-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-weight: 600;
+  color: #2563eb;
+  font-size: inherit;
+  font-family: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+}
+.trade-name-link:hover {
+  color: #1d4ed8;
+}
+
+.trade-name {
+  font-weight: 600;
+  color: #171a1f;
+}
+
+.qty-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.unit-value {
+  font-size: 0.8125rem;
+  color: #565d6d;
+  font-weight: 500;
+}
+
+/* ─── Actions column body ─────────────────────────────────── */
+.inventory-datatable .col-actions {
+  padding: 0.625rem 0.75rem;
+}
+
+.actions-col-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.expand-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #dee1e6;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #565d6d;
+  font-size: 0.75rem;
+  transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.expand-toggle-btn:hover {
+  background: #f3f4f6;
+  border-color: #adb5bd;
+}
+
+.expand-toggle-btn.expanded {
+  background: rgba(82, 105, 224, 0.08);
+  border-color: #5269e0;
+  color: #5269e0;
+}
+
+.row-action-btns {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.row-action-btn {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.row-action-btn:hover {
+  color: #5269e0;
+  background: rgba(82, 105, 224, 0.08);
+}
+
+/* ─── Row expansion panel ────────────────────────────────── */
+.inventory-datatable .p-datatable-row-expansion > td {
+  padding: 0 !important;
+  border-bottom: 1px solid #dee1e6 !important;
+}
+
+.lot-details-panel {
+  margin: 8px 12px 8px 84px;
+  background: rgba(243, 244, 246, 0.2);
+  border: 1px dashed #dee1e6;
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.lot-details-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #565d6d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 16px 16px 12px;
+}
+
+/* ─── Inner lot table ─────────────────────────────────────── */
+.lot-inner-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.lot-inner-table thead tr {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.lot-inner-table th {
+  padding: 8px 12px;
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: #565d6d;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #dee1e6;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.lot-inner-table td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #dee1e6;
+  color: #171a1f;
+  font-size: 0.75rem;
+}
+
+.lot-inner-table tr:last-child td {
+  border-bottom: none;
+}
+
+.lot-inner-table tr:hover td {
+  background: rgba(82, 105, 224, 0.04);
+}
+
+.lot-col-right {
+  text-align: right;
+}
+
+.lot-no {
+  font-weight: 400;
+  color: #171a1f;
+}
+
+.lot-empty {
+  text-align: center;
+  color: #9ca3af;
+  font-style: italic;
+  padding: 1rem;
+}
+
+/* ─── Status badges ───────────────────────────────────────── */
+.lot-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 11px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lot-badge .pi {
+  font-size: 0.625rem;
+}
+
+.lot-badge--near {
+  background: #e05252;
+  border: none;
+  color: #fff;
+}
+
+.lot-badge--monitor {
+  background: transparent;
+  border: 1px solid #dee1e6;
+  color: #171a1f;
+}
+
+.lot-badge--normal {
+  background: transparent;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+/* ─── Table card wrapper ──────────────────────────────────── */
+.warehouse-table-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.warehouse-table-wrap {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ─── Footer row (pagination bar) ────────────────────────── */
+.warehouse-footer-row {
+  border-top: 1px solid #dee1e6;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.warehouse-footer-row p {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: #565d6d;
+}
+
+.warehouse-footer-row strong {
+  color: #171a1f;
+}
+
+.warehouse-footer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.warehouse-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.warehouse-page-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.warehouse-ellipsis {
+  color: #9095a1;
+  font-size: var(--font-size-caption);
+}
+
+.warehouse-pagination .p-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #171a1f;
+  min-width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  padding: 0 10px;
+  box-shadow: none;
+}
+
+.warehouse-pagination .p-button:hover:not(:disabled):not(.active) {
+  border-color: #dee1e6;
+  background: #f9fafb;
+}
+
+.warehouse-pagination .p-button.active {
+  background: #5269e0;
+  border-color: #5269e0;
+  color: #fff;
+}
+
+.warehouse-pagination .p-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.warehouse-page-size-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #565d6d;
+  font-size: var(--font-size-body-sm);
+}
+
+.warehouse-page-size-select {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #171a1f;
+  height: 28px;
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0 4px;
+}

@@ -1,6 +1,6 @@
 import { Button } from 'primereact/button'
 
-type PaginationPrefix = 'shortage' | 'po' | 'catalog'
+type PaginationPrefix = 'shortage' | 'po' | 'catalog' | 'warehouse'
 
 type PagedTableFooterProps = {
   rootClassName: string

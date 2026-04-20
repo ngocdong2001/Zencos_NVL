@@ -9,9 +9,10 @@ import { InboundStep4Page } from '../pages/InboundStep4Page'
 import { OpeningStockPage } from '../pages/OpeningStockPage'
 import { OutboundListPage } from '../pages/OutboundListPage'
 import { OutboundPage } from '../pages/OutboundPage'
-import { PlaceholderPage } from '../pages/PlaceholderPage'
 import { ProductCreatePage } from '../pages/ProductCreatePage'
 import { PurchaseOrderPage } from '../pages/PurchaseOrderPage'
+import { WarehousePage } from '../pages/WarehousePage'
+import { WarehouseItemDetailPage } from '../pages/WarehouseItemDetailPage'
 
 export type RouteConfig = {
   path: string
@@ -23,7 +24,8 @@ export type RouteConfig = {
 
 export const appRoutes: RouteConfig[] = [
   { path: '/overview', label: 'Tổng quan', icon: 'pi pi-home', component: DashboardPage },
-  { path: '/warehouse', label: 'Quản lý kho', icon: 'pi pi-building', component: () => <PlaceholderPage title="Quản lý kho" /> },
+  { path: '/warehouse', label: 'Quản lý kho', icon: 'pi pi-building', component: WarehousePage },
+  { path: '/warehouse/:id', label: 'Chi tiết Vật tư', icon: 'pi pi-box', component: WarehouseItemDetailPage, showInNav: false },
   { path: '/inbound', label: 'Nhập kho', icon: 'pi pi-download', component: InboundPage },
   { path: '/inbound/new', label: 'Tạo phiếu nhập mới', icon: 'pi pi-plus', component: InboundStep1Page, showInNav: false },
   { path: '/inbound/new/step2', label: 'Chi tiết Lô hàng', icon: 'pi pi-list', component: InboundStep2Page, showInNav: false },

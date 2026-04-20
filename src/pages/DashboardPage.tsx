@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
 import { fetchDashboard, type DashboardData } from '../lib/dashboardApi'
 import type { ExpiryAlert, LowStockAlert } from '../lib/dashboardApi'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
@@ -36,6 +36,14 @@ function fmtVnd(n: number): string {
 function alertStyle(severity: string): { lineColor: string; bg: string } {
   if (severity === 'critical') return { lineColor: '#e83030', bg: 'rgba(232,48,48,0.05)' }
   return { lineColor: '#e0e1e5', bg: 'transparent' }
+}
+
+function normalizeSearchValue(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 }
 
 type TxRecord = { dbId: string; id: string; type: string; material: string; quantity: string; time: string; status: string }
@@ -195,6 +203,7 @@ function KpiCard({ bg, icon, iconColor, tag, label, value }: KpiCardProps) {
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const { search } = useOutletContext<{ search: string }>()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [txPage, setTxPage] = useState(1)
@@ -277,7 +286,27 @@ export function DashboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const allTx = data?.recentTransactions ?? []
+  useEffect(() => {
+    setTxPage(1)
+  }, [search])
+
+  const normalizedSearch = normalizeSearchValue(search ?? '')
+  const hasSearch = normalizedSearch.length > 0
+
+  const expiryAlerts = (data?.expiryAlerts ?? []).filter((a) => {
+    if (!hasSearch) return true
+    return normalizeSearchValue(`${a.productName} ${a.lotNo} ${a.expiryDateDisplay}`).includes(normalizedSearch)
+  })
+
+  const lowStockAlerts = (data?.lowStockAlerts ?? []).filter((a) => {
+    if (!hasSearch) return true
+    return normalizeSearchValue(`${a.productName} ${a.currentQty} ${a.minStock} ${a.unitName}`).includes(normalizedSearch)
+  })
+
+  const allTx = (data?.recentTransactions ?? []).filter((tx) => {
+    if (!hasSearch) return true
+    return normalizeSearchValue(`${tx.id} ${tx.type} ${tx.material} ${tx.quantity} ${tx.time} ${tx.status}`).includes(normalizedSearch)
+  })
   const txTotal = allTx.length
   const txTotalPages = Math.max(1, Math.ceil(txTotal / txPageSize))
   const txSafePage = Math.min(txPage, txTotalPages)
@@ -442,7 +471,7 @@ export function DashboardPage() {
               <p style={{ margin: 0, fontSize: 20, fontWeight: 500, color: '#171a1f', letterSpacing: '-0.5px', lineHeight: '28px' }}>
                 Cảnh báo Quan trọng
               </p>
-              {(data?.expiryAlerts ?? []).some((a) => a.daysLeft <= 7) && (
+              {expiryAlerts.some((a) => a.daysLeft <= 7) && (
                 <span style={{
                   background: '#e05252', color: '#fff',
                   borderRadius: 11, fontSize: 12, fontWeight: 600,
@@ -458,7 +487,7 @@ export function DashboardPage() {
             <div style={{ flex: 1, overflowY: 'auto', marginBottom: 4, paddingRight: 2, minHeight: 0 }}>
 
             {/* Expiry section */}
-            {(data?.expiryAlerts ?? []).length > 0 && (
+            {expiryAlerts.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <i className="pi pi-calendar" style={{ fontSize: 12, color: '#565d6d' }} />
@@ -467,7 +496,7 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(data?.expiryAlerts ?? []).map((a: ExpiryAlert) => (
+                  {expiryAlerts.map((a: ExpiryAlert) => (
                     <div key={a.id} style={{
                       background: '#fff', border: '1px solid #dee1e6',
                       borderRadius: 10, display: 'flex', alignItems: 'center',
@@ -503,7 +532,7 @@ export function DashboardPage() {
             )}
 
             {/* Low stock section */}
-            {(data?.lowStockAlerts ?? []).length > 0 && (
+            {lowStockAlerts.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <i className="pi pi-box" style={{ fontSize: 12, color: '#565d6d' }} />
@@ -512,7 +541,7 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(data?.lowStockAlerts ?? []).map((a: LowStockAlert) => (
+                  {lowStockAlerts.map((a: LowStockAlert) => (
                     <div key={a.id} style={{
                       background: '#fff', border: '1px solid #dee1e6',
                       borderRadius: 10, display: 'flex', alignItems: 'center',
@@ -541,7 +570,7 @@ export function DashboardPage() {
             )}
 
             {/* No alerts */}
-            {(data?.expiryAlerts ?? []).length === 0 && (data?.lowStockAlerts ?? []).length === 0 && (
+            {expiryAlerts.length === 0 && lowStockAlerts.length === 0 && (
               <p style={{ margin: '0 0 8px', fontSize: 14, color: '#565d6d' }}>
                 Không có cảnh báo nào cần xử lý hôm nay.
               </p>
@@ -606,6 +635,7 @@ export function DashboardPage() {
             <DataTable
               value={txRows}
               dataKey="id"
+              emptyMessage={hasSearch ? 'Không tìm thấy giao dịch phù hợp' : 'Không có giao dịch'}
               className="prime-catalog-table"
               stripedRows
               pt={{ table: { style: { minWidth: 600, tableLayout: 'auto' } } }}
