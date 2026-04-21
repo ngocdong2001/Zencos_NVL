@@ -25,6 +25,8 @@ export type InboundStep2State = {
   selectedPriceUnit?: string
   selectedUnitConversionToBase?: number
   selectedPriceUnitConversionToBase?: number
+  selectedManufacturerId?: string
+  selectedManufacturerName?: string
 }
 
 export type AttachedFileInfo = {

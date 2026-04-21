@@ -34,6 +34,7 @@ export type LotDetail = {
   status: 'near_expiration' | 'monitoring' | 'normal'
   receiptId: string | null
   receiptRef: string | null
+  manufacturerName: string | null
 }
 
 export type InventoryItem = {

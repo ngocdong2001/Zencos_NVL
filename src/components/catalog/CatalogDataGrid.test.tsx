@@ -39,6 +39,7 @@ describe('CatalogDataGrid inline edit', () => {
     onSaveMaterial: vi.fn(),
     onSaveBasic: vi.fn(),
     onDelete: vi.fn(),
+    onManageDetail: vi.fn(),
     nextMatCode: 'NVL-003',
     nextBasicCode: 'SUP-002',
   }

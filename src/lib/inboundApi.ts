@@ -98,6 +98,7 @@ export type InboundReceiptDetailResponse = {
     lineAmount: number
     qcStatus: 'pending' | 'passed' | 'failed'
     hasDocument: boolean
+    manufacturer: { id: string; name: string } | null
     documents: Array<{
       id: string
       docType: 'Invoice' | 'COA' | 'MSDS' | 'Other'
@@ -209,6 +210,7 @@ export type SaveDraftPayload = {
     invoiceDate?: string
     manufactureDate?: string
     expiryDate?: string
+    manufacturerId?: string
   }
 }
 

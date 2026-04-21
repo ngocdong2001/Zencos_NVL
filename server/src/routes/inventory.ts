@@ -18,12 +18,29 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
   const batches = await prisma.batch.findMany({
     where,
     include: {
-      product: { select: { id: true, code: true, name: true } },
+      product: {
+        select: {
+          id: true, code: true, name: true,
+          inciNames: { where: { isPrimary: true }, select: { inciName: true }, take: 1 },
+        },
+      },
       supplier: { select: { id: true, code: true, name: true } },
+      manufacturer: { select: { id: true, name: true } },
     },
     orderBy: [{ productId: 'asc' }, { expiryDate: 'asc' }],
   })
-  res.json(batches)
+  const mapped = batches.map((b) => ({
+    ...b,
+    product: {
+      id: b.product.id,
+      code: b.product.code,
+      name: b.product.name,
+      inciName: b.product.inciNames?.[0]?.inciName ?? null,
+    },
+    manufacturerName: b.manufacturer?.name ?? null,
+    supplierName: b.supplier?.name ?? null,
+  }))
+  res.json(mapped)
 })
 
 const fefoQuerySchema = z.object({

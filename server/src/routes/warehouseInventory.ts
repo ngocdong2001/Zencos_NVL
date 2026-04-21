@@ -96,6 +96,7 @@ async function queryItems(p: ItemsParams) {
       { code: { contains: p.q } },
       { name: { contains: p.q } },
       { inciName: { contains: p.q } },
+      { inciNames: { some: { inciName: { contains: p.q } } } },
     ]
   }
 
@@ -271,6 +272,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
         baseUnitRef:  { select: { unitName: true } },
         orderUnitRef: { select: { conversionToBase: true } },
         productClassification: { select: { name: true } },
+        inciNames: { select: { inciName: true, isPrimary: true }, orderBy: { isPrimary: 'desc' as const } },
         productDocuments: {
           select: { id: true, docType: true, originalName: true, fileSize: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
@@ -278,9 +280,10 @@ router.get('/items/:id', async (req: Request, res: Response) => {
         batches: {
           where: { deletedAt: null, currentQtyBase: { gt: 0 } },
           orderBy: { expiryDate: 'asc' },
-          select: {
-            id: true, lotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
+          select: { id: true, lotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
             inboundReceiptItemSource: { select: { inboundReceipt: { select: { id: true, receiptRef: true } } } },
+            manufacturer: { select: { id: true, name: true } },
+            supplierId: true,
           },
         },
       },
@@ -327,6 +330,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
     status:         lotStatus(b.expiryDate),
     receiptId:      b.inboundReceiptItemSource?.inboundReceipt?.id  ? String(b.inboundReceiptItemSource.inboundReceipt.id) : null,
     receiptRef:     b.inboundReceiptItemSource?.inboundReceipt?.receiptRef ?? null,
+    manufacturerName: b.manufacturer?.name ?? null,
   }))
 
   const transactions = recentTx.map((tx) => ({
@@ -342,7 +346,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
   res.json({
     id:             String(product.id),
     code:           product.code,
-    inciName:       product.inciName ?? '',
+    inciName:       product.inciNames?.find(n => n.isPrimary)?.inciName ?? product.inciName ?? '',
     tradeName:      product.name,
     unit:           product.baseUnitRef?.unitName ?? 'g',
     classification: product.productClassification.name,

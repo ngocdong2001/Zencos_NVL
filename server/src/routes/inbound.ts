@@ -261,6 +261,9 @@ router.get('/receipts/:id', async (req, res) => {
               }
             }
           },
+          manufacturer: {
+            select: { id: true, name: true },
+          },
           documents: {
             orderBy: { createdAt: 'asc' },
             select: {
@@ -353,6 +356,7 @@ router.get('/receipts/:id', async (req, res) => {
       qcStatus: string
       hasDocument: boolean
       product: { id: bigint; code: string; name: string; orderUnitRef: { unitName: string; conversionToBase: unknown } | null }
+      manufacturer: { id: bigint; name: string } | null
       documents: Array<{
         id: bigint
         docType: string
@@ -386,6 +390,9 @@ router.get('/receipts/:id', async (req, res) => {
       lineAmount: Number(item.lineAmount),
       qcStatus: item.qcStatus,
       hasDocument: item.hasDocument,
+      manufacturer: item.manufacturer
+        ? { id: item.manufacturer.id.toString(), name: item.manufacturer.name }
+        : null,
       documents: item.documents.map((doc: {
         id: bigint
         docType: string
@@ -417,6 +424,7 @@ type SaveDraftItemBody = {
   invoiceDate?: unknown
   manufactureDate?: unknown
   expiryDate?: unknown
+  manufacturerId?: unknown
 }
 
 type SaveDraftBody = {
@@ -463,6 +471,8 @@ async function upsertDraftItem(
   const manufactureDate = typeof item.manufactureDate === 'string' ? parseYmdDate(item.manufactureDate) : null
   const expiryDate = typeof item.expiryDate === 'string' ? parseYmdDate(item.expiryDate) : null
   const invoiceNumber = typeof item.invoiceNumber === 'string' && item.invoiceNumber.trim() ? item.invoiceNumber.trim() : null
+  const manufacturerIdStr = String(item.manufacturerId ?? '').trim()
+  const manufacturerId = /^\d+$/.test(manufacturerIdStr) ? BigInt(manufacturerIdStr) : null
   const productId = BigInt(productIdStr)
   const receipt = await prisma.inboundReceipt.findUnique({
     where: { id: receiptId },
@@ -514,6 +524,7 @@ async function upsertDraftItem(
         invoiceDate,
         manufactureDate,
         expiryDate,
+        manufacturerId,
       },
     })
     return
@@ -534,6 +545,7 @@ async function upsertDraftItem(
       invoiceDate,
       manufactureDate,
       expiryDate,
+      manufacturerId,
     },
   })
 }
@@ -1062,6 +1074,7 @@ router.post('/receipts/:id/post', async (req, res) => {
         data: {
           productId: item.productId,
           supplierId: receipt.supplierId ?? undefined,
+          manufacturerId: item.manufacturerId ?? undefined,
           inboundReceiptItemId: item.id,
           lotNo: item.lotNo,
           invoiceNumber: item.invoiceNumber ?? undefined,
@@ -1336,6 +1349,7 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
           quantityDisplay: item.quantityDisplay,
           unitPricePerKg: item.unitPricePerKg,
           lineAmount: item.lineAmount,
+          manufacturerId: item.manufacturerId ?? undefined,
           qcStatus: 'passed',
           hasDocument: item.hasDocument,
           notes: item.notes,

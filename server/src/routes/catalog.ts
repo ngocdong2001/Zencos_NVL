@@ -215,7 +215,6 @@ router.get('/materials', async (req, res) => {
       p.id,
       p.code,
       p.name,
-      p.inci_name,
       p.min_stock_level,
       p.product_type,
       pc.code AS product_type_code,
@@ -226,13 +225,28 @@ router.get('/materials', async (req, res) => {
       pou.unit_code_name AS order_unit_code,
       pou.unit_name AS order_unit_name,
       pou.conversion_to_base AS order_unit_conversion_to_base,
-      p.deleted_at
+      p.deleted_at,
+      (
+        SELECT pin.inci_name
+        FROM product_inci_names pin
+        WHERE pin.product_id = p.id
+        ORDER BY pin.is_primary DESC, pin.id ASC
+        LIMIT 1
+      ) AS inci_name
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
     LEFT JOIN product_units pou ON pou.id = p.order_unit
     WHERE p.deleted_at IS NULL
-      AND (${q} = '' OR p.code LIKE ${`%${q}%`} OR p.name LIKE ${`%${q}%`} OR p.inci_name LIKE ${`%${q}%`})
+      AND (
+        ${q} = ''
+        OR p.code LIKE ${`%${q}%`}
+        OR p.name LIKE ${`%${q}%`}
+        OR EXISTS (
+          SELECT 1 FROM product_inci_names pin
+          WHERE pin.product_id = p.id AND pin.inci_name LIKE ${`%${q}%`}
+        )
+      )
     ORDER BY p.created_at DESC
   `)
 
@@ -255,6 +269,82 @@ router.get('/materials', async (req, res) => {
 router.get('/materials/next-code', async (_req, res) => {
   const nextCode = await getNextMaterialCode()
   return res.json({ nextCode })
+})
+
+router.get('/materials/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ message: 'Invalid id' })
+  }
+
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT
+      p.id, p.code, p.name,
+      p.product_type, pc.code AS product_type_code,
+      p.base_unit, pu.unit_code_name AS base_unit_code, pu.unit_name AS base_unit_name,
+      p.order_unit, pou.unit_code_name AS order_unit_code, pou.unit_name AS order_unit_name,
+      pou.conversion_to_base AS order_unit_conversion_to_base,
+      p.min_stock_level, p.has_expiry, p.use_fefo, p.notes, p.deleted_at
+    FROM products p
+    LEFT JOIN product_classifications pc ON pc.id = p.product_type
+    LEFT JOIN product_units pu ON pu.id = p.base_unit
+    LEFT JOIN product_units pou ON pou.id = p.order_unit
+    WHERE p.id = ${id}
+  `)
+
+  if (!rows[0]) return res.status(404).json({ message: 'Material not found' })
+
+  const [inciNames, manufacturers, productSuppliers] = await Promise.all([
+    prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT id, inci_name, is_primary, notes
+      FROM product_inci_names
+      WHERE product_id = ${id}
+      ORDER BY is_primary DESC, id ASC
+    `),
+    prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT id, name, country, contact_info, is_primary, notes, deleted_at
+      FROM product_manufacturers
+      WHERE product_id = ${id}
+      ORDER BY is_primary DESC, id ASC
+    `),
+    prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+      SELECT ps.id, ps.supplier_id, ps.is_primary, ps.notes,
+             s.code AS supplier_code, s.name AS supplier_name
+      FROM product_suppliers ps
+      JOIN suppliers s ON s.id = ps.supplier_id
+      WHERE ps.product_id = ${id}
+      ORDER BY ps.is_primary DESC, ps.id ASC
+    `),
+  ])
+
+  const row = rows[0]
+  return res.json(normalizeForJson({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    productType: row.product_type_code ?? row.product_type,
+    baseUnit: row.base_unit_code ?? row.base_unit_name ?? row.base_unit,
+    baseUnitId: row.base_unit,
+    orderUnit: row.order_unit_code ?? row.order_unit_name ?? row.base_unit_code ?? row.base_unit_name ?? row.order_unit ?? row.base_unit,
+    orderUnitId: row.order_unit,
+    orderUnitConversionToBase: row.order_unit_conversion_to_base ?? 1,
+    minStockLevel: row.min_stock_level,
+    hasExpiry: row.has_expiry,
+    useFefo: row.use_fefo,
+    notes: row.notes,
+    status: toStatusLabel(row.deleted_at),
+    inciNames: inciNames.map(i => ({
+      id: i.id, inciName: i.inci_name, isPrimary: i.is_primary, notes: i.notes,
+    })),
+    manufacturers: manufacturers.map(m => ({
+      id: m.id, name: m.name, country: m.country, contactInfo: m.contact_info,
+      isPrimary: m.is_primary, notes: m.notes, deletedAt: m.deleted_at,
+    })),
+    productSuppliers: productSuppliers.map(ps => ({
+      id: ps.id, supplierId: ps.supplier_id, supplierCode: ps.supplier_code,
+      supplierName: ps.supplier_name, isPrimary: ps.is_primary, notes: ps.notes,
+    })),
+  }))
 })
 
 router.post('/materials', async (req, res) => {
@@ -283,12 +373,22 @@ router.post('/materials', async (req, res) => {
     throw error
   }
 
+  // Parse optional sub-lists
+  const inciNamesInput: Array<{ inciName: string; isPrimary?: boolean; notes?: string }> =
+    Array.isArray(req.body.inciNames) ? req.body.inciNames : []
+  // Single inciName field (from create form) — treat as primary if not covered by inciNamesInput
+  const singleInciName = typeof data.inciName === 'string' ? data.inciName.trim() : ''
+  const hasSingleInci = singleInciName.length > 0
+  const inciNamesAlreadyCovered = inciNamesInput.some(
+    (i) => i.inciName.trim().toLowerCase() === singleInciName.toLowerCase(),
+  )
+
   try {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO products
-        (code, name, inci_name, product_type, has_expiry, use_fefo, base_unit, order_unit, min_stock_level, notes, created_at, updated_at)
+        (code, name, product_type, has_expiry, use_fefo, base_unit, order_unit, min_stock_level, notes, created_at, updated_at)
       VALUES
-        (${codeToInsert}, ${data.name}, ${data.inciName}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${orderUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
+        (${codeToInsert}, ${data.name}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${orderUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (!isDuplicateCodeError(error)) throw error
@@ -307,28 +407,47 @@ router.post('/materials', async (req, res) => {
   }
 
   const created = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id FROM products WHERE id = LAST_INSERT_ID()
+  `)
+  const newId = Number((created[0] as Record<string, unknown>)?.id ?? 0)
+
+  // Insert inci names if provided
+  if (hasSingleInci && !inciNamesAlreadyCovered) {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO product_inci_names (product_id, inci_name, is_primary, notes, created_at, updated_at)
+      VALUES (${newId}, ${singleInciName}, ${true}, ${null}, NOW(3), NOW(3))
+    `)
+  }
+  for (const item of inciNamesInput) {
+    if (!item.inciName?.trim()) continue
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO product_inci_names (product_id, inci_name, is_primary, notes, created_at, updated_at)
+      VALUES (${newId}, ${item.inciName.trim()}, ${item.isPrimary ?? false}, ${item.notes ?? null}, NOW(3), NOW(3))
+    `)
+  }
+
+  const createdFull = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT
-      p.id,
-      p.code,
-      p.name,
-      p.inci_name,
-      p.product_type,
-      pc.code AS product_type_code,
-      p.base_unit,
-      pu.unit_code_name AS base_unit_code,
-      pu.unit_name AS base_unit_name,
-      p.order_unit,
-      pou.unit_code_name AS order_unit_code,
-      pou.unit_name AS order_unit_name,
-      p.deleted_at
+      p.id, p.code, p.name,
+      p.product_type, pc.code AS product_type_code,
+      p.base_unit, pu.unit_code_name AS base_unit_code, pu.unit_name AS base_unit_name,
+      p.order_unit, pou.unit_code_name AS order_unit_code, pou.unit_name AS order_unit_name,
+      p.deleted_at,
+      (
+        SELECT pin.inci_name
+        FROM product_inci_names pin
+        WHERE pin.product_id = p.id
+        ORDER BY pin.is_primary DESC, pin.id ASC
+        LIMIT 1
+      ) AS inci_name
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
     LEFT JOIN product_units pou ON pou.id = p.order_unit
-    WHERE p.id = LAST_INSERT_ID()
+    WHERE p.id = ${newId}
   `)
 
-  return res.status(201).json(normalizeForJson(created[0] ?? null))
+  return res.status(201).json(normalizeForJson(createdFull[0] ?? null))
 })
 
 router.put('/materials/:id', async (req, res) => {
@@ -385,7 +504,6 @@ router.put('/materials/:id', async (req, res) => {
       SET
         code = COALESCE(${data.code ?? null}, code),
         name = COALESCE(${data.name ?? null}, name),
-        inci_name = COALESCE(${data.inciName ?? null}, inci_name),
         product_type = COALESCE(${productTypeId}, product_type),
         has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
         use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
@@ -401,12 +519,30 @@ router.put('/materials/:id', async (req, res) => {
     return res.status(409).json({ message: 'Mã nguyên liệu đã tồn tại', code: data.code })
   }
 
+  // If inciName provided in body, upsert the primary inci name in product_inci_names
+  const inciNameUpdate = typeof req.body.inciName === 'string' ? req.body.inciName.trim() : undefined
+  if (inciNameUpdate !== undefined && inciNameUpdate.length > 0) {
+    const existing = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT id FROM product_inci_names WHERE product_id = ${id} AND is_primary = 1 LIMIT 1
+    `)
+    if (existing[0]) {
+      await prisma.$executeRaw(Prisma.sql`
+        UPDATE product_inci_names SET inci_name = ${inciNameUpdate}, updated_at = NOW(3)
+        WHERE id = ${existing[0].id}
+      `)
+    } else {
+      await prisma.$executeRaw(Prisma.sql`
+        INSERT INTO product_inci_names (product_id, inci_name, is_primary, notes, created_at, updated_at)
+        VALUES (${id}, ${inciNameUpdate}, ${true}, ${null}, NOW(3), NOW(3))
+      `)
+    }
+  }
+
   const updated = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT
       p.id,
       p.code,
       p.name,
-      p.inci_name,
       p.product_type,
       pc.code AS product_type_code,
       p.base_unit,
@@ -415,7 +551,14 @@ router.put('/materials/:id', async (req, res) => {
       p.order_unit,
       pou.unit_code_name AS order_unit_code,
       pou.unit_name AS order_unit_name,
-      p.deleted_at
+      p.deleted_at,
+      (
+        SELECT pin.inci_name
+        FROM product_inci_names pin
+        WHERE pin.product_id = p.id
+        ORDER BY pin.is_primary DESC, pin.id ASC
+        LIMIT 1
+      ) AS inci_name
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
     LEFT JOIN product_units pu ON pu.id = p.base_unit
@@ -439,6 +582,152 @@ router.delete('/materials/:id', async (req, res) => {
     WHERE id = ${id} AND deleted_at IS NULL
   `)
 
+  return res.status(204).send()
+})
+
+// ─── INCI Names sub-endpoints ────────────────────────────────────────────────
+
+router.post('/materials/:id/inci-names', async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isFinite(productId)) return res.status(400).json({ message: 'Invalid id' })
+  const { inciName, isPrimary = false, notes } = req.body
+  if (!inciName?.trim()) return res.status(400).json({ message: 'inciName is required' })
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO product_inci_names (product_id, inci_name, is_primary, notes, created_at, updated_at)
+    VALUES (${productId}, ${inciName.trim()}, ${!!isPrimary}, ${notes ?? null}, NOW(3), NOW(3))
+  `)
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, inci_name, is_primary, notes FROM product_inci_names WHERE id = LAST_INSERT_ID()
+  `)
+  return res.status(201).json(normalizeForJson(rows[0] ?? null))
+})
+
+router.put('/materials/:id/inci-names/:inciId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const inciId = Number(req.params.inciId)
+  if (!Number.isFinite(productId) || !Number.isFinite(inciId)) return res.status(400).json({ message: 'Invalid id' })
+  const { inciName, isPrimary, notes } = req.body
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE product_inci_names
+    SET
+      inci_name = COALESCE(${inciName?.trim() ?? null}, inci_name),
+      is_primary = COALESCE(${isPrimary ?? null}, is_primary),
+      notes = COALESCE(${notes ?? null}, notes),
+      updated_at = NOW(3)
+    WHERE id = ${inciId} AND product_id = ${productId}
+  `)
+  return res.json({ ok: true })
+})
+
+router.delete('/materials/:id/inci-names/:inciId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const inciId = Number(req.params.inciId)
+  if (!Number.isFinite(productId) || !Number.isFinite(inciId)) return res.status(400).json({ message: 'Invalid id' })
+  await prisma.$executeRaw(Prisma.sql`
+    DELETE FROM product_inci_names WHERE id = ${inciId} AND product_id = ${productId}
+  `)
+  return res.status(204).send()
+})
+
+// ─── Manufacturers sub-endpoints ─────────────────────────────────────────────
+
+router.post('/materials/:id/manufacturers', async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isFinite(productId)) return res.status(400).json({ message: 'Invalid id' })
+  const { name, country, contactInfo, isPrimary = false, notes } = req.body
+  if (!name?.trim()) return res.status(400).json({ message: 'name is required' })
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO product_manufacturers (product_id, name, country, contact_info, is_primary, notes, created_at, updated_at)
+    VALUES (${productId}, ${name.trim()}, ${country ?? null}, ${contactInfo ?? null}, ${!!isPrimary}, ${notes ?? null}, NOW(3), NOW(3))
+  `)
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, name, country, contact_info, is_primary, notes
+    FROM product_manufacturers WHERE id = LAST_INSERT_ID()
+  `)
+  return res.status(201).json(normalizeForJson(rows[0] ?? null))
+})
+
+router.put('/materials/:id/manufacturers/:mfgId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const mfgId = Number(req.params.mfgId)
+  if (!Number.isFinite(productId) || !Number.isFinite(mfgId)) return res.status(400).json({ message: 'Invalid id' })
+  const { name, country, contactInfo, isPrimary, notes } = req.body
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE product_manufacturers
+    SET
+      name = COALESCE(${name?.trim() ?? null}, name),
+      country = COALESCE(${country ?? null}, country),
+      contact_info = COALESCE(${contactInfo ?? null}, contact_info),
+      is_primary = COALESCE(${isPrimary ?? null}, is_primary),
+      notes = COALESCE(${notes ?? null}, notes),
+      updated_at = NOW(3)
+    WHERE id = ${mfgId} AND product_id = ${productId} AND deleted_at IS NULL
+  `)
+  return res.json({ ok: true })
+})
+
+router.delete('/materials/:id/manufacturers/:mfgId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const mfgId = Number(req.params.mfgId)
+  if (!Number.isFinite(productId) || !Number.isFinite(mfgId)) return res.status(400).json({ message: 'Invalid id' })
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE product_manufacturers
+    SET deleted_at = NOW(3), updated_at = NOW(3)
+    WHERE id = ${mfgId} AND product_id = ${productId} AND deleted_at IS NULL
+  `)
+  return res.status(204).send()
+})
+
+// ─── Product Suppliers (junction) sub-endpoints ──────────────────────────────
+
+router.post('/materials/:id/suppliers', async (req, res) => {
+  const productId = Number(req.params.id)
+  if (!Number.isFinite(productId)) return res.status(400).json({ message: 'Invalid id' })
+  const supplierId = Number(req.body.supplierId)
+  if (!Number.isFinite(supplierId)) return res.status(400).json({ message: 'supplierId is required' })
+  const { isPrimary = false, notes } = req.body
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO product_suppliers (product_id, supplier_id, is_primary, notes, created_at, updated_at)
+      VALUES (${productId}, ${supplierId}, ${!!isPrimary}, ${notes ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('1062')) {
+      return res.status(409).json({ message: 'Supplier already linked to this material' })
+    }
+    throw e
+  }
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT ps.id, ps.supplier_id, ps.is_primary, ps.notes, s.code AS supplier_code, s.name AS supplier_name
+    FROM product_suppliers ps JOIN suppliers s ON s.id = ps.supplier_id
+    WHERE ps.id = LAST_INSERT_ID()
+  `)
+  return res.status(201).json(normalizeForJson(rows[0] ?? null))
+})
+
+router.put('/materials/:id/suppliers/:supplierId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const supplierId = Number(req.params.supplierId)
+  if (!Number.isFinite(productId) || !Number.isFinite(supplierId)) return res.status(400).json({ message: 'Invalid id' })
+  const { isPrimary, notes } = req.body
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE product_suppliers
+    SET
+      is_primary = COALESCE(${isPrimary ?? null}, is_primary),
+      notes = COALESCE(${notes ?? null}, notes),
+      updated_at = NOW(3)
+    WHERE product_id = ${productId} AND supplier_id = ${supplierId}
+  `)
+  return res.json({ ok: true })
+})
+
+router.delete('/materials/:id/suppliers/:supplierId', async (req, res) => {
+  const productId = Number(req.params.id)
+  const supplierId = Number(req.params.supplierId)
+  if (!Number.isFinite(productId) || !Number.isFinite(supplierId)) return res.status(400).json({ message: 'Invalid id' })
+  await prisma.$executeRaw(Prisma.sql`
+    DELETE FROM product_suppliers WHERE product_id = ${productId} AND supplier_id = ${supplierId}
+  `)
   return res.status(204).send()
 })
 

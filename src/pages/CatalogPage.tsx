@@ -6,6 +6,7 @@ import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { CatalogImportModal } from '../components/catalog/CatalogImportModal'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
 import { CatalogToolbar } from '../components/catalog/CatalogToolbar'
+import { ProductDetailDialog } from '../components/catalog/ProductDetailDialog'
 import type { ParsedImportResult, ParsedImportRow } from '../components/catalog/excelImport'
 import { parseCatalogExcel } from '../components/catalog/excelImport'
 import {
@@ -130,6 +131,7 @@ export function CatalogPage() {
   const [catalogNotice, setCatalogNotice] = useState<CatalogNotice | null>(null)
   const [productModalOpen, setProductModalOpen] = useState(false)
   const gridRef = useRef<CatalogDataGridHandle>(null)
+  const [detailProduct, setDetailProduct] = useState<MaterialRow | null>(null)
 
   const isNumericId = (id: string) => /^\d+$/.test(id)
 
@@ -691,12 +693,15 @@ export function CatalogPage() {
           }
           classifications={catalogs.classifications}
           units={catalogs.units}
+          suppliers={catalogs.suppliers}
           onSaveMaterial={handleSaveMaterial}
           onSaveBasic={handleSaveBasic}
           onDelete={deleteRow}
+          onManageDetail={(row) => setDetailProduct(row)}
           nextMatCode={nextMatCode}
           nextBasicCode={nextBasicCode}
         />
+        <ProductDetailDialog product={detailProduct} onHide={() => setDetailProduct(null)} />
       </div>
 
       <div className="catalog-page-bottom">

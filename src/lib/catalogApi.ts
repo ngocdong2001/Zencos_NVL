@@ -25,6 +25,31 @@ export async function fetchMaterials(q?: string): Promise<MaterialRow[]> {
   return http<MaterialRow[]>(`/api/catalog/materials${query}`)
 }
 
+export type MaterialManufacturer = {
+  id: string
+  name: string
+  country: string | null
+  contactInfo: string | null
+  isPrimary: boolean
+  notes: string | null
+}
+
+export type MaterialDetail = {
+  id: string
+  code: string
+  name: string
+  manufacturers: MaterialManufacturer[]
+  productSuppliers: Array<{
+    supplierId: string
+    supplierName: string
+    isPrimary: boolean
+  }>
+}
+
+export async function fetchMaterialDetail(id: string): Promise<MaterialDetail> {
+  return http<MaterialDetail>(`/api/catalog/materials/${encodeURIComponent(id)}`)
+}
+
 export async function fetchNextMaterialCode(): Promise<string> {
   const response = await http<{ nextCode: string }>('/api/catalog/materials/next-code')
   return response.nextCode

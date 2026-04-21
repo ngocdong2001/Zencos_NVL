@@ -6,6 +6,7 @@ import { InputText } from 'primereact/inputtext'
 import { Dropdown } from 'primereact/dropdown'
 import type { ColumnEvent } from 'primereact/column'
 import type { BasicRow, MaterialRow, TabId } from './types'
+import { MaterialRowExpansion } from './MaterialRowExpansion'
 
 const NEW_ID = '__new__'
 
@@ -21,11 +22,13 @@ type Props = {
   pagedBasics: BasicRow[]
   classifications: BasicRow[]
   units: BasicRow[]
+  suppliers: BasicRow[]
   onToggleSelectAll: (checked: boolean) => void
   onToggleSelectRow: (id: string, checked: boolean) => void
   onSaveMaterial: (row: MaterialRow) => Promise<boolean>
   onSaveBasic: (row: BasicRow) => Promise<boolean>
   onDelete: (id: string) => void
+  onManageDetail: (row: MaterialRow) => void
   nextMatCode: string
   nextBasicCode: string
 }
@@ -35,7 +38,8 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics,
       classifications,
       units,
-      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete,
+      suppliers,
+      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete, onManageDetail,
       nextMatCode, nextBasicCode },
     ref,
   ) {
@@ -43,6 +47,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     const [pendingNewBasic, setPendingNewBasic] = useState<Partial<BasicRow>>({})
     const [isNewMaterialMinStockFocused, setIsNewMaterialMinStockFocused] = useState(false)
     const [savingNewRow, setSavingNewRow] = useState(false)
+    const [expandedMaterialIds, setExpandedMaterialIds] = useState<Set<string>>(new Set())
     const newMaterialCodeRef = useRef<HTMLInputElement>(null)
     const newBasicCodeRef = useRef<HTMLInputElement>(null)
     const isMat = activeTab === 'materials'
@@ -647,10 +652,28 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           </div>
         )
       }
+      const isExpanded = expandedMaterialIds.has(rowData.id)
       return (
-        <button type="button" className="icon-btn danger" title="Xóa" onClick={() => onDelete(rowData.id)}>
-          <i className="pi pi-trash" />
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            type="button"
+            className={`icon-btn${isExpanded ? ' save-btn' : ''}`}
+            title={isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
+            onClick={() => {
+              setExpandedMaterialIds((prev) => {
+                const next = new Set(prev)
+                if (next.has(rowData.id)) next.delete(rowData.id)
+                else next.add(rowData.id)
+                return next
+              })
+            }}
+          >
+            <i className={`pi ${isExpanded ? 'pi-chevron-up' : 'pi-chevron-down'}`} />
+          </button>
+          <button type="button" className="icon-btn danger" title="Xóa" onClick={() => onDelete(rowData.id)}>
+            <i className="pi pi-trash" />
+          </button>
+        </div>
       )
     }
 
@@ -1020,6 +1043,9 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               stripedRows
               className="catalog-table prime-catalog-table"
               rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
+              rowExpansionTemplate={(row: MaterialRow) => <MaterialRowExpansion productId={row.id} suppliers={suppliers} />}
+              expandedRows={materialRows.filter((r) => expandedMaterialIds.has(r.id))}
+              onRowToggle={() => {}}
             >
               <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
               <Column field="code" header="MÃ NVL" body={materialCodeBody} editor={(options) => materialCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />

@@ -409,8 +409,13 @@ export function WarehouseItemDetailPage() {
                 body={(row: LotDetail) => formatVND(row.unitPricePerKg * 1000)}
               />
               <Column
+                header="Nhà sản xuất"
+                style={{ width: '20%' }}
+                body={(row: LotDetail) => row.manufacturerName ?? <span style={{ color: '#9ca3af' }}>—</span>}
+              />
+              <Column
                 header="Trạng thái"
-                style={{ width: '14%' }}
+                style={{ width: '12%' }}
                 body={(row: LotDetail) => <LotStatusBadge lot={row} />}
               />
               <Column

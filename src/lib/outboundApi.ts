@@ -23,10 +23,13 @@ export type InventoryStockBatch = {
   lotNo: string
   expiryDate: string | null
   currentQtyBase: number
+  manufacturerName: string | null
+  supplierName: string | null
   product: {
     id: string
     code: string
     name: string
+    inciName: string | null
   }
 }
 

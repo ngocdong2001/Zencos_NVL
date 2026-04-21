@@ -263,6 +263,7 @@ export function InboundStep4Page() {
               invoiceDate: step2.invoiceDate || undefined,
               manufactureDate: step2.mfgDate || undefined,
               expiryDate: step2.expDate || undefined,
+              manufacturerId: step2.selectedManufacturerId || undefined,
             }
           : undefined,
       }
@@ -675,6 +676,12 @@ export function InboundStep4Page() {
                     <p className="inbound-step4-info-label">Mã nguyên liệu</p>
                     <p className="inbound-step4-info-value">{materialCodeDisplay}</p>
                   </div>
+                  {(dbFirstItem?.manufacturer?.name ?? step2.selectedManufacturerName) ? (
+                    <div>
+                      <p className="inbound-step4-info-label">Nhà sản xuất</p>
+                      <p className="inbound-step4-info-value">{dbFirstItem?.manufacturer?.name ?? step2.selectedManufacturerName}</p>
+                    </div>
+                  ) : null}
                   <div>
                     <p className="inbound-step4-info-label">Ngày nhận hàng</p>
                     <p className="inbound-step4-info-value">{expectedDateDisplay}</p>

@@ -11,6 +11,7 @@ import { WizardStepBar } from '../components/inbound/WizardStepBar'
 import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
+import { fetchMaterialDetail, type MaterialManufacturer } from '../lib/catalogApi'
 import { fetchPurchaseRequestDetail, fetchPurchaseRequests } from '../lib/purchaseShortageApi'
 import { formatDateValue, formatQuantity, parseDateValue } from '../components/purchaseOrder/format'
 import {
@@ -76,6 +77,8 @@ export function InboundStep2Page() {
   const [expDate, setExpDate] = useState(wizState.step2.expDate)
   const [selectedMaterialId, setSelectedMaterialId] = useState(wizState.step2.selectedMaterialId ?? '')
   const [materialOptions, setMaterialOptions] = useState<PoMaterialOption[]>([])
+  const [manufacturerOptions, setManufacturerOptions] = useState<MaterialManufacturer[]>([])
+  const [selectedManufacturerId, setSelectedManufacturerId] = useState(wizState.step2.selectedManufacturerId ?? '')
   const [poSummary, setPoSummary] = useState<PoSummarySnapshot | null>(null)
   const [poSummaryLoading, setPoSummaryLoading] = useState(false)
   const [poSummaryError, setPoSummaryError] = useState<string | null>(null)
@@ -141,6 +144,8 @@ export function InboundStep2Page() {
         selectedPriceUnit: selectedMaterial?.priceUnit ?? '',
         selectedUnitConversionToBase: selectedMaterial?.conversionToBase ?? 1,
         selectedPriceUnitConversionToBase: selectedMaterial?.priceUnitConversionToBase ?? 1,
+        selectedManufacturerId: selectedManufacturerId || undefined,
+        selectedManufacturerName: manufacturerOptions.find((m) => m.id === selectedManufacturerId)?.name,
       },
     }
   }
@@ -191,6 +196,31 @@ export function InboundStep2Page() {
 
     setLastAutoLotSuggestion(suggested)
   }, [selectedMaterial?.code, step1.expectedDate])
+
+  // Fetch manufacturers when selected material changes
+  useEffect(() => {
+    if (!selectedMaterialId) {
+      setManufacturerOptions([])
+      setSelectedManufacturerId('')
+      return
+    }
+
+    let cancelled = false
+    void fetchMaterialDetail(selectedMaterialId).then((detail) => {
+      if (cancelled) return
+      setManufacturerOptions(detail.manufacturers)
+      // Auto-select primary or first manufacturer
+      const primary = detail.manufacturers.find((m) => m.isPrimary) ?? detail.manufacturers[0] ?? null
+      setSelectedManufacturerId((prev) => {
+        if (prev && detail.manufacturers.some((m) => m.id === prev)) return prev
+        return primary?.id ?? ''
+      })
+    }).catch(() => {
+      if (cancelled) return
+      setManufacturerOptions([])
+    })
+    return () => { cancelled = true }
+  }, [selectedMaterialId])
 
   useEffect(() => {
     if (!wizState.receiptId) {
@@ -355,6 +385,7 @@ export function InboundStep2Page() {
               invoiceDate: invoiceDate || undefined,
               manufactureDate: mfgDate || undefined,
               expiryDate: expDate || undefined,
+              manufacturerId: selectedManufacturerId || undefined,
             }
           : undefined,
       }
@@ -491,6 +522,30 @@ export function InboundStep2Page() {
                 {fieldErrors.selectedMaterialId ? <small className="inbound-create-field-error">{fieldErrors.selectedMaterialId}</small> : null}
               </div>
             </div>
+            {manufacturerOptions.length > 0 ? (
+              <>
+                <div className="inbound-step2-summary-divider" aria-hidden />
+                <div className="inbound-step2-material-info">
+                  <div className="inbound-step2-info-icon-wrap material">
+                    <i className="pi pi-building" />
+                  </div>
+                  <div>
+                    <p className="inbound-step2-info-label">Nhà sản xuất</p>
+                    <Dropdown
+                      value={selectedManufacturerId}
+                      options={manufacturerOptions.map((m) => ({ label: m.name + (m.country ? ` (${m.country})` : ''), value: m.id }))}
+                      onChange={(e) => setSelectedManufacturerId(String(e.value ?? ''))}
+                      optionLabel="label"
+                      optionValue="value"
+                      placeholder="Chọn nhà sản xuất"
+                      disabled={isPosted}
+                      className="inbound-step2-material-picker"
+                      showClear
+                    />
+                  </div>
+                </div>
+              </>
+            ) : null}
             <div className="inbound-step2-summary-divider" aria-hidden />
             <div className="inbound-step2-supplier-info">
               <div className="inbound-step2-info-icon-wrap supplier">

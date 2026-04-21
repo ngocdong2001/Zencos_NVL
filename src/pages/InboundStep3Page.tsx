@@ -174,6 +174,7 @@ export function InboundStep3Page() {
               invoiceDate: step2.invoiceDate || undefined,
               manufactureDate: step2.mfgDate || undefined,
               expiryDate: step2.expDate || undefined,
+              manufacturerId: step2.selectedManufacturerId || undefined,
             }
           : undefined,
       }
@@ -261,6 +262,7 @@ export function InboundStep3Page() {
               invoiceDate: step2.invoiceDate || undefined,
               manufactureDate: step2.mfgDate || undefined,
               expiryDate: step2.expDate || undefined,
+              manufacturerId: step2.selectedManufacturerId || undefined,
             }
           : undefined,
       }

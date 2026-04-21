@@ -34,6 +34,7 @@ type AllocationRow = {
   availableQty: number
   exportQty: number
   inputValue: string
+  manufacturerName: string | null
 }
 
 type MaterialLine = {
@@ -310,6 +311,7 @@ export function OutboundPage() {
                 availableQty: toNumeric(item.quantityBase),
                 exportQty: toNumeric(item.quantityBase),
                 inputValue: formatQuantity(toNumeric(item.quantityBase)),
+                manufacturerName: null,
               }))
 
             editLines.push({
@@ -511,6 +513,7 @@ export function OutboundPage() {
         availableQty: lotAvailable,
         exportQty,
         inputValue: formatQuantity(exportQty),
+        manufacturerName: lot.manufacturerName ?? null,
       })
       remain -= exportQty
     }
@@ -537,6 +540,7 @@ export function OutboundPage() {
             availableQty,
             exportQty: defaultQty,
             inputValue: defaultQty > 0 ? formatQuantity(defaultQty) : '',
+            manufacturerName: lot.manufacturerName ?? null,
           },
         ],
       }
@@ -1048,6 +1052,7 @@ export function OutboundPage() {
                           <span className="ob-drill-branch-exp">
                             <i className="pi pi-clock" aria-hidden /> HSD: {formatDateVi(row.expiryDate)}
                           </span>
+                          {row.manufacturerName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-building" aria-hidden /> {row.manufacturerName}</span> : null}
                         </div>
 
                         <div className="ob-drill-branch-fields">
@@ -1127,6 +1132,7 @@ export function OutboundPage() {
                   <div className="outbound-fefo-item-meta">
                     <span className="outbound-fefo-expiry"><i className="pi pi-clock" aria-hidden />HSD: {formatDateVi(lot.expiryDate)}</span>
                     <small>Tồn: {formatQuantity(toNumeric(lot.currentQtyBase))} {activeLineMaterial?.unit ?? ''}</small>
+                    {lot.manufacturerName ? <small><i className="pi pi-building" aria-hidden /> {lot.manufacturerName}</small> : null}
                   </div>
                 </div>
                 <span className="outbound-fefo-divider" aria-hidden />
