@@ -141,6 +141,8 @@ export type PurchaseRequestDetailResponse = {
         unitCodeName?: string | null
         conversionToBase: number
       } | null
+      inciNames?: Array<{ inciName: string }> | null
+      manufacturers?: Array<{ id: string; name: string }> | null
     }
   }>
 }

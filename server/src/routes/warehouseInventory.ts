@@ -148,10 +148,17 @@ async function queryItems(p: ItemsParams) {
     const rows = await prisma.$queryRaw<TxAgg[]>`
       SELECT
         b.product_id AS productId,
-        SUM(CASE WHEN (${beforeFromCond})   AND it.type = 'import' THEN ABS(it.quantity_base) ELSE 0 END)
-        - SUM(CASE WHEN (${beforeFromCond}) AND it.type = 'export' THEN ABS(it.quantity_base) ELSE 0 END) AS openingQty,
-        SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'import' THEN ABS(it.quantity_base) ELSE 0 END) AS importQty,
-        SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'export' THEN ABS(it.quantity_base) ELSE 0 END) AS exportQty
+        SUM(CASE WHEN (${beforeFromCond}) AND it.type = 'import'  THEN  ABS(it.quantity_base)
+                 WHEN (${beforeFromCond}) AND it.type = 'export'  THEN -ABS(it.quantity_base)
+                 WHEN (${beforeFromCond}) AND it.type = 'adjustment' THEN it.quantity_base
+                 ELSE 0 END) AS openingQty,
+        GREATEST(0,
+          SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'import'     THEN  ABS(it.quantity_base)
+                   WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'adjustment' THEN  it.quantity_base
+                   ELSE 0 END)
+        ) AS importQty,
+        SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'export' THEN ABS(it.quantity_base)
+                 ELSE 0 END) AS exportQty
       FROM inventory_transactions it
       JOIN batches b ON b.id = it.batch_id
       WHERE b.product_id IN (${Prisma.join(productIds)})
@@ -291,7 +298,11 @@ router.get('/items/:id', async (req: Request, res: Response) => {
     prisma.$queryRaw<MonthlyRow[]>`
       SELECT
         DATE_FORMAT(it.transaction_date, '%Y-%m') AS month,
-        SUM(CASE WHEN it.type = 'import' THEN ABS(it.quantity_base) ELSE 0 END) AS importGram,
+        GREATEST(0,
+          SUM(CASE WHEN it.type = 'import'     THEN  ABS(it.quantity_base)
+                   WHEN it.type = 'adjustment' THEN  it.quantity_base
+                   ELSE 0 END)
+        ) AS importGram,
         SUM(CASE WHEN it.type = 'export' THEN ABS(it.quantity_base) ELSE 0 END) AS exportGram
       FROM inventory_transactions it
       JOIN batches b ON b.id = it.batch_id
@@ -338,7 +349,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
     type:            tx.type as string,
     quantityBase:    Math.abs(Number(tx.quantityBase)),
     transactionDate: tx.transactionDate.toISOString(),
-    userName:        tx.user.fullName,
+    userName:        tx.user?.fullName ?? 'Hệ thống',
     lotNo:           tx.batch.lotNo,
     notes:           tx.notes ?? '',
   }))
@@ -349,7 +360,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
     inciName:       product.inciNames?.find(n => n.isPrimary)?.inciName ?? product.inciName ?? '',
     tradeName:      product.name,
     unit:           product.baseUnitRef?.unitName ?? 'g',
-    classification: product.productClassification.name,
+    classification: product.productClassification?.name ?? '',
     minStockLevel:  Number(product.minStockLevel),
     stockQuantity:  stockQty,
     value,

@@ -572,43 +572,47 @@ export function InboundStep3Page() {
                   </div>
                   {files.map((item, idx) => (
                     <div key={idx} className="inbound-step3-file-row">
-                      <div className="inbound-step3-file-info">
-                        <i className={`${getFileIcon(item.name)} inbound-step3-file-icon`} />
-                        <div className="inbound-step3-file-text">
-                          <p className="inbound-step3-file-name">{item.name}</p>
-                          <p className="inbound-step3-file-meta">
-                            {formatFileSize(item.size)} • {getFileType(item.name)}
-                          </p>
+                      <div className="inbound-step3-file-row-top">
+                        <div className="inbound-step3-file-info">
+                          <i className={`${getFileIcon(item.name)} inbound-step3-file-icon`} />
+                          <div className="inbound-step3-file-text">
+                            <p className="inbound-step3-file-name">{item.name}</p>
+                            <p className="inbound-step3-file-meta">
+                              {formatFileSize(item.size)} • {getFileType(item.name)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="inbound-step3-file-actions">
+                          <button
+                            type="button"
+                            className="inbound-step3-icon-btn"
+                            aria-label="Xem tệp"
+                            disabled={!item.id}
+                            onClick={() => {
+                              if (!item.id) return
+                              window.open(getInboundDraftDocumentFileUrl(savedDraftCode, item.id), '_blank', 'noopener,noreferrer')
+                            }}
+                          >
+                            <i className="pi pi-eye" />
+                          </button>
+                          <button
+                            type="button"
+                            className="inbound-step3-icon-btn danger"
+                            aria-label="Xóa tệp"
+                            onClick={() => removeFile(idx)}
+                          >
+                            <i className="pi pi-trash" />
+                          </button>
                         </div>
                       </div>
-                      <Dropdown
-                        value={item.docType}
-                        options={DOC_TYPE_OPTIONS}
-                        onChange={(e) => setDocType(idx, e.value)}
-                        className="inbound-step3-doctype-dropdown"
-                        placeholder="Loại tài liệu"
-                      />
-                      <div className="inbound-step3-file-actions">
-                        <button
-                          type="button"
-                          className="inbound-step3-icon-btn"
-                          aria-label="Xem tệp"
-                          disabled={!item.id}
-                          onClick={() => {
-                            if (!item.id) return
-                            window.open(getInboundDraftDocumentFileUrl(savedDraftCode, item.id), '_blank', 'noopener,noreferrer')
-                          }}
-                        >
-                          <i className="pi pi-eye" />
-                        </button>
-                        <button
-                          type="button"
-                          className="inbound-step3-icon-btn danger"
-                          aria-label="Xóa tệp"
-                          onClick={() => removeFile(idx)}
-                        >
-                          <i className="pi pi-trash" />
-                        </button>
+                      <div className="inbound-step3-file-row-bottom">
+                        <Dropdown
+                          value={item.docType}
+                          options={DOC_TYPE_OPTIONS}
+                          onChange={(e) => setDocType(idx, e.value)}
+                          className="inbound-step3-doctype-dropdown"
+                          placeholder="Loại tài liệu"
+                        />
                       </div>
                     </div>
                   ))}
@@ -639,7 +643,7 @@ export function InboundStep3Page() {
               <h3 className="inbound-step3-sidebar-card-title">Thông số số lượng</h3>
               <div className="inbound-step3-qty-readonly">
                 <span className="inbound-step3-qty-readonly-value">
-                  {quantity != null ? `${quantity.toLocaleString('vi-VN')} ${quantityUnitLabel}` : '—'}
+                  {quantity != null ? `${formatQuantity(quantity)} ${quantityUnitLabel}` : '—'}
                 </span>
                 {priceUnitEquivalent != null && (
                   <p className="inbound-step3-qty-equiv">Tương đương: {formatQuantity(priceUnitEquivalent)} {priceUnitLabel}</p>
@@ -653,12 +657,12 @@ export function InboundStep3Page() {
                 <span className="inbound-step3-order-value">{step2.lotNo || '—'}</span>
                 <span className="inbound-step3-order-key">Đơn giá</span>
                 <span className="inbound-step3-order-value">
-                  {step2.unitPrice != null ? step2.unitPrice.toLocaleString('vi-VN') + ' ₫' : '—'}
+                  {step2.unitPrice != null ? new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(step2.unitPrice) + ' ₫' : '—'}
                 </span>
                 <span className="inbound-step3-order-key">Ngày SX</span>
-                <span className="inbound-step3-order-value">{step2.mfgDate || '—'}</span>
+                <span className="inbound-step3-order-value">{step2.mfgDate ? step2.mfgDate.split('-').reverse().join('/') : '—'}</span>
                 <span className="inbound-step3-order-key">Hạn dùng</span>
-                <span className="inbound-step3-order-value">{step2.expDate || '—'}</span>
+                <span className="inbound-step3-order-value">{step2.expDate ? step2.expDate.split('-').reverse().join('/') : '—'}</span>
               </div>
             </div>
 

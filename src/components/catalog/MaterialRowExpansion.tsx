@@ -43,10 +43,8 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
 
   // Add form state
   const [newInci, setNewInci] = useState('')
-  const [newInciPrimary, setNewInciPrimary] = useState(false)
   const [newMfgName, setNewMfgName] = useState('')
   const [newMfgCountry, setNewMfgCountry] = useState('')
-  const [newMfgPrimary, setNewMfgPrimary] = useState(false)
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
   const supplierAcRef = useRef<AutoComplete>(null)
@@ -74,7 +72,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
     try {
       const raw = await apiJson<Record<string, unknown>>(
         `/api/catalog/materials/${encodeURIComponent(productId)}/inci-names`,
-        { method: 'POST', body: JSON.stringify({ inciName: newInci.trim(), isPrimary: newInciPrimary }) },
+        { method: 'POST', body: JSON.stringify({ inciName: newInci.trim(), isPrimary: false }) },
       )
       setInciNames((prev) => [...prev, {
         id: String(raw.id),
@@ -83,7 +81,6 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
         notes: raw.notes != null ? String(raw.notes) : null,
       }])
       setNewInci('')
-      setNewInciPrimary(false)
     } catch (err) { setError(err instanceof Error ? err.message : 'Lỗi thêm INCI name.') }
     finally { setSaving(false) }
   }
@@ -103,7 +100,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
     try {
       const raw = await apiJson<Record<string, unknown>>(
         `/api/catalog/materials/${encodeURIComponent(productId)}/manufacturers`,
-        { method: 'POST', body: JSON.stringify({ name: newMfgName.trim(), country: newMfgCountry.trim() || undefined, isPrimary: newMfgPrimary }) },
+        { method: 'POST', body: JSON.stringify({ name: newMfgName.trim(), country: newMfgCountry.trim() || undefined, isPrimary: false }) },
       )
       setManufacturers((prev) => [...prev, {
         id: String(raw.id),
@@ -115,7 +112,6 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
       }])
       setNewMfgName('')
       setNewMfgCountry('')
-      setNewMfgPrimary(false)
     } catch (err) { setError(err instanceof Error ? err.message : 'Lỗi thêm nhà sản xuất.') }
     finally { setSaving(false) }
   }
@@ -190,10 +186,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
               field="inciName"
               header="Tên INCI"
               body={(row: InciName) => (
-                <span className="mat-exp-inci-name">
-                  {row.isPrimary ? <i className="pi pi-star-fill mat-exp-primary-icon" title="Chính" /> : null}
-                  {row.inciName}
-                </span>
+                <span className="mat-exp-inci-name">{row.inciName}</span>
               )}
             />
             <Column
@@ -213,10 +206,6 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
               className="mat-exp-input"
               onKeyDown={(e) => { if (e.key === 'Enter') void addInciName() }}
             />
-            <label className="mat-exp-check-label">
-              <input type="checkbox" checked={newInciPrimary} onChange={(e) => setNewInciPrimary(e.target.checked)} />
-              Chính
-            </label>
             <Button icon="pi pi-plus" size="small" text disabled={saving || !newInci.trim()} onClick={() => void addInciName()} title="Thêm" />
           </div>
         </div>
@@ -232,10 +221,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
             <Column
               header="Tên"
               body={(row: Manufacturer) => (
-                <span className="mat-exp-inci-name">
-                  {row.isPrimary ? <i className="pi pi-star-fill mat-exp-primary-icon" title="Chính" /> : null}
-                  {row.name}
-                </span>
+                <span className="mat-exp-inci-name">{row.name}</span>
               )}
             />
             <Column field="country" header="Quốc gia" style={{ width: '70px' }} />
@@ -264,10 +250,6 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
               className="mat-exp-input"
               style={{ flex: 1, minWidth: 80 }}
             />
-            <label className="mat-exp-check-label">
-              <input type="checkbox" checked={newMfgPrimary} onChange={(e) => setNewMfgPrimary(e.target.checked)} />
-              Chính
-            </label>
             <Button icon="pi pi-plus" size="small" text disabled={saving || !newMfgName.trim()} onClick={() => void addManufacturer()} title="Thêm" />
           </div>
         </div>

@@ -190,6 +190,7 @@ export function InboundStep4Page() {
   const warehouseDisplay = (dbDetail?.receivingLocation?.name ?? step1.receivingWarehouseName ?? step1.receivingWarehouseId) || '—'
   const materialNameDisplay = (dbFirstItem?.product?.name ?? step2.selectedMaterialName) || '—'
   const materialCodeDisplay = (dbFirstItem?.product?.code ?? step2.selectedMaterialCode) || '—'
+  const inciNameDisplay = (dbFirstItem?.product?.inciName ?? step2.inciName ?? '').trim()
   const lotDisplay = (dbFirstItem?.lotNo ?? step2.lotNo) || '—'
   const expectedDateDisplay = (dbDetail?.expectedDate ?? step1.expectedDate) || '—'
   const attachedFiles = dbDetail
@@ -675,6 +676,10 @@ export function InboundStep4Page() {
                   <div>
                     <p className="inbound-step4-info-label">Mã nguyên liệu</p>
                     <p className="inbound-step4-info-value">{materialCodeDisplay}</p>
+                  </div>
+                  <div>
+                    <p className="inbound-step4-info-label">INCI Name</p>
+                    <p className="inbound-step4-info-value">{inciNameDisplay || '—'}</p>
                   </div>
                   {(dbFirstItem?.manufacturer?.name ?? step2.selectedManufacturerName) ? (
                     <div>

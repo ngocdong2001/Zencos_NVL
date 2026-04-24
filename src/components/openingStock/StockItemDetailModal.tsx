@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { AutoComplete } from 'primereact/autocomplete'
 import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
+import { Calendar } from 'primereact/calendar'
+import { parseDateValue, formatDateValue } from '../purchaseOrder/format'
 import { updateOpeningStockRow } from '../../lib/openingStockApi'
 import type { OpeningStockRow } from '../../lib/openingStockApi'
 import { fetchItemDocuments, getDocumentFileUrl } from '../../lib/openingStockDocApi'
@@ -313,34 +315,40 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
                   <div className="sdm-divider" />
                   <div className="sdm-field-row">
                     <span className="sdm-label">Ngày tồn đầu:</span>
-                    <input
-                      className="sdm-input"
-                      type="date"
-                      value={openingDate}
-                      onChange={(e) => setOpeningDate(e.target.value)}
+                    <Calendar
+                      value={parseDateValue(openingDate)}
+                      onChange={(e) => setOpeningDate(formatDateValue(e.value ?? null))}
+                      dateFormat="dd/mm/yy"
+                      placeholder="dd/MM/yyyy"
+                      inputClassName="sdm-input"
                       aria-label="Ngày tồn đầu"
+                      appendTo={document.body}
                     />
                   </div>
                   <div className="sdm-divider" />
                   <div className="sdm-field-row">
                     <span className="sdm-label">Ngày sản xuất:</span>
-                    <input
-                      className="sdm-input"
-                      type="date"
-                      value={manufactureDate}
-                      onChange={(e) => setManufactureDate(e.target.value)}
+                    <Calendar
+                      value={parseDateValue(manufactureDate)}
+                      onChange={(e) => setManufactureDate(formatDateValue(e.value ?? null))}
+                      dateFormat="dd/mm/yy"
+                      placeholder="dd/MM/yyyy"
+                      inputClassName="sdm-input"
                       aria-label="Ngày sản xuất"
+                      appendTo={document.body}
                     />
                   </div>
                   <div className="sdm-divider" />
                   <div className="sdm-field-row">
                     <span className="sdm-label">Hạn sử dụng:</span>
-                    <input
-                      className="sdm-input sdm-expiry-input"
-                      type="date"
-                      value={expiryDate}
-                      onChange={(e) => setExpiryDate(e.target.value)}
+                    <Calendar
+                      value={parseDateValue(expiryDate)}
+                      onChange={(e) => setExpiryDate(formatDateValue(e.value ?? null))}
+                      dateFormat="dd/mm/yy"
+                      placeholder="dd/MM/yyyy"
+                      inputClassName="sdm-input sdm-expiry-input"
                       aria-label="Hạn sử dụng"
+                      appendTo={document.body}
                     />
                   </div>
                   <div className="sdm-divider" />
@@ -357,12 +365,14 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
                   <div className="sdm-divider" />
                   <div className="sdm-field-row">
                     <span className="sdm-label">Ngày hóa đơn:</span>
-                    <input
-                      className="sdm-input"
-                      type="date"
-                      value={invoiceDate}
-                      onChange={(e) => setInvoiceDate(e.target.value)}
+                    <Calendar
+                      value={parseDateValue(invoiceDate)}
+                      onChange={(e) => setInvoiceDate(formatDateValue(e.value ?? null))}
+                      dateFormat="dd/mm/yy"
+                      placeholder="dd/MM/yyyy"
+                      inputClassName="sdm-input"
                       aria-label="Ngày hóa đơn"
+                      appendTo={document.body}
                     />
                   </div>
                 </div>

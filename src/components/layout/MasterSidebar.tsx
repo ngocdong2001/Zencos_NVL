@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import corpLogo from '../../assets/CorpLogo.png'
 
 type NavItem = { path: string; label: string; icon?: string; badge?: number }
 
@@ -9,13 +10,15 @@ type MasterSidebarProps = {
 }
 
 export function MasterSidebar({ brandName, navItems, footerItems }: MasterSidebarProps) {
+  const hasBrandName = brandName.trim().length > 0
+
   return (
     <aside className="catalog-sidebar">
-      <div className="sidebar-header">
-        <span className="brand-mark">
-          <i className="pi pi-box" />
+      <div className={`sidebar-header${hasBrandName ? '' : ' sidebar-header-logo-only'}`}>
+        <span className={`brand-mark${hasBrandName ? '' : ' brand-mark-expanded'}`}>
+          <img src={corpLogo} alt={brandName} className="brand-mark-image" />
         </span>
-        <h1>{brandName}</h1>
+        {hasBrandName ? <h1>{brandName}</h1> : null}
       </div>
 
       <nav className="sidebar-nav" aria-label="Main">

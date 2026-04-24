@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { AutoComplete, type AutoCompleteCompleteEvent } from 'primereact/autocomplete'
 import { Button } from 'primereact/button'
 import { Calendar } from 'primereact/calendar'
 import { Dialog } from 'primereact/dialog'
@@ -11,7 +12,7 @@ import { WizardStepBar } from '../components/inbound/WizardStepBar'
 import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
-import { fetchMaterialDetail, type MaterialManufacturer } from '../lib/catalogApi'
+import { fetchMaterialDetail, fetchInciSuggestions, type MaterialManufacturer, type InciSuggestion } from '../lib/catalogApi'
 import { fetchPurchaseRequestDetail, fetchPurchaseRequests } from '../lib/purchaseShortageApi'
 import { formatDateValue, formatQuantity, parseDateValue } from '../components/purchaseOrder/format'
 import {
@@ -40,6 +41,8 @@ type PoMaterialOption = {
   priceUnit: string
   conversionToBase: number
   priceUnitConversionToBase: number
+  poUnitPrice: number | null
+  poQuantity: number | null
 }
 
 function buildLotSuggestion(materialCode: string, expectedDate?: string): string {
@@ -79,6 +82,9 @@ export function InboundStep2Page() {
   const [materialOptions, setMaterialOptions] = useState<PoMaterialOption[]>([])
   const [manufacturerOptions, setManufacturerOptions] = useState<MaterialManufacturer[]>([])
   const [selectedManufacturerId, setSelectedManufacturerId] = useState(wizState.step2.selectedManufacturerId ?? '')
+  const [inciName, setInciName] = useState(wizState.step2.inciName ?? '')
+  const [inciSuggestions, setInciSuggestions] = useState<InciSuggestion[]>([])
+  const inciSearchRef = useRef(0)
   const [poSummary, setPoSummary] = useState<PoSummarySnapshot | null>(null)
   const [poSummaryLoading, setPoSummaryLoading] = useState(false)
   const [poSummaryError, setPoSummaryError] = useState<string | null>(null)
@@ -146,6 +152,7 @@ export function InboundStep2Page() {
         selectedPriceUnitConversionToBase: selectedMaterial?.priceUnitConversionToBase ?? 1,
         selectedManufacturerId: selectedManufacturerId || undefined,
         selectedManufacturerName: manufacturerOptions.find((m) => m.id === selectedManufacturerId)?.name,
+        inciName: inciName || undefined,
       },
     }
   }
@@ -196,6 +203,17 @@ export function InboundStep2Page() {
 
     setLastAutoLotSuggestion(suggested)
   }, [selectedMaterial?.code, step1.expectedDate])
+
+  // Auto-fill unitPrice and quantity from PO when selected material changes
+  useEffect(() => {
+    if (!selectedMaterial) return
+    if (selectedMaterial.poUnitPrice != null && selectedMaterial.poUnitPrice > 0) {
+      setUnitPrice(selectedMaterial.poUnitPrice)
+    }
+    if (selectedMaterial.poQuantity != null && selectedMaterial.poQuantity > 0) {
+      setQuantity(selectedMaterial.poQuantity)
+    }
+  }, [selectedMaterial?.value])
 
   // Fetch manufacturers when selected material changes
   useEffect(() => {
@@ -306,6 +324,8 @@ export function InboundStep2Page() {
             orderUnit: orderUnitFromPo,
             priceUnit: priceUnitName, // Đơn vị đơn giá từ DB
             priceUnitConversionToBase: priceUnitConversionFactor,
+            poUnitPrice: item.unitPrice ?? null,
+            poQuantity: item.quantityNeededBase ?? null,
             label: `${item.product.code} - ${item.product.name}`,
           }
         })
@@ -546,7 +566,88 @@ export function InboundStep2Page() {
                 </div>
               </>
             ) : null}
-            <div className="inbound-step2-summary-divider" aria-hidden />
+            <div className="inbound-step2-summary-divider full-row" aria-hidden />
+            <div className="inbound-step2-material-info" style={{ flexBasis: '100%' }}>
+              <div className="inbound-step2-info-icon-wrap material">
+                <i className="pi pi-list" />
+              </div>
+              <div>
+                <p className="inbound-step2-info-label">INCI Name</p>
+                <AutoComplete
+                      value={inciName}
+                      suggestions={inciSuggestions}
+                      field="inciName"
+                      completeMethod={(e: AutoCompleteCompleteEvent) => {
+                        const q = e.query
+                        const reqId = ++inciSearchRef.current
+                        fetchInciSuggestions(q, selectedMaterialId || undefined).then((results) => {
+                          if (inciSearchRef.current === reqId) setInciSuggestions(results)
+                        }).catch(() => {})
+                      }}
+                      onChange={(e) => setInciName(typeof e.value === 'string' ? e.value : (e.value as InciSuggestion)?.inciName ?? '')}
+                      onSelect={(e) => {
+                        const item = e.value as InciSuggestion
+                        setInciName(item.inciName)
+                        // Auto-fill material if productId matches one of the options
+                        if (item.productId) {
+                          const matched = materialOptions.find((m) => m.value === item.productId)
+                          if (matched) {
+                            setSelectedMaterialId(matched.value)
+                            setFieldErrors((prev) => ({ ...prev, selectedMaterialId: undefined }))
+                          }
+                        }
+                        // Auto-fill unit price from latest PO if not yet set
+                        if (item.latestPoUnitPrice != null && item.latestPoUnitPrice > 0 && (unitPrice === null || unitPrice === 0)) {
+                          setUnitPrice(item.latestPoUnitPrice)
+                          setFieldErrors((prev) => ({ ...prev, unitPrice: undefined }))
+                        }
+                        // Auto-select manufacturer by name if latestPoManufacturer matches
+                        if (item.latestPoManufacturer) {
+                          const matchedMfr = manufacturerOptions.find(
+                            (m) => m.name.toLowerCase() === item.latestPoManufacturer!.toLowerCase()
+                          )
+                          if (matchedMfr) setSelectedManufacturerId(matchedMfr.id)
+                        }
+                      }}
+                      itemTemplate={(item: InciSuggestion) => (
+                        <div className="po-inci-suggestion-item">
+                          <span className="po-inci-name">{item.inciName}</span>
+                          <span className="po-inci-product">{item.productCode} – {item.productName}</span>
+                          {(item.manufacturerNames || item.supplierNames || item.poHistoryCount > 0) && (
+                            <div className="po-inci-meta">
+                              {item.manufacturerNames ? <span>NSX: {item.manufacturerNames}</span> : null}
+                              {item.supplierNames ? <span>NCC: {item.supplierNames}</span> : null}
+                              {item.poHistoryCount > 0 ? <span className="po-inci-po-badge">{item.poHistoryCount} PO</span> : null}
+                            </div>
+                          )}
+                          {item.latestPoRef && (
+                            <div className="po-inci-latest-po">
+                              <span className="po-inci-latest-po-header">Phiếu PO gần nhất</span>
+                              <div className="po-inci-latest-po-grid">
+                                <span className="po-inci-latest-po-ref">{item.latestPoRef}</span>
+                                {item.latestPoDate ? <span>{new Date(item.latestPoDate).toLocaleDateString('vi-VN')}</span> : null}
+                                {item.latestPoQty != null && item.latestPoUnit ? (
+                                  <span>SL: {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(item.latestPoQty)} {item.latestPoUnit}</span>
+                                ) : null}
+                                {item.latestPoUnitPrice != null && item.latestPoUnitPrice > 0 ? (
+                                  <span>Đơn giá: {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(item.latestPoUnitPrice)} đ</span>
+                                ) : null}
+                                {item.latestPoSupplier ? <span>NCC: {item.latestPoSupplier}</span> : null}
+                                {item.latestPoManufacturer ? <span>NSX: {item.latestPoManufacturer}</span> : null}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      placeholder="Tìm theo INCI Name..."
+                      disabled={isPosted}
+                      className="inbound-step2-material-picker"
+                      panelClassName="po-inci-panel"
+                      dropdown
+                    />
+              </div>
+            </div>
+            <div className="inbound-step2-summary-divider full-row" aria-hidden />
             <div className="inbound-step2-supplier-info">
               <div className="inbound-step2-info-icon-wrap supplier">
                 <i className="pi pi-file" />

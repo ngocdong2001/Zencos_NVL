@@ -5,6 +5,9 @@ export type ImportDocType = 'MSDS' | 'COA' | 'Invoice' | 'Other'
 export type OpeningStockImportRow = {
   rowNumber: number
   code: string
+  excelTradeName: string
+  excelInciName: string
+  excelPriceUnit: string
   lookupTradeName?: string
   lookupInciName?: string
   lot: string
@@ -45,6 +48,7 @@ const EXPECTED_HEADERS = [
   'nha cung cap',
   'sl (gr/ml)',
   'don gia',
+  'don vi sl',
   'don vi gia',
   'thanh tien',
   'han sd',
@@ -60,23 +64,24 @@ type ExpectedHeader = (typeof EXPECTED_HEADERS)[number]
 
 const HEADER_SYNONYMS: Record<ExpectedHeader, string[]> = {
   'ma nvl': ['mã nvl', 'ma nguyen lieu', 'mã nguyên liệu', 'code'],
-  'ten thuong mai': ['tên thương mại', 'trade name', 'ten hang'],
+  'ten thuong mai': ['tên thương mại', 'trade name', 'ten hang', 'ten nguyen lieu', 'tên nguyên liệu'],
   'ten inci': ['tên inci', 'inci name', 'inci'],
   'so lo': ['số lô', 'lot', 'lot no', 'lot_no'],
   'ngay td': ['ngày td', 'ngay ton dau', 'ngay ton dau ky', 'opening date'],
   'so hoa don': ['số hóa đơn', 'invoice no', 'invoice number'],
   'ngay hoa don': ['ngày hóa đơn', 'invoice date'],
-  'nha cung cap': ['nhà cung cấp', 'supplier', 'supplier code', 'supplier name'],
-  'sl (gr/ml)': ['sl', 'so luong', 'số lượng', 'quantity', 'quantity base'],
+  'nha cung cap': ['nhà cung cấp', 'supplier', 'supplier code', 'supplier name', 'ten ncc', 'tên ncc', 'ncc'],
+  'sl (gr/ml)': ['sl', 'so luong', 'số lượng', 'quantity', 'quantity base', 'ton dau ky (gr)', 'tồn đầu kỳ (gr)', 'ton dau ky', 'sl ton dau'],
   'don gia': ['đơn giá', 'don gia/kg', 'unit price', 'unit_price'],
-  'don vi gia': ['đơn vị giá', 'don vi don gia', 'price unit'],
-  'thanh tien': ['thành tiền', 'line amount', 'amount'],
-  'han sd': ['hạn sd', 'expiry', 'expiry date'],
-  'ngay sx': ['ngày sx', 'manufacture date', 'mfg date'],
+  'don vi sl': ['đơn vị sl', 'don vi sl', 'don vi ton dau', 'đơn vị tồn đầu', 'unit of qty', 'don vi luong'],
+  'don vi gia': ['đơn vị giá', 'don vi don gia', 'price unit', 'dv don gia', 'đv đơn giá'],
+  'thanh tien': ['thành tiền', 'line amount', 'amount', 'gia tri ton', 'giá trị tồn'],
+  'han sd': ['hạn sd', 'expiry', 'expiry date', 'hsd', 'han su dung'],
+  'ngay sx': ['ngày sx', 'manufacture date', 'mfg date', 'nsx'],
   'chung tu': ['chứng từ', 'chung tu dinh kem', 'tai lieu', 'document'],
   'file msds': ['msds', 'msds file', 'ten file msds'],
   'file coa': ['coa', 'coa file', 'ten file coa'],
-  'file hoa don': ['hoa don file', 'invoice file', 'file invoice', 'ten file hoa don'],
+  'file hoa don': ['hoa don file', 'invoice file', 'file invoice', 'ten file hoa don', 'hoa don dinh kem', 'hóa đơn đính kèm'],
   'file khac': ['khac', 'other file', 'file other', 'ten file khac'],
 }
 
@@ -261,6 +266,9 @@ export async function parseOpeningStockExcel(file: File): Promise<OpeningStockIm
     const rowNumber = i + 1
 
     const code = getValue(rawRow, headerMap, 'ma nvl').trim().toUpperCase()
+    const excelTradeName = getValue(rawRow, headerMap, 'ten thuong mai')
+    const excelInciName = getValue(rawRow, headerMap, 'ten inci')
+    const excelPriceUnit = getValue(rawRow, headerMap, 'don vi gia').trim()
     const lot = getValue(rawRow, headerMap, 'so lo')
     const openingDate = toIsoDate(getValue(rawRow, headerMap, 'ngay td')) || today
     const invoiceNo = getValue(rawRow, headerMap, 'so hoa don')
@@ -302,6 +310,9 @@ export async function parseOpeningStockExcel(file: File): Promise<OpeningStockIm
     parsedRows.push({
       rowNumber,
       code,
+      excelTradeName,
+      excelInciName,
+      excelPriceUnit,
       lot,
       openingDate,
       invoiceNo,

@@ -102,7 +102,7 @@ const materialSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
   inciName: z.string().optional().default(''),
-  productType: z.union([z.string().min(1), z.coerce.number().int().positive()]).default('raw_material'),
+  productType: z.union([z.string(), z.coerce.number().int().positive()]).optional().nullable(),
   baseUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]),
   orderUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]).optional(),
   minStockLevel: z.coerce.number().nonnegative().default(0),
@@ -161,7 +161,9 @@ async function resolveBaseUnitId(baseUnit: string | number): Promise<number> {
   throw new Error('INVALID_BASE_UNIT')
 }
 
-async function resolveProductTypeId(productType: string | number): Promise<number> {
+async function resolveProductTypeId(productType: string | number | null | undefined): Promise<number | null> {
+  if (productType === null || productType === undefined || productType === '') return null
+
   const classification =
     typeof productType === 'number'
       ? await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
@@ -227,11 +229,9 @@ router.get('/materials', async (req, res) => {
       pou.conversion_to_base AS order_unit_conversion_to_base,
       p.deleted_at,
       (
-        SELECT pin.inci_name
+        SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ')
         FROM product_inci_names pin
         WHERE pin.product_id = p.id
-        ORDER BY pin.is_primary DESC, pin.id ASC
-        LIMIT 1
       ) AS inci_name
     FROM products p
     LEFT JOIN product_classifications pc ON pc.id = p.product_type
@@ -269,6 +269,148 @@ router.get('/materials', async (req, res) => {
 router.get('/materials/next-code', async (_req, res) => {
   const nextCode = await getNextMaterialCode()
   return res.json({ nextCode })
+})
+
+router.get('/inci-suggestions', async (req, res) => {
+  const q = (req.query.q as string | undefined)?.trim() ?? ''
+  const productId = typeof req.query.productId === 'string' && req.query.productId !== '' ? Number(req.query.productId) : null
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT
+      pin.inci_name,
+      p.id AS product_id,
+      p.code AS product_code,
+      p.name AS product_name,
+      pu.unit_code_name  AS base_unit_code,
+      pu.unit_name       AS base_unit_name,
+      pou.unit_code_name AS order_unit_code,
+      pou.unit_name      AS order_unit_name,
+      pou.conversion_to_base AS order_unit_conversion,
+      (
+        SELECT GROUP_CONCAT(pm.name ORDER BY pm.is_primary DESC, pm.id ASC SEPARATOR ' / ')
+        FROM product_manufacturers pm
+        WHERE pm.product_id = p.id AND pm.deleted_at IS NULL
+      ) AS manufacturer_names,
+      (
+        SELECT GROUP_CONCAT(DISTINCT s.name ORDER BY s.name ASC SEPARATOR ' / ')
+        FROM product_suppliers ps
+        JOIN suppliers s ON s.id = ps.supplier_id
+        WHERE ps.product_id = p.id
+      ) AS supplier_names,
+      (
+        SELECT COUNT(DISTINCT pr.id)
+        FROM purchase_request_items pri
+        JOIN purchase_requests pr ON pr.id = pri.purchase_request_id
+        WHERE pri.product_id = p.id
+          AND pr.status NOT IN ('draft', 'cancelled')
+      ) AS po_history_count,
+      latest_po.request_ref   AS latest_po_ref,
+      latest_po.po_date       AS latest_po_date,
+      latest_po.qty_display   AS latest_po_qty,
+      latest_po.unit_display  AS latest_po_unit,
+      latest_po.unit_price    AS latest_po_unit_price,
+      latest_po.supplier_name AS latest_po_supplier,
+      latest_po.mfr_name      AS latest_po_manufacturer
+    FROM product_inci_names pin
+    JOIN products p ON p.id = pin.product_id
+    LEFT JOIN product_units pu  ON pu.id  = p.base_unit
+    LEFT JOIN product_units pou ON pou.id = p.order_unit
+    LEFT JOIN LATERAL (
+      SELECT
+        pr.request_ref,
+        pr.created_at     AS po_date,
+        pri.quantity_display AS qty_display,
+        pri.unit_display,
+        pri.unit_price,
+        s.name            AS supplier_name,
+        (
+          SELECT pm2.name
+          FROM product_manufacturers pm2
+          WHERE pm2.product_id = p.id AND pm2.deleted_at IS NULL
+          ORDER BY pm2.is_primary DESC, pm2.id ASC
+          LIMIT 1
+        )                 AS mfr_name
+      FROM purchase_request_items pri
+      JOIN purchase_requests pr ON pr.id = pri.purchase_request_id
+      LEFT JOIN suppliers s ON s.id = pr.supplier_id
+      WHERE pri.product_id = p.id
+        AND pr.status NOT IN ('draft', 'cancelled')
+      ORDER BY pr.created_at DESC
+      LIMIT 1
+    ) latest_po ON TRUE
+    WHERE p.deleted_at IS NULL
+      AND (
+        ${q} = ''
+        OR pin.inci_name LIKE ${`%${q}%`}
+        OR p.code LIKE ${`%${q}%`}
+        OR p.name LIKE ${`%${q}%`}
+      )
+      AND (
+        ${productId} IS NULL
+        OR p.id = ${productId}
+      )
+    ORDER BY po_history_count DESC, pin.inci_name ASC
+    LIMIT 20
+  `)
+  const data = rows.map((row) => ({
+    inciName: String(row.inci_name ?? ''),
+    productId: String(row.product_id ?? ''),
+    productCode: String(row.product_code ?? ''),
+    productName: String(row.product_name ?? ''),
+    baseUnit: String(row.base_unit_code ?? row.base_unit_name ?? ''),
+    orderUnit: String(row.order_unit_code ?? row.order_unit_name ?? row.base_unit_code ?? row.base_unit_name ?? ''),
+    orderUnitConversionToBase: Number(row.order_unit_conversion ?? 1) > 0 ? Number(row.order_unit_conversion) : 1,
+    manufacturerNames: String(row.manufacturer_names ?? ''),
+    supplierNames: String(row.supplier_names ?? ''),
+    poHistoryCount: Number(row.po_history_count ?? 0),
+    latestPoRef: row.latest_po_ref ? String(row.latest_po_ref) : null,
+    latestPoDate: row.latest_po_date ? String(row.latest_po_date) : null,
+    latestPoQty: row.latest_po_qty != null ? Number(row.latest_po_qty) : null,
+    latestPoUnit: row.latest_po_unit ? String(row.latest_po_unit) : null,
+    latestPoUnitPrice: row.latest_po_unit_price != null ? Number(row.latest_po_unit_price) : null,
+    latestPoSupplier: row.latest_po_supplier ? String(row.latest_po_supplier) : null,
+    latestPoManufacturer: row.latest_po_manufacturer ? String(row.latest_po_manufacturer) : null,
+  }))
+  return res.json(normalizeForJson(data))
+})
+
+// GET /api/catalog/manufacturers?q=&productId=
+// Returns manufacturer names linked to a product (or all if no productId)
+router.get('/manufacturers', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  const productId = typeof req.query.productId === 'string' ? Number(req.query.productId) : null
+  const hasProductId = productId != null && Number.isFinite(productId) && productId > 0
+
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(
+    hasProductId
+      ? Prisma.sql`
+          SELECT pm.name, pm.country, p.id AS product_id, p.code AS product_code, p.name AS product_name,
+                 MAX(pm.is_primary) AS is_primary_sort
+          FROM product_manufacturers pm
+          JOIN products p ON p.id = pm.product_id
+          WHERE pm.deleted_at IS NULL
+            AND pm.product_id = ${productId}
+            AND (${q} = '' OR pm.name LIKE ${`%${q}%`})
+          GROUP BY pm.name, pm.country, p.id, p.code, p.name
+          ORDER BY is_primary_sort DESC, pm.name ASC
+          LIMIT 20`
+      : Prisma.sql`
+          SELECT pm.name, pm.country, p.id AS product_id, p.code AS product_code, p.name AS product_name
+          FROM product_manufacturers pm
+          JOIN products p ON p.id = pm.product_id
+          WHERE pm.deleted_at IS NULL
+            AND pm.name LIKE ${`%${q}%`}
+          GROUP BY pm.name, pm.country, p.id, p.code, p.name
+          ORDER BY pm.name ASC
+          LIMIT 20`
+  )
+  const data = rows.map((row) => ({
+    name: String(row.name ?? ''),
+    country: row.country ? String(row.country) : null,
+    productId: String(row.product_id ?? ''),
+    productCode: String(row.product_code ?? ''),
+    productName: String(row.product_name ?? ''),
+  }))
+  return res.json(data)
 })
 
 router.get('/materials/:id', async (req, res) => {
@@ -355,7 +497,7 @@ router.post('/materials', async (req, res) => {
 
   const data = parsed.data
   const codeToInsert = data.code
-  let productTypeId: number
+  let productTypeId: number | null
   let baseUnitId: number
   let orderUnitId: number
 
@@ -392,6 +534,30 @@ router.post('/materials', async (req, res) => {
     `)
   } catch (error) {
     if (!isDuplicateCodeError(error)) throw error
+
+    // Check if the conflicting record is soft-deleted (inactive) — if so, restore it
+    const inactiveRows = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT id FROM products WHERE code = ${codeToInsert} AND deleted_at IS NOT NULL LIMIT 1
+    `)
+    if (inactiveRows.length > 0) {
+      const restoredId = Number(inactiveRows[0].id)
+      await prisma.$executeRaw(Prisma.sql`
+        UPDATE products
+        SET
+          name        = ${data.name},
+          product_type = ${productTypeId},
+          has_expiry  = ${data.hasExpiry},
+          use_fefo    = ${data.useFefo},
+          base_unit   = ${baseUnitId},
+          order_unit  = ${orderUnitId},
+          min_stock_level = ${data.minStockLevel},
+          notes       = ${data.notes ?? null},
+          deleted_at  = NULL,
+          updated_at  = NOW(3)
+        WHERE id = ${restoredId}
+      `)
+      return res.status(201).json({ ok: true, restored: true, id: restoredId })
+    }
 
     const isGeneratedNvlCode = /^NVL-\d+$/i.test(codeToInsert)
     if (!isGeneratedNvlCode) {
@@ -465,6 +631,7 @@ router.put('/materials/:id', async (req, res) => {
   let productTypeId: number | null = null
   let baseUnitId: number | null = null
   let orderUnitId: number | null = null
+  let clearProductType = 0
   if (data.productType !== undefined) {
     try {
       productTypeId = await resolveProductTypeId(data.productType)
@@ -474,6 +641,7 @@ router.put('/materials/:id', async (req, res) => {
       }
       throw error
     }
+    if (productTypeId === null) clearProductType = 1
   }
 
   if (data.baseUnit !== undefined) {
@@ -504,7 +672,7 @@ router.put('/materials/:id', async (req, res) => {
       SET
         code = COALESCE(${data.code ?? null}, code),
         name = COALESCE(${data.name ?? null}, name),
-        product_type = COALESCE(${productTypeId}, product_type),
+        product_type = CASE WHEN ${clearProductType} = 1 THEN NULL ELSE COALESCE(${productTypeId}, product_type) END,
         has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
         use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
         base_unit = COALESCE(${baseUnitId}, base_unit),
@@ -769,6 +937,28 @@ router.post('/suppliers', async (req, res) => {
     `)
   } catch (error) {
     if (!isDuplicateIndexError(error, 'suppliers.suppliers_code_key')) throw error
+
+    // Check if the conflicting record is soft-deleted (inactive) — if so, restore it
+    const inactiveRows = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+      SELECT id FROM suppliers WHERE code = ${data.code} AND deleted_at IS NOT NULL LIMIT 1
+    `)
+    if (inactiveRows.length > 0) {
+      const restoredId = Number(inactiveRows[0].id)
+      await prisma.$executeRaw(Prisma.sql`
+        UPDATE suppliers
+        SET
+          name        = ${data.name},
+          phone       = COALESCE(${data.phone ?? null}, phone),
+          contact_info = COALESCE(${data.contactInfo ?? null}, contact_info),
+          address     = COALESCE(${data.address ?? null}, address),
+          notes       = COALESCE(${data.notes ?? null}, notes),
+          deleted_at  = NULL,
+          updated_at  = NOW(3)
+        WHERE id = ${restoredId}
+      `)
+      return res.status(201).json({ ok: true, restored: true, id: restoredId })
+    }
+
     return res.status(409).json({ message: 'Mã nhà cung cấp đã tồn tại', code: data.code })
   }
 

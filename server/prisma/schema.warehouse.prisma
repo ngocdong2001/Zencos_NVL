@@ -125,7 +125,7 @@ model Product {
   code           String           @unique @db.VarChar(100)
   name           String           @db.VarChar(255)
   inciName       String?          @map("inci_name") @db.VarChar(255)
-  productType    BigInt           @map("product_type") @db.UnsignedBigInt
+  productType    BigInt?          @map("product_type") @db.UnsignedBigInt
   hasExpiry      Boolean          @default(true) @map("has_expiry")
   useFefo        Boolean          @default(true) @map("use_fefo")
   baseUnit       BigInt           @map("base_unit") @db.UnsignedBigInt
@@ -144,7 +144,7 @@ model Product {
   purchaseRequestItems PurchaseRequestItem[]
   inboundReceiptItems InboundReceiptItem[]
   openingStockItems OpeningStockItem[]
-  productClassification ProductClassification @relation(fields: [productType], references: [id], onDelete: Restrict)
+  productClassification ProductClassification? @relation(fields: [productType], references: [id], onDelete: SetNull)
   inciNames        ProductInciName[]
   manufacturers    ProductManufacturer[]
   productSuppliers ProductSupplier[]
@@ -291,6 +291,7 @@ model ExportOrder {
   createdBy   BigInt            @map("created_by") @db.UnsignedBigInt
   status      ExportOrderStatus @default(pending)
   notes       String?           @db.Text
+  dienGiai    String?           @map("Dien_giai") @db.Text
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
   customer    Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -381,6 +382,7 @@ model PurchaseRequest {
   status        PurchaseRequestStatus @default(draft)
   expectedDate  DateTime?            @map("expected_date") @db.Date
   notes         String?              @db.Text
+  dienGiai      String?              @map("Dien_giai") @db.Text
   submittedAt   DateTime?            @map("submitted_at")
   approvedAt    DateTime?            @map("approved_at")
   orderedAt     DateTime?            @map("ordered_at")
@@ -478,6 +480,7 @@ model InboundReceipt {
   createdBy          BigInt                @map("created_by") @db.UnsignedBigInt
   postedBy           BigInt?               @map("posted_by") @db.UnsignedBigInt
   notes              String?               @db.Text
+  dienGiai           String?               @map("Dien_giai") @db.Text
   createdAt          DateTime              @default(now()) @map("created_at")
   updatedAt          DateTime              @updatedAt @map("updated_at")
   purchaseRequest    PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)

@@ -26,12 +26,42 @@ import {
 } from '../lib/openingStockApi'
 import type { OpeningStockRow } from '../lib/openingStockApi'
 import { uploadItemDocument } from '../lib/openingStockDocApi'
-import { fetchBasics, fetchMaterials } from '../lib/catalogApi'
+import { fetchBasics, fetchMaterials, createMaterial, createBasic } from '../lib/catalogApi'
 import type { BasicRow, MaterialRow } from '../components/catalog/types'
 
 type OutletContext = { search: string }
 
 type SupplierOption = Pick<BasicRow, 'id' | 'code' | 'name'>
+
+export type CatalogSyncProduct = {
+  code: string
+  tradeName: string
+  inciName: string
+  unit: string
+  priceUnit: string
+  include: boolean
+  error?: string
+}
+
+export type CatalogSyncSupplier = {
+  rawText: string
+  code: string
+  name: string
+  include: boolean
+  error?: string
+}
+
+function autoSupplierCode(name: string): string {
+  const cleaned = name
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\b(cty\.?|cong ty|công ty|tnhh|co\.|ltd\.?|jsc|cp|hđ|nn)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const words = cleaned.split(/\s+/).filter(w => w.length >= 2)
+  if (words.length === 0) return name.replace(/\s+/g, '').slice(0, 4).toUpperCase()
+  if (words.length === 1) return words[0].slice(0, 4).toUpperCase()
+  return words.slice(0, 4).map(w => w[0].toUpperCase()).join('')
+}
 
 function SupplierEditorCell({
   initialId,
@@ -240,6 +270,10 @@ export function OpeningStockPage() {
   const [parsedImportResult, setParsedImportResult] = useState<OpeningStockImportParseResult | null>(null)
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const [importAttachmentFiles, setImportAttachmentFiles] = useState<File[]>([])
+  const [catalogSyncProducts, setCatalogSyncProducts] = useState<CatalogSyncProduct[]>([])
+  const [catalogSyncSuppliers, setCatalogSyncSuppliers] = useState<CatalogSyncSupplier[]>([])
+  const [syncingCatalog, setSyncingCatalog] = useState(false)
+  const [importStep, setImportStep] = useState<1 | 2 | 3>(1)
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [docModalItem, setDocModalItem] = useState<{ id: string; label: string } | null>(null)
   const [detailModalRow, setDetailModalRow] = useState<OpeningStockRow | null>(null)
@@ -801,6 +835,9 @@ export function OpeningStockPage() {
     setParsedImportResult(null)
     setImportSummary(null)
     setImportAttachmentFiles([])
+    setCatalogSyncProducts([])
+    setCatalogSyncSuppliers([])
+    setImportStep(1)
   }
 
   const handleCloseImportModal = () => {
@@ -809,18 +846,19 @@ export function OpeningStockPage() {
     resetImportState()
   }
 
-  const resolveSupplierOptionByImportValue = (rawSupplier: string): SupplierOption | null => {
+  const resolveSupplierOptionByImportValue = (rawSupplier: string, suppliers?: SupplierOption[]): SupplierOption | null => {
+    const effectiveSuppliers = suppliers ?? supplierOptions
     const normalized = normalizeLookup(rawSupplier)
     if (!normalized) return null
 
     const codeCandidate = normalizeLookup(rawSupplier.split('-')[0] ?? rawSupplier)
-    const byCode = supplierOptions.find((supplier) => normalizeLookup(supplier.code) === codeCandidate)
+    const byCode = effectiveSuppliers.find((supplier) => normalizeLookup(supplier.code) === codeCandidate)
     if (byCode) return byCode
 
-    const byName = supplierOptions.find((supplier) => normalizeLookup(supplier.name) === normalized)
+    const byName = effectiveSuppliers.find((supplier) => normalizeLookup(supplier.name) === normalized)
     if (byName) return byName
 
-    const byContains = supplierOptions.find((supplier) => {
+    const byContains = effectiveSuppliers.find((supplier) => {
       const normalizedCode = normalizeLookup(supplier.code)
       const normalizedName = normalizeLookup(supplier.name)
       return normalized.includes(normalizedCode) || normalized.includes(normalizedName)
@@ -831,7 +869,9 @@ export function OpeningStockPage() {
 
   const enrichImportPreviewRows = async (
     sourceRows: OpeningStockImportParseResult['rows'],
+    currentSuppliers?: SupplierOption[],
   ): Promise<OpeningStockImportParseResult['rows']> => {
+    const effectiveSuppliers = currentSuppliers ?? supplierOptions
     const materialCache = new Map<string, Promise<MaterialRow | null>>()
     const unitCache = new Map<string, Promise<{ id: string; code: string; conversionToBase: number } | null>>()
 
@@ -874,9 +914,14 @@ export function OpeningStockPage() {
     return Promise.all(sourceRows.map(async (row) => {
       const material = await getExactMaterial(row.code)
       const preferredUnit = await getPreferredUnit(row.code)
-      const supplier = resolveSupplierOptionByImportValue(row.supplierText)
+      const supplier = resolveSupplierOptionByImportValue(row.supplierText, effectiveSuppliers)
 
-      const nextWarnings = [...row.warnings]
+      const nextWarnings = row.warnings.filter(
+        (w) =>
+          !w.startsWith('Không lookup được Mã NVL') &&
+          !w.startsWith('Không lookup được đơn vị đơn giá') &&
+          !w.startsWith('Không lookup được nhà cung cấp'),
+      )
       if (row.code && !material) {
         nextWarnings.push('Không lookup được Mã NVL để lấy Tên thương mại/Tên INCI.')
       }
@@ -933,11 +978,211 @@ export function OpeningStockPage() {
         ...parsed,
         rows: enrichedRows,
       })
+      detectMissingCatalogItems(enrichedRows)
     } catch (error) {
       setImportParseError(parseApiErrorMessage(error, 'Không thể đọc file import.'))
       setParsedImportResult(null)
     } finally {
       setImportParsing(false)
+    }
+  }
+
+  const detectMissingCatalogItems = (
+    enrichedRows: OpeningStockImportParseResult['rows'],
+    preserveProductErrors?: Map<string, string>,
+    preserveSupplierErrors?: Map<string, string>,
+  ) => {
+    const productMap = new Map<string, CatalogSyncProduct>()
+    const supplierMap = new Map<string, CatalogSyncSupplier>()
+    for (const row of enrichedRows) {
+      const hasMissingProduct = row.warnings.some(w => w.startsWith('Không lookup được Mã NVL'))
+      const hasMissingSupplier = row.warnings.some(w => w.startsWith('Không lookup được nhà cung cấp'))
+      if (hasMissingProduct && row.code && !productMap.has(row.code)) {
+        productMap.set(row.code, {
+          code: row.code,
+          tradeName: row.excelTradeName ?? '',
+          inciName: row.excelInciName ?? '',
+          unit: 'g',
+          priceUnit: row.excelPriceUnit ?? '',
+          include: true,
+          error: preserveProductErrors?.get(row.code),
+        })
+      } else if (hasMissingProduct && row.code && productMap.has(row.code)) {
+        // Fill in priceUnit from first non-empty row for this code
+        const existing = productMap.get(row.code)!
+        if (!existing.priceUnit && row.excelPriceUnit) {
+          productMap.set(row.code, { ...existing, priceUnit: row.excelPriceUnit })
+        }
+      }
+      if (hasMissingSupplier && row.supplierText && !supplierMap.has(row.supplierText)) {
+        const cleanName = row.supplierText.replace(/[\r\n]+/g, ' ').trim()
+        supplierMap.set(row.supplierText, {
+          rawText: row.supplierText,
+          code: autoSupplierCode(row.supplierText),
+          name: cleanName,
+          include: true,
+          error: preserveSupplierErrors?.get(row.supplierText),
+        })
+      }
+    }
+    setCatalogSyncProducts([...productMap.values()])
+    setCatalogSyncSuppliers([...supplierMap.values()])
+  }
+
+  const handleCreateCatalogItems = async () => {
+    setSyncingCatalog(true)
+    // Clear previous inline errors before attempting
+    setCatalogSyncProducts(prev => prev.map(p => ({ ...p, error: undefined })))
+    setCatalogSyncSuppliers(prev => prev.map(s => ({ ...s, error: undefined })))
+    let failedCount = 0
+    try {
+      const nextProducts = [...catalogSyncProducts]
+      for (let i = 0; i < nextProducts.length; i++) {
+        const item = nextProducts[i]
+        if (!item.include) continue
+        try {
+          await createMaterial({
+            code: item.code,
+            name: item.tradeName || item.code,
+            inciName: item.inciName,
+            productType: '',
+            baseUnit: item.unit || 'g',
+            orderUnit: item.priceUnit || item.unit || 'g',
+            minStockLevel: 0,
+            hasExpiry: true,
+            useFefo: true,
+            notes: '',
+          })
+          nextProducts[i] = { ...item, error: undefined }
+        } catch (e) {
+          nextProducts[i] = { ...item, error: parseApiErrorMessage(e, 'Lỗi không xác định') }
+          failedCount++
+        }
+      }
+      setCatalogSyncProducts(nextProducts)
+      const productErrorMap = new Map(nextProducts.filter(p => p.error).map(p => [p.code, p.error!]))
+
+      const nextSuppliers = [...catalogSyncSuppliers]
+      for (let i = 0; i < nextSuppliers.length; i++) {
+        const item = nextSuppliers[i]
+        if (!item.include) continue
+        try {
+          await createBasic('suppliers', { code: item.code, name: item.name, note: '' })
+          nextSuppliers[i] = { ...item, error: undefined }
+        } catch (e) {
+          nextSuppliers[i] = { ...item, error: parseApiErrorMessage(e, 'Lỗi không xác định') }
+          failedCount++
+        }
+      }
+      setCatalogSyncSuppliers(nextSuppliers)
+      const supplierErrorMap = new Map(nextSuppliers.filter(s => s.error).map(s => [s.rawText, s.error!]))
+
+      // Refresh supplier list and re-enrich with fresh data
+      const newSupplierList = await fetchBasics('suppliers')
+      const newSupplierOptions = newSupplierList.map(s => ({ id: s.id, code: s.code, name: s.name }))
+      setSupplierOptions(newSupplierOptions)
+      if (parsedImportResult) {
+        const reEnriched = await enrichImportPreviewRows(parsedImportResult.rows, newSupplierOptions)
+        setParsedImportResult({ ...parsedImportResult, rows: reEnriched })
+        detectMissingCatalogItems(reEnriched, productErrorMap, supplierErrorMap)
+      }
+      if (failedCount > 0) {
+        showNotice(`Tạo thất bại ${failedCount} mục. Xem chi tiết lỗi từng dòng trong bảng.`, 'error')
+      } else {
+        showNotice('Tạo danh mục thành công. Preview đã được cập nhật.', 'success')
+      }
+    } catch (e) {
+      showNotice(parseApiErrorMessage(e, 'Tạo danh mục thất bại.'), 'error')
+    } finally {
+      setSyncingCatalog(false)
+    }
+  }
+
+  const handleCreateSuppliersOnly = async () => {
+    setSyncingCatalog(true)
+    setCatalogSyncSuppliers(prev => prev.map(s => ({ ...s, error: undefined })))
+    let failedCount = 0
+    try {
+      const nextSuppliers = [...catalogSyncSuppliers]
+      for (let i = 0; i < nextSuppliers.length; i++) {
+        const item = nextSuppliers[i]
+        if (!item.include) continue
+        try {
+          await createBasic('suppliers', { code: item.code, name: item.name, note: '' })
+          nextSuppliers[i] = { ...item, error: undefined }
+        } catch (e) {
+          nextSuppliers[i] = { ...item, error: parseApiErrorMessage(e, 'Lỗi không xác định') }
+          failedCount++
+        }
+      }
+      setCatalogSyncSuppliers(nextSuppliers)
+      const supplierErrorMap = new Map(nextSuppliers.filter(s => s.error).map(s => [s.rawText, s.error!]))
+
+      const newSupplierList = await fetchBasics('suppliers')
+      const newSupplierOptions = newSupplierList.map(s => ({ id: s.id, code: s.code, name: s.name }))
+      setSupplierOptions(newSupplierOptions)
+      if (parsedImportResult) {
+        const reEnriched = await enrichImportPreviewRows(parsedImportResult.rows, newSupplierOptions)
+        setParsedImportResult({ ...parsedImportResult, rows: reEnriched })
+        detectMissingCatalogItems(reEnriched, undefined, supplierErrorMap)
+      }
+      if (failedCount > 0) {
+        showNotice(`Tạo thất bại ${failedCount} NCC. Xem chi tiết lỗi từng dòng.`, 'error')
+      } else {
+        showNotice('Tạo NCC thành công.', 'success')
+      }
+    } catch (e) {
+      showNotice(parseApiErrorMessage(e, 'Tạo NCC thất bại.'), 'error')
+    } finally {
+      setSyncingCatalog(false)
+    }
+  }
+
+  const handleCreateProductsOnly = async () => {
+    setSyncingCatalog(true)
+    setCatalogSyncProducts(prev => prev.map(p => ({ ...p, error: undefined })))
+    let failedCount = 0
+    try {
+      const nextProducts = [...catalogSyncProducts]
+      for (let i = 0; i < nextProducts.length; i++) {
+        const item = nextProducts[i]
+        if (!item.include) continue
+        try {
+          await createMaterial({
+            code: item.code,
+            name: item.tradeName || item.code,
+            inciName: item.inciName,
+            productType: '',
+            baseUnit: item.unit || 'g',
+            orderUnit: item.priceUnit || item.unit || 'g',
+            minStockLevel: 0,
+            hasExpiry: true,
+            useFefo: true,
+            notes: '',
+          })
+          nextProducts[i] = { ...item, error: undefined }
+        } catch (e) {
+          nextProducts[i] = { ...item, error: parseApiErrorMessage(e, 'Lỗi không xác định') }
+          failedCount++
+        }
+      }
+      setCatalogSyncProducts(nextProducts)
+      const productErrorMap = new Map(nextProducts.filter(p => p.error).map(p => [p.code, p.error!]))
+
+      if (parsedImportResult) {
+        const reEnriched = await enrichImportPreviewRows(parsedImportResult.rows)
+        setParsedImportResult({ ...parsedImportResult, rows: reEnriched })
+        detectMissingCatalogItems(reEnriched, productErrorMap, undefined)
+      }
+      if (failedCount > 0) {
+        showNotice(`Tạo thất bại ${failedCount} NVL. Xem chi tiết lỗi từng dòng.`, 'error')
+      } else {
+        showNotice('Tạo NVL thành công.', 'success')
+      }
+    } catch (e) {
+      showNotice(parseApiErrorMessage(e, 'Tạo NVL thất bại.'), 'error')
+    } finally {
+      setSyncingCatalog(false)
     }
   }
 
@@ -959,14 +1204,19 @@ export function OpeningStockPage() {
 
   const buildAttachmentLookup = (files: File[]) => {
     const byExactName = new Map<string, File>()
+    const byBaseName = new Map<string, File>()
 
     for (const file of files) {
       const exactKey = normalizeImportFileName(file.name)
       if (!exactKey) continue
       byExactName.set(exactKey, file)
+
+      const dotIndex = exactKey.lastIndexOf('.')
+      const baseKey = dotIndex > 0 ? exactKey.slice(0, dotIndex) : exactKey
+      if (!byBaseName.has(baseKey)) byBaseName.set(baseKey, file)
     }
 
-    return { byExactName }
+    return { byExactName, byBaseName }
   }
 
   const resolveAttachmentFile = (
@@ -977,8 +1227,9 @@ export function OpeningStockPage() {
     if (!normalizedRequested) return null
     if (hasPathSegment(normalizedRequested)) return null
 
-    const exactMatch = lookup.byExactName.get(normalizedRequested)
-    return exactMatch ?? null
+    return lookup.byExactName.get(normalizedRequested)
+      ?? lookup.byBaseName.get(normalizedRequested)
+      ?? null
   }
 
   const handleConfirmImport = async () => {
@@ -1851,6 +2102,15 @@ export function OpeningStockPage() {
         attachmentCount={importAttachmentFiles.length}
         attachmentFileNames={importAttachmentFiles.map((file) => file.name)}
         importSummary={importSummary}
+        catalogSyncProducts={catalogSyncProducts}
+        catalogSyncSuppliers={catalogSyncSuppliers}
+        syncingCatalog={syncingCatalog}
+        importStep={importStep}
+        onGoToStep={setImportStep}
+        onUpdateSyncProducts={setCatalogSyncProducts}
+        onUpdateSyncSuppliers={setCatalogSyncSuppliers}
+        onCreateSuppliers={() => void handleCreateSuppliersOnly()}
+        onCreateProducts={() => void handleCreateProductsOnly()}
         onClose={handleCloseImportModal}
         onPickExcelFile={handlePickImportFile}
         onPickAttachments={handlePickAttachmentFiles}

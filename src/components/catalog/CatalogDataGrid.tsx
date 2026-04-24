@@ -231,7 +231,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       }
 
       const updatedRow: MaterialRow = { ...rowData, [field]: newValue }
-      if (!updatedRow.inciName?.trim() || !updatedRow.materialName?.trim() || !updatedRow.category?.trim() || !updatedRow.unit?.trim() || !updatedRow.orderUnit?.trim()) {
+      if (!updatedRow.inciName?.trim() || !updatedRow.materialName?.trim() || !updatedRow.unit?.trim() || !updatedRow.orderUnit?.trim()) {
         event.preventDefault()
         return
       }
@@ -439,12 +439,13 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     function materialCategoryEditor(options: any) {
       return (
         <Dropdown
-          value={options.value || ''}
-          onChange={(e) => options.editorCallback?.(e.value)}
+          value={options.value || null}
+          onChange={(e) => options.editorCallback?.(e.value ?? '')}
           options={classificationOptions}
           optionLabel="label"
           optionValue="value"
           placeholder="-- Chọn --"
+          showClear
         />
       )
     }
@@ -1041,6 +1042,10 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               onSelectAllChange={(event) => onToggleSelectAll(Boolean(event.checked))}
               isDataSelectable={(event) => event.data?.id !== NEW_ID}
               stripedRows
+              resizableColumns
+              columnResizeMode="expand"
+              stateStorage="local"
+              stateKey="catalog-material-table"
               className="catalog-table prime-catalog-table"
               rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
               rowExpansionTemplate={(row: MaterialRow) => <MaterialRowExpansion productId={row.id} suppliers={suppliers} />}
@@ -1072,6 +1077,10 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               onSelectAllChange={(event) => onToggleSelectAll(Boolean(event.checked))}
               isDataSelectable={(event) => event.data?.id !== NEW_ID}
               stripedRows
+              resizableColumns
+              columnResizeMode="expand"
+              stateStorage="local"
+              stateKey={`catalog-basic-table-${activeTab}`}
               className="catalog-table prime-catalog-table basic-table"
               rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
             >

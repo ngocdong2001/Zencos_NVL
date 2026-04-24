@@ -7,14 +7,13 @@ import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dialog } from 'primereact/dialog'
-import { InputText } from 'primereact/inputtext'
-import { RadioButton } from 'primereact/radiobutton'
 import { fetchInboundReceiptDetail, fetchInboundReceiptHistory, type InboundReceiptDetailResponse, type InboundReceiptHistoryRowResponse } from '../lib/inboundApi'
 import { OutboundDetailDialog } from '../components/outbound/OutboundDetailDialog'
-import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
+import { type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import { fetchPurchaseRequestDetail, type PurchaseRequestDetailResponse } from '../lib/purchaseShortageApi'
 import { formatQuantity } from '../components/purchaseOrder/format'
 import { STATUS_LABELS as PO_STATUS_LABELS, type PoStatus } from '../components/purchaseOrder/types'
+import { InboundReceiptDetailDialog } from '../components/inbound/InboundReceiptDetailDialog'
 import {
   Bar,
   BarChart,
@@ -65,50 +64,6 @@ function fmtDateTimeVi(value: string | null | undefined): string {
 function toPoStatus(s: string): PoStatus {
   const valid: PoStatus[] = ['draft','submitted','approved','ordered','partially_received','received','cancelled']
   return valid.includes(s as PoStatus) ? (s as PoStatus) : 'draft'
-}
-
-type QcStatus = 'pending' | 'passed' | 'failed'
-const QC_STATUS_OPTIONS: Array<{ label: string; value: QcStatus }> = [
-  { label: 'Chờ QC', value: 'pending' },
-  { label: 'Đạt', value: 'passed' },
-  { label: 'Không đạt', value: 'failed' },
-]
-
-function formatDateOnly(value?: string | null): string {
-  if (!value) return '---'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('vi-VN')
-}
-
-function formatCurrencyVnd(value: number): string {
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function getDocTypeLabelShort(docType: string): string {
-  switch (docType) {
-    case 'COA': return 'COA'
-    case 'Invoice': return 'Invoice'
-    case 'MSDS': return 'MSDS'
-    default: return 'Others'
-  }
-}
-
-function getQcStatusLabel(status: QcStatus): string {
-  if (status === 'passed') return 'Đạt'
-  if (status === 'failed') return 'Không đạt'
-  return 'Chờ QC'
-}
-
-function toInboundStatusLabel(status: string): string {
-  if (status === 'posted') return 'Đã posted'
-  if (status === 'pending_qc') return 'Chờ QC'
-  if (status === 'cancelled') return 'Đã hủy'
-  return 'Nháp'
 }
 
 function mapInboundHistoryRows(rows: InboundReceiptHistoryRowResponse[]): HistoryTimelineEvent[] {
@@ -618,7 +573,7 @@ export function DashboardPage() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#191a1f', letterSpacing: '-0.5px', lineHeight: '28px' }}>
-              Giao dịch gần đây
+              Phát sinh gần đây
             </h2>
             <button
               onClick={() => navigate('/inbound')}
@@ -748,175 +703,18 @@ export function DashboardPage() {
       />
 
       {/* ── Inbound Receipt Full Preview Dialog ─────────────────────────── */}
-      <Dialog
+      <InboundReceiptDetailDialog
         visible={inboundDialogVisible}
         onHide={() => setInboundDialogVisible(false)}
-        header={inboundDialogRef ? `Chi tiết phiếu nhập ${inboundDialogRef}` : 'Chi tiết phiếu nhập'}
-        style={{ width: '92vw', maxWidth: '1320px' }}
-        modal
-        draggable={false}
-        resizable={false}
-        className="inbound-step4-preview-dialog"
-      >
-        {inboundDetailLoading ? <p className="po-field-success">Đang tải chi tiết phiếu nhập...</p> : null}
-        {inboundDetailError ? <p className="po-field-error">{inboundDetailError}</p> : null}
-
-        {inboundDetail ? (
-          <section className="inbound-create-card inbound-step4-review-card inbound-readonly-card">
-            <div className="inbound-step4-layout">
-              <aside className="inbound-step4-history-panel">
-                <div className="inbound-step4-section-header">
-                  <i className="pi pi-history" />
-                  <span>LỊCH SỬ THAO TÁC</span>
-                </div>
-                <HistoryTimeline
-                  events={inboundHistory}
-                  loading={inboundHistoryLoading}
-                  error={inboundHistoryError}
-                  emptyMessage="Chưa có lịch sử thao tác cho phiếu nhập kho này."
-                />
-              </aside>
-
-              <div className="inbound-step4-main">
-                {inboundDetail.adjustedByReceipt ? <div className="inbound-step4-adjustment-watermark">Hủy do điều chỉnh</div> : null}
-                <div className="inbound-step4-body">
-                  <div className="inbound-step4-banner">
-                    <div className="inbound-step4-banner-left">
-                      <div className="inbound-step4-title-row">
-                        <h3 className="inbound-step4-banner-title">Xác nhận Nhập kho</h3>
-                        <span className={`inbound-step4-status-tag ${inboundDetail.status}`}>{toInboundStatusLabel(inboundDetail.status)}</span>
-                      </div>
-                      <p className="inbound-step4-banner-docid">
-                        <InputText value={inboundDetail.receiptRef} readOnly className="inbound-step4-ref-input" />
-                      </p>
-                    </div>
-                    <div className="inbound-step4-banner-right">
-                      <span className="inbound-step4-lot-label">LOT NUMBER</span>
-                      <span className="inbound-step4-lot-pill">{inboundDetail.items[0]?.lotNo ?? '—'}</span>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-info-circle" />
-                      <span>THÔNG TIN NGUYÊN LIỆU &amp; ĐỐI TÁC</span>
-                    </div>
-                    <div className="inbound-step4-info-grid">
-                      <div><p className="inbound-step4-info-label">Nhà cung cấp</p><p className="inbound-step4-info-value">{inboundDetail.supplier?.name ?? '—'}</p></div>
-                      <div><p className="inbound-step4-info-label">Kho lưu trữ</p><p className="inbound-step4-info-value">{inboundDetail.receivingLocation?.name ?? '—'}</p></div>
-                      <div><p className="inbound-step4-info-label">Tên nguyên liệu</p><p className="inbound-step4-info-value">{inboundDetail.items[0]?.product.name ?? '—'}</p></div>
-                      <div><p className="inbound-step4-info-label">Mã nguyên liệu</p><p className="inbound-step4-info-value">{inboundDetail.items[0]?.product.code ?? '—'}</p></div>
-                      <div><p className="inbound-step4-info-label">Ngày nhận hàng</p><p className="inbound-step4-info-value">{formatDateOnly(inboundDetail.expectedDate)}</p></div>
-                      <div><p className="inbound-step4-info-label">Trạng thái kiểm tra</p><span className="inbound-step4-qc-badge">{getQcStatusLabel(inboundDetail.items[0]?.qcStatus ?? 'pending')}</span></div>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-verified" />
-                      <span>KIỂM TRA QC THEO TỪNG DÒNG</span>
-                    </div>
-                    {inboundDetail.items.length === 0 ? (
-                      <p className="inbound-step4-no-files">Chưa có dòng nhập kho để QC.</p>
-                    ) : (
-                      <div className="inbound-step4-files-grid inbound-step4-qc-grid">
-                        {inboundDetail.items.map((item) => (
-                          <div key={item.id} className="inbound-step4-file-card">
-                            <div className="inbound-step4-file-info" style={{ width: '100%' }}>
-                              <p className="inbound-step4-file-name">{item.product.code} - {item.product.name}</p>
-                              <div className="inbound-step4-file-meta" style={{ width: '100%', justifyContent: 'space-between' }}>
-                                <span>LOT: {item.lotNo}</span>
-                                <span>SL: {formatQuantity(item.quantityDisplay)} {item.unitUsed}</span>
-                                <span>{item.documents.length > 0 ? 'Có chứng từ' : 'Thiếu chứng từ'}</span>
-                              </div>
-                              <div className="inbound-step4-qc-radio-group" style={{ marginTop: 10 }}>
-                                {QC_STATUS_OPTIONS.map((option) => (
-                                  <div key={option.value} className="inbound-step4-qc-radio-item">
-                                    <RadioButton
-                                      inputId={`dash-qc-${item.id}-${option.value}`}
-                                      name={`dash-qc-${item.id}`}
-                                      value={option.value}
-                                      checked={item.qcStatus === option.value}
-                                      disabled
-                                    />
-                                    <label>{option.label}</label>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-check-circle" />
-                      <span>CHI TIẾT ĐỊNH LƯỢNG &amp; TÀI CHÍNH</span>
-                    </div>
-                    <div className="inbound-step4-stat-row">
-                      <div className="inbound-step4-stat-card">
-                        <p className="inbound-step4-stat-label">Số lượng thực nhập</p>
-                        <p className="inbound-step4-stat-value">{formatQuantity(inboundDetail.items.reduce((s, i) => s + Number(i.quantityDisplay), 0))}</p>
-                        <p className="inbound-step4-stat-sub">Tổng theo đơn vị nhập của từng dòng</p>
-                      </div>
-                      <div className="inbound-step4-stat-card">
-                        <p className="inbound-step4-stat-label">Đơn giá trung bình (VND/kg)</p>
-                        <p className="inbound-step4-stat-value">
-                          {inboundDetail.items.length > 0
-                            ? formatCurrencyVnd(Math.round(inboundDetail.items.reduce((s, i) => s + Number(i.unitPricePerKg), 0) / inboundDetail.items.length)) + ' VND'
-                            : '—'}
-                        </p>
-                        <p className="inbound-step4-stat-sub">Giá trung bình các dòng trong phiếu</p>
-                      </div>
-                    </div>
-                    <div className="inbound-step4-total-bar">
-                      <div>
-                        <p className="inbound-step4-total-label">TỔNG GIÁ TRỊ THANH TOÁN</p>
-                        <p className="inbound-step4-total-sub">Tổng cộng toàn bộ dòng chi tiết trong phiếu nhập</p>
-                      </div>
-                      <p className="inbound-step4-total-amount">
-                        {formatCurrencyVnd(Math.round(inboundDetail.items.reduce((s, i) => s + Number(i.lineAmount), 0)))} <span>VND</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-file-edit" />
-                      <span>HỒ SƠ TÀI LIỆU ĐÍNH KÈM (STEP 3)</span>
-                    </div>
-                    {inboundDetail.items.flatMap((i) => i.documents).length === 0 ? (
-                      <p className="inbound-step4-no-files">Không có tài liệu đính kèm.</p>
-                    ) : (
-                      <div className="inbound-step4-files-grid">
-                        {inboundDetail.items.flatMap((i) => i.documents).map((doc) => (
-                          <div key={doc.id} className="inbound-step4-file-card">
-                            <div className="inbound-step4-file-icon-wrap"><i className="pi pi-file-edit" /></div>
-                            <div className="inbound-step4-file-info">
-                              <p className="inbound-step4-file-name">{doc.originalName}</p>
-                              <div className="inbound-step4-file-meta">
-                                <span className={`doc-type-badge doc-type-${String(doc.docType).toLowerCase()}`}>{getDocTypeLabelShort(doc.docType)}</span>
-                                <span className="inbound-step4-file-size">{formatFileSize(doc.fileSize)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="inbound-step4-warning">
-                    <i className="pi pi-exclamation-circle inbound-step4-warning-icon" />
-                    <p><strong>LƯU Ý QUAN TRỌNG:</strong>{' '}Đây là màn hình tra cứu read-only. Dữ liệu không thể chỉnh sửa từ đây.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : null}
-      </Dialog>
+        receiptRef={inboundDialogRef}
+        detail={inboundDetail}
+        detailLoading={inboundDetailLoading}
+        detailError={inboundDetailError}
+        history={inboundHistory}
+        historyLoading={inboundHistoryLoading}
+        historyError={inboundHistoryError}
+        warningMessage="Đây là màn hình tra cứu read-only. Dữ liệu không thể chỉnh sửa từ đây."
+      />
     </>
   )
 }

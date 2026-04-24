@@ -645,6 +645,8 @@ export function PurchaseOrderPage() {
         productId: item.id,
         materialCode: item.code,
         materialName: item.materialName,
+        inciName: item.inciName ?? '',
+        manufacturerName: '',
         quantity: Number.isFinite(parsed) ? parsed : 0,
         unit: item.unit || 'base',
         orderUnit: materialById.get(item.id)?.orderUnit || item.unit || 'base',
@@ -689,6 +691,8 @@ export function PurchaseOrderPage() {
           productId: String(item.productId),
           materialCode: item.product.code,
           materialName: item.product.name,
+          inciName: item.product.inciNames?.[0]?.inciName ?? '',
+          manufacturerName: item.product.manufacturers?.[0]?.name ?? '',
           quantity: quantityNeededBase,
           unit: item.product.baseUnitRef?.unitCodeName || item.product.baseUnitRef?.unitName || 'base',
           // Keep pricing unit from saved line snapshot to avoid historical drift when unit config changes.
@@ -895,6 +899,10 @@ export function PurchaseOrderPage() {
       const saved = await handleSaveDetailDraft()
       if (!saved?.id) return
       requestId = saved.id
+    } else {
+      // auto-save latest edits before submitting
+      const saved = await handleSaveDetailDraft()
+      if (!saved?.id) return
     }
 
     setDetailSubmitting(true)

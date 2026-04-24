@@ -5,9 +5,10 @@ import { Calendar } from 'primereact/calendar'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dropdown } from 'primereact/dropdown'
+import { InputNumber } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
 import { InputTextarea } from 'primereact/inputtextarea'
-import { fetchMaterials } from '../../lib/catalogApi'
+import { fetchInciSuggestions, fetchManufacturerSuggestions, fetchMaterials, type InciSuggestion, type ManufacturerSuggestion } from '../../lib/catalogApi'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../shared/HistoryTimeline'
 import { formatCurrency, formatQuantity, parseDecimalInput, toEditableNumberString } from './format'
 import type { MaterialRow } from '../catalog/types'
@@ -117,6 +118,8 @@ export function PurchaseOrderDetailScreen({
     productId: '',
     materialCode: '',
     materialName: '',
+    inciName: '',
+    manufacturerName: '',
     quantity: 0,
     unit: '',
     orderUnit: '',
@@ -138,6 +141,15 @@ export function PurchaseOrderDetailScreen({
   const productSearchRequestRef = useRef(0)
   const productNameSearchRequestRef = useRef(0)
   const rowProductSearchRequestRef = useRef<Record<string, number>>({})
+  const [newInciSuggestions, setNewInciSuggestions] = useState<InciSuggestion[]>([])
+  const [rowInciValues, setRowInciValues] = useState<Record<string, string>>({})
+  const [rowInciSuggestions, setRowInciSuggestions] = useState<Record<string, InciSuggestion[]>>({})
+  const inciSearchRequestRef = useRef(0)
+  const rowInciSearchRequestRef = useRef<Record<string, number>>({})
+  const [newMfrSuggestions, setNewMfrSuggestions] = useState<ManufacturerSuggestion[]>([])
+  const [rowMfrSuggestions, setRowMfrSuggestions] = useState<Record<string, ManufacturerSuggestion[]>>({})
+  const mfrSearchRequestRef = useRef(0)
+  const rowMfrSearchRequestRef = useRef<Record<string, number>>({})
 
   const displayRows = useMemo(
     () => [...detailLines, { ...newLineDraft, id: NEW_LINE_ID }],
@@ -178,6 +190,8 @@ export function PurchaseOrderDetailScreen({
       productId: '',
       materialCode: '',
       materialName: '',
+      inciName: '',
+      manufacturerName: '',
       quantity: 0,
       unit: '',
       orderUnit: '',
@@ -192,6 +206,7 @@ export function PurchaseOrderDetailScreen({
     setNewProductSuggestions([])
     setNewProductNameLookupValue('')
     setNewProductNameSuggestions([])
+    setNewInciSuggestions([])
     setNewLineError(null)
   }
 
@@ -256,6 +271,8 @@ export function PurchaseOrderDetailScreen({
       productId: product.id,
       materialCode: product.code,
       materialName: product.materialName,
+      inciName: product.inciName ?? '',
+      manufacturerName: '',
       unit: product.unit || line.unit,
       orderUnit: product.orderUnit || line.orderUnit || product.unit || line.unit,
       orderUnitConversionToBase: Number(product.orderUnitConversionToBase) > 0
@@ -270,6 +287,8 @@ export function PurchaseOrderDetailScreen({
       productId: product.id,
       materialCode: product.code,
       materialName: product.materialName,
+      inciName: product.inciName ?? '',
+      manufacturerName: '',
       unit: product.unit || prev.unit,
       orderUnit: product.orderUnit || prev.orderUnit || product.unit || prev.unit,
       orderUnitConversionToBase: Number(product.orderUnitConversionToBase) > 0
@@ -277,6 +296,68 @@ export function PurchaseOrderDetailScreen({
         : (prev.orderUnitConversionToBase > 0 ? prev.orderUnitConversionToBase : 1),
     }))
   }
+
+  const handleCompleteInci = async (event: AutoCompleteCompleteEvent) => {
+    const query = String(event.query ?? '').trim()
+    const requestId = inciSearchRequestRef.current + 1
+    inciSearchRequestRef.current = requestId
+    try {
+      const rows = await fetchInciSuggestions(query || undefined)
+      if (requestId !== inciSearchRequestRef.current) return
+      setNewInciSuggestions(rows)
+    } catch {
+      if (requestId !== inciSearchRequestRef.current) return
+      setNewInciSuggestions([])
+    }
+  }
+
+  const handleCompleteInciForRow = async (lineId: string, event: AutoCompleteCompleteEvent) => {
+    const query = String(event.query ?? '').trim()
+    if (!lineId) return
+    const nextId = (rowInciSearchRequestRef.current[lineId] ?? 0) + 1
+    rowInciSearchRequestRef.current[lineId] = nextId
+    try {
+      const rows = await fetchInciSuggestions(query || undefined)
+      if (nextId !== rowInciSearchRequestRef.current[lineId]) return
+      setRowInciSuggestions((prev) => ({ ...prev, [lineId]: rows }))
+    } catch {
+      if (nextId !== rowInciSearchRequestRef.current[lineId]) return
+      setRowInciSuggestions((prev) => ({ ...prev, [lineId]: [] }))
+    }
+  }
+
+  const renderInciSuggestionItem = (item: InciSuggestion) => (
+    <div className="po-inci-suggestion-item">
+      <span className="po-inci-name">{item.inciName}</span>
+      <span className="po-inci-product">{item.productCode} – {item.productName}</span>
+      {(item.manufacturerNames || item.supplierNames || item.poHistoryCount > 0) && (
+        <div className="po-inci-meta">
+          {item.manufacturerNames ? <span>NSX: {item.manufacturerNames}</span> : null}
+          {item.supplierNames ? <span>NCC: {item.supplierNames}</span> : null}
+          {item.poHistoryCount > 0 ? <span className="po-inci-po-badge">{item.poHistoryCount} PO</span> : null}
+        </div>
+      )}
+      {item.latestPoRef && (
+        <div className="po-inci-latest-po">
+          <span className="po-inci-latest-po-header">Phiếu PO gần nhất</span>
+          <div className="po-inci-latest-po-grid">
+            <span className="po-inci-latest-po-ref">{item.latestPoRef}</span>
+            {item.latestPoDate ? (
+              <span>{new Date(item.latestPoDate).toLocaleDateString('vi-VN')}</span>
+            ) : null}
+            {item.latestPoQty != null && item.latestPoUnit ? (
+              <span>SL: {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(item.latestPoQty)} {item.latestPoUnit}</span>
+            ) : null}
+            {item.latestPoUnitPrice != null && item.latestPoUnitPrice > 0 ? (
+              <span>Đơn giá: {new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(item.latestPoUnitPrice)} đ</span>
+            ) : null}
+            {item.latestPoSupplier ? <span>NCC: {item.latestPoSupplier}</span> : null}
+            {item.latestPoManufacturer ? <span>NSX: {item.latestPoManufacturer}</span> : null}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 
   const handleAppendNewLine = () => {
     if (!detailEditable) {
@@ -311,6 +392,8 @@ export function PurchaseOrderDetailScreen({
       productId,
       materialCode,
       materialName,
+      inciName: newLineDraft.inciName,
+      manufacturerName: newLineDraft.manufacturerName,
       quantity,
       unit,
       orderUnit,
@@ -445,20 +528,28 @@ export function PurchaseOrderDetailScreen({
   )
 
   const quantityEditor = (options: any) => (
-    <InputText
-      value={toEditableNumberString(Number(options.value ?? 0))}
-      onChange={(e) => options.editorCallback?.(e.target.value)}
-      inputMode="decimal"
+    <InputNumber
+      value={Number(options.value ?? 0) || null}
+      onValueChange={(e) => options.editorCallback?.(e.value ?? 0)}
+      locale="vi-VN"
+      minFractionDigits={0}
+      maxFractionDigits={3}
+      min={0}
       className="num-editor"
+      autoFocus
     />
   )
 
   const amountEditor = (options: any) => (
-    <InputText
-      value={toEditableNumberString(Number(options.value ?? 0))}
-      onChange={(e) => options.editorCallback?.(e.target.value)}
-      inputMode="decimal"
+    <InputNumber
+      value={Number(options.value ?? 0) || null}
+      onValueChange={(e) => options.editorCallback?.(e.value ?? 0)}
+      locale="vi-VN"
+      minFractionDigits={0}
+      maxFractionDigits={0}
+      min={0}
       className="num-editor"
+      autoFocus
     />
   )
 
@@ -763,30 +854,208 @@ export function PurchaseOrderDetailScreen({
                   )}
                 />
                 <Column
+                  field="inciName"
+                  header="INCI Name"
+                  body={(line: PurchaseDraftLine) => {
+                    if (line.id === NEW_LINE_ID) {
+                      return (
+                        <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                          <AutoComplete
+                            className="po-inline-lookup"
+                            inputClassName="po-inline-lookup-input"
+                            value={newLineDraft.inciName}
+                            suggestions={newInciSuggestions}
+                            completeMethod={handleCompleteInci}
+                            field="inciName"
+                            appendTo={document.body}
+                            panelClassName="po-inci-panel"
+                            disabled={!detailEditable}
+                            onChange={(event) => {
+                              const val = typeof event.value === 'string' ? event.value : String((event.value as InciSuggestion)?.inciName ?? '')
+                              setNewLineDraft((prev) => ({ ...prev, inciName: val }))
+                            }}
+                            onSelect={(event) => {
+                              const selected = event.value as InciSuggestion
+                              inciSearchRequestRef.current += 1
+                              setNewInciSuggestions([])
+                              const resolvedUnit = selected.baseUnit || selected.orderUnit || 'base'
+                              const resolvedOrderUnit = selected.orderUnit || selected.baseUnit || 'base'
+                              const resolvedConversion = selected.orderUnitConversionToBase > 0 ? selected.orderUnitConversionToBase : 1
+                              const resolvedUnitPrice = selected.latestPoUnitPrice != null && selected.latestPoUnitPrice > 0
+                                ? selected.latestPoUnitPrice : 0
+                              const resolvedManufacturer = selected.latestPoManufacturer || selected.manufacturerNames || ''
+                              // sync code & name lookup display
+                              setNewProductLookupValue(selected.productCode)
+                              setNewProductNameLookupValue(selected.productName)
+                              // seed mfr suggestions so forceSelection blur check passes
+                              if (resolvedManufacturer) {
+                                setNewMfrSuggestions([{ name: resolvedManufacturer, country: null, productId: selected.productId, productCode: selected.productCode, productName: selected.productName }])
+                              }
+                              setNewLineDraft((prev) => ({
+                                ...prev,
+                                productId: selected.productId,
+                                materialCode: selected.productCode,
+                                materialName: selected.productName,
+                                inciName: selected.inciName,
+                                manufacturerName: resolvedManufacturer,
+                                unit: resolvedUnit,
+                                orderUnit: resolvedOrderUnit,
+                                orderUnitConversionToBase: resolvedConversion,
+                                unitPrice: resolvedUnitPrice,
+                              }))
+                              if (resolvedUnitPrice > 0) {
+                                setNewUnitPriceInput(String(resolvedUnitPrice))
+                              }
+                            }}
+                            itemTemplate={renderInciSuggestionItem}
+                            placeholder="Tìm INCI Name…"
+                          />
+                        </div>
+                      )
+                    }
+                    if (!detailEditable) {
+                      return <span className="po-inci-cell">{line.inciName || '---'}</span>
+                    }
+                    return (
+                      <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                        <AutoComplete
+                          className="po-inline-lookup"
+                          inputClassName="po-inline-lookup-input"
+                          value={rowInciValues[line.id] ?? line.inciName}
+                          suggestions={rowInciSuggestions[line.id] ?? []}
+                          completeMethod={(event) => { void handleCompleteInciForRow(line.id, event) }}
+                          field="inciName"
+                          appendTo={document.body}
+                          panelClassName="po-inci-panel"
+                          disabled={!detailEditable}
+                          onChange={(event) => {
+                            const val = typeof event.value === 'string' ? event.value : String((event.value as InciSuggestion)?.inciName ?? '')
+                            setRowInciValues((prev) => ({ ...prev, [line.id]: val }))
+                            onUpdateDetailLine(line.id, { inciName: val })
+                          }}
+                          onSelect={(event) => {
+                            const selected = event.value as InciSuggestion
+                            rowInciSearchRequestRef.current[line.id] = (rowInciSearchRequestRef.current[line.id] ?? 0) + 1
+                            setRowInciSuggestions((prev) => ({ ...prev, [line.id]: [] }))
+                            setRowInciValues((prev) => ({ ...prev, [line.id]: selected.inciName }))
+                            const resolvedUnit = selected.baseUnit || selected.orderUnit || line.unit || 'base'
+                            const resolvedOrderUnit = selected.orderUnit || selected.baseUnit || line.orderUnit || 'base'
+                            const resolvedConversion = selected.orderUnitConversionToBase > 0 ? selected.orderUnitConversionToBase : line.orderUnitConversionToBase
+                            const resolvedUnitPrice = selected.latestPoUnitPrice != null && selected.latestPoUnitPrice > 0
+                              ? selected.latestPoUnitPrice : line.unitPrice
+                            const resolvedManufacturer = selected.latestPoManufacturer || selected.manufacturerNames || line.manufacturerName
+                            // sync code & name lookup display for this row
+                            setRowProductLookupValues((prev) => ({ ...prev, [line.id]: selected.productCode }))
+                            setRowProductNameLookupValues((prev) => ({ ...prev, [line.id]: selected.productName }))
+                            // seed mfr suggestions so forceSelection blur check passes
+                            if (resolvedManufacturer) {
+                              setRowMfrSuggestions((prev) => ({ ...prev, [line.id]: [{ name: resolvedManufacturer, country: null, productId: selected.productId, productCode: selected.productCode, productName: selected.productName }] }))
+                            }
+                            onUpdateDetailLine(line.id, {
+                              productId: selected.productId,
+                              materialCode: selected.productCode,
+                              materialName: selected.productName,
+                              inciName: selected.inciName,
+                              manufacturerName: resolvedManufacturer,
+                              unit: resolvedUnit,
+                              orderUnit: resolvedOrderUnit,
+                              orderUnitConversionToBase: resolvedConversion,
+                              unitPrice: resolvedUnitPrice,
+                            })
+                          }}
+                          itemTemplate={renderInciSuggestionItem}
+                          placeholder="Tìm INCI Name…"
+                        />
+                      </div>
+                    )
+                  }}
+                  style={{ width: '240px' }}
+                />
+                <Column
+                  field="manufacturerName"
+                  header="Nhà sản xuất"
+                  body={(line: PurchaseDraftLine) => {
+                    const isNew = line.id === NEW_LINE_ID
+                    const currentValue = isNew ? newLineDraft.manufacturerName : (line.manufacturerName || '')
+                    const currentProductId = isNew ? newLineDraft.productId : line.productId
+                    const suggestions = isNew ? newMfrSuggestions : (rowMfrSuggestions[line.id] ?? [])
+
+                    const handleComplete = async (e: { query: string }) => {
+                      const reqId = isNew
+                        ? (++mfrSearchRequestRef.current)
+                        : ((rowMfrSearchRequestRef.current[line.id] = (rowMfrSearchRequestRef.current[line.id] ?? 0) + 1), rowMfrSearchRequestRef.current[line.id])
+                      const results = await fetchManufacturerSuggestions(e.query, currentProductId || undefined)
+                      if (isNew) {
+                        if (reqId === mfrSearchRequestRef.current) setNewMfrSuggestions(results)
+                      } else {
+                        if (reqId === rowMfrSearchRequestRef.current[line.id]) setRowMfrSuggestions((prev) => ({ ...prev, [line.id]: results }))
+                      }
+                    }
+
+                    return (
+                      <AutoComplete
+                        value={currentValue}
+                        suggestions={suggestions}
+                        field="name"
+                        completeMethod={handleComplete}
+                        itemTemplate={(item: ManufacturerSuggestion) => (
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{item.name}</div>
+                            {item.country && <div style={{ fontSize: '0.8em', color: '#888' }}>{item.country}</div>}
+                            {!currentProductId && <div style={{ fontSize: '0.78em', color: '#aaa' }}>{item.productCode} – {item.productName}</div>}
+                          </div>
+                        )}
+                        onChange={(e) => {
+                          const val = typeof e.value === 'string' ? e.value : (e.value as ManufacturerSuggestion)?.name ?? ''
+                          if (isNew) {
+                            setNewLineDraft((prev) => ({ ...prev, manufacturerName: val }))
+                          } else {
+                            onUpdateDetailLine(line.id, { manufacturerName: val })
+                          }
+                        }}
+                        onSelect={(e) => {
+                          const selected = e.value as ManufacturerSuggestion
+                          if (isNew) {
+                            mfrSearchRequestRef.current++
+                            // keep selected in list so forceSelection blur check passes
+                            setNewMfrSuggestions([selected])
+                            setNewLineDraft((prev) => ({ ...prev, manufacturerName: selected.name }))
+                          } else {
+                            rowMfrSearchRequestRef.current[line.id] = (rowMfrSearchRequestRef.current[line.id] ?? 0) + 1
+                            setRowMfrSuggestions((prev) => ({ ...prev, [line.id]: [selected] }))
+                            onUpdateDetailLine(line.id, { manufacturerName: selected.name })
+                          }
+                        }}
+                        forceSelection={true}
+                        dropdown={false}
+                        placeholder="Nhà sản xuất..."
+                        style={{ width: '100%' }}
+                        inputStyle={{ width: '100%' }}
+                      />
+                    )
+                  }}
+                  style={{ width: '180px' }}
+                />
+                <Column
                   field="quantity"
                   header="Số lượng"
                   align="right"
                   bodyClassName="cell-number"
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID ? (
-                      <InputText
-                        value={newQuantityFocused
-                          ? newQuantityInput
-                          : (newQuantityInput.trim() ? formatQuantity(parsePositiveQuantity(newQuantityInput)) : '')}
-                        onChange={(event) => setNewQuantityInput(event.target.value)}
-                        onFocus={() => {
-                          setNewQuantityFocused(true)
-                          const parsed = parseDecimalInput(newQuantityInput)
-                          if (Number.isFinite(parsed)) setNewQuantityInput(toEditableNumberString(parsed))
+                      <InputNumber
+                        value={newLineDraft.quantity || null}
+                        onValueChange={(e) => {
+                          const val = e.value ?? 0
+                          setNewQuantityInput(String(val))
+                          setNewLineDraft((prev) => ({ ...prev, quantity: val }))
                         }}
-                        onBlur={() => {
-                          setNewQuantityFocused(false)
-                          const parsed = parsePositiveQuantity(newQuantityInput)
-                          if (Number.isFinite(parsed)) setNewQuantityInput(formatQuantity(parsed))
-                        }}
-                        inputMode="decimal"
-                        className="num-editor"
+                        locale="vi-VN"
+                        minFractionDigits={0}
+                        maxFractionDigits={3}
+                        min={0}
                         placeholder="0"
+                        className="num-editor"
                         tabIndex={NEW_ROW_TAB_INDEX.quantity}
                         disabled={!detailEditable}
                         onKeyDown={(event) => {
@@ -823,24 +1092,19 @@ export function PurchaseOrderDetailScreen({
                   bodyClassName="cell-number"
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID ? (
-                      <InputText
-                        value={newUnitPriceFocused
-                          ? newUnitPriceInput
-                          : (newUnitPriceInput.trim() ? formatCurrency(parseNonNegativeAmount(newUnitPriceInput)) : '')}
-                        onChange={(event) => setNewUnitPriceInput(event.target.value)}
-                        onFocus={() => {
-                          setNewUnitPriceFocused(true)
-                          const parsed = parseDecimalInput(newUnitPriceInput)
-                          if (Number.isFinite(parsed)) setNewUnitPriceInput(toEditableNumberString(parsed))
+                      <InputNumber
+                        value={newLineDraft.unitPrice || null}
+                        onValueChange={(e) => {
+                          const val = e.value ?? 0
+                          setNewUnitPriceInput(String(val))
+                          setNewLineDraft((prev) => ({ ...prev, unitPrice: val }))
                         }}
-                        onBlur={() => {
-                          setNewUnitPriceFocused(false)
-                          const parsed = parseNonNegativeAmount(newUnitPriceInput || '0')
-                          if (Number.isFinite(parsed)) setNewUnitPriceInput(formatCurrency(parsed))
-                        }}
-                        inputMode="decimal"
-                        className="num-editor"
+                        locale="vi-VN"
+                        minFractionDigits={0}
+                        maxFractionDigits={0}
+                        min={0}
                         placeholder="0"
+                        className="num-editor"
                         tabIndex={NEW_ROW_TAB_INDEX.unitPrice}
                         disabled={!detailEditable}
                         onKeyDown={(event) => {
@@ -864,11 +1128,13 @@ export function PurchaseOrderDetailScreen({
                   header="Thành tiền"
                   align="right"
                   bodyClassName="cell-number"
-                  body={(line: PurchaseDraftLine) => (
-                    line.id === NEW_LINE_ID
-                      ? <span className="num-r">---</span>
-                      : <span className="num-r purchase-line-total">{formatCurrency(calculateLineAmount(line))}</span>
-                  )}
+                  body={(line: PurchaseDraftLine) => {
+                    if (line.id === NEW_LINE_ID) {
+                      const amt = calculateLineAmount({ ...newLineDraft })
+                      return <span className="num-r">{amt > 0 ? formatCurrency(amt) : '---'}</span>
+                    }
+                    return <span className="num-r purchase-line-total">{formatCurrency(calculateLineAmount(line))}</span>
+                  }}
                   style={{ width: '160px' }}
                 />
                 <Column

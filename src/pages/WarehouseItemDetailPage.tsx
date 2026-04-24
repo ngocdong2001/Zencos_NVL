@@ -207,6 +207,76 @@ export function WarehouseItemDetailPage() {
   const stockOk      = detail.stockQuantity >= detail.minStockLevel
 
   type Tx = InventoryItemDetail['transactions'][0]
+  type LedgerRow = {
+    kind: 'opening' | 'tx' | 'total'
+    tx?: Tx
+    inQty: number
+    outQty: number
+    balance: number
+  }
+
+  const displayTransactions = (() => {
+    const autoPostByItem = new Set<string>()
+    const reversedByItem = new Set<string>()
+
+    for (const tx of detail.transactions) {
+      const notes = tx.notes ?? ''
+      const auto = notes.match(/Opening stock auto-post from item #(\d+)/i)
+      if (auto) autoPostByItem.add(auto[1])
+      const reversal = notes.match(/Reversal delete opening stock item #(\d+)/i)
+      if (reversal) reversedByItem.add(reversal[1])
+    }
+
+    const pairedItems = new Set<string>()
+    for (const itemId of autoPostByItem) {
+      if (reversedByItem.has(itemId)) pairedItems.add(itemId)
+    }
+
+    return detail.transactions.filter((tx) => {
+      const notes = tx.notes ?? ''
+      const auto = notes.match(/Opening stock auto-post from item #(\d+)/i)
+      if (auto && pairedItems.has(auto[1])) return false
+      const reversal = notes.match(/Reversal delete opening stock item #(\d+)/i)
+      if (reversal && pairedItems.has(reversal[1])) return false
+      return true
+    })
+  })()
+
+  const orderedTransactions = [...displayTransactions].sort(
+    (a, b) => new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime(),
+  )
+
+  const totalInQty = orderedTransactions.reduce((sum, tx) => sum + (tx.type === 'export' ? 0 : tx.quantityBase), 0)
+  const totalOutQty = orderedTransactions.reduce((sum, tx) => sum + (tx.type === 'export' ? tx.quantityBase : 0), 0)
+  const openingBalance = detail.stockQuantity - totalInQty + totalOutQty
+
+  const ledgerRows: LedgerRow[] = (() => {
+    const rows: LedgerRow[] = [
+      { kind: 'opening', inQty: 0, outQty: 0, balance: openingBalance },
+    ]
+
+    let runningBalance = openingBalance
+    for (const tx of orderedTransactions) {
+      const inQty = tx.type === 'export' ? 0 : tx.quantityBase
+      const outQty = tx.type === 'export' ? tx.quantityBase : 0
+      runningBalance += inQty - outQty
+      rows.push({
+        kind: 'tx',
+        tx,
+        inQty,
+        outQty,
+        balance: runningBalance,
+      })
+    }
+
+    rows.push({
+      kind: 'total',
+      inQty: totalInQty,
+      outQty: totalOutQty,
+      balance: detail.stockQuantity,
+    })
+    return rows
+  })()
 
   return (
     <>
@@ -235,7 +305,7 @@ export function WarehouseItemDetailPage() {
       </div>
 
       {/* ── KPI Cards ──────────────────────────────────────────────────── */}
-      <div className="idb-kpi-grid">
+      <div className="idb-kpi-grid" style={{ display: 'none' }}>
         {/* Card 1 */}
         <div className="idb-kpi-card">
           <div className="idb-kpi-icon idb-kpi-icon--blue">
@@ -301,7 +371,7 @@ export function WarehouseItemDetailPage() {
                 width={44}
               />
               <Tooltip
-                formatter={(v: number) => [formatGram(v, unit), 'Tồn kho']}
+                formatter={(v) => [formatGram(Number(v ?? 0), unit), 'Tồn kho']}
                 contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb' }}
               />
               <Line
@@ -330,7 +400,7 @@ export function WarehouseItemDetailPage() {
                 width={44}
               />
               <Tooltip
-                formatter={(v: number) => [formatGram(v, unit), 'Xuất kho']}
+                formatter={(v) => [formatGram(Number(v ?? 0), unit), 'Xuất kho']}
                 contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb' }}
               />
               <Bar dataKey="export" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -439,53 +509,89 @@ export function WarehouseItemDetailPage() {
               <button className="idb-text-btn">Xem tất cả</button>
             </div>
             <DataTable
-              value={detail.transactions}
-              className="prime-catalog-table idb-datatable"
+              value={ledgerRows}
+              className="prime-catalog-table idb-datatable idb-datatable--tx"
               emptyMessage="Chưa có giao dịch nào"
               size="small"
               tableStyle={{ width: '100%', tableLayout: 'fixed' }}
             >
               <Column
                 header="Thời gian"
-                style={{ width: '18%' }}
-                body={(row: Tx) => <span style={{ color: '#374151', fontSize: 12 }}>{formatDateTime(row.transactionDate)}</span>}
+                style={{ width: '15%' }}
+                body={(row: LedgerRow) => (
+                  row.kind === 'tx' && row.tx
+                    ? <span style={{ color: '#374151', fontSize: 12 }}>{formatDateTime(row.tx.transactionDate)}</span>
+                    : <span style={{ color: '#9ca3af' }}>—</span>
+                )}
               />
               <Column
                 header="Loại"
-                style={{ width: '14%' }}
-                body={(row: Tx) => (
-                  <span className={`idb-tx-badge idb-tx-${row.type}`}>
-                    {row.type === 'import' ? 'Nhập kho' : row.type === 'export' ? 'Xuất kho' : 'Điều chỉnh'}
-                  </span>
-                )}
+                style={{ width: '12%' }}
+                body={(row: LedgerRow) => {
+                  if (row.kind !== 'tx' || !row.tx) return <span style={{ color: '#9ca3af' }}>—</span>
+                  return (
+                    <span className={`idb-tx-badge idb-tx-${row.tx.type}`}>
+                      {row.tx.type === 'import' ? 'Nhập kho' : row.tx.type === 'export' ? 'Xuất kho' : 'Điều chỉnh'}
+                    </span>
+                  )
+                }}
               />
               <Column
                 header="Mã tham chiếu"
-                style={{ width: '36%' }}
-                body={(row: Tx) => (
-                  <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                    {row.notes || row.lotNo}
-                  </span>
+                style={{ width: '24%' }}
+                body={(row: LedgerRow) => {
+                  if (row.kind === 'opening') {
+                    return <span style={{ color: '#111827', fontWeight: 700 }}>* TỒN KHO ĐẦU KỲ *</span>
+                  }
+                  if (row.kind === 'total') {
+                    return <span style={{ color: '#111827', fontWeight: 700 }}>TỔNG CỘNG</span>
+                  }
+                  return (
+                    <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                      {row.tx?.notes || row.tx?.lotNo}
+                    </span>
+                  )
+                }}
+              />
+              <Column
+                header="Nhập"
+                style={{ width: '11%' }}
+                body={(row: LedgerRow) => (
+                  row.inQty <= 0
+                    ? <span style={{ color: '#9ca3af' }}>—</span>
+                    : <span className="idb-qty-pos">{formatGram(row.inQty, unit)}</span>
                 )}
               />
               <Column
-                header="Số lượng"
-                style={{ width: '16%' }}
-                body={(row: Tx) => (
-                  <span className={row.type === 'export' ? 'idb-qty-neg' : 'idb-qty-pos'}>
-                    {row.type === 'export' ? '−' : '+'}{formatGram(row.quantityBase, unit)}
+                header="Xuất"
+                style={{ width: '11%' }}
+                body={(row: LedgerRow) => (
+                  row.outQty <= 0
+                    ? <span style={{ color: '#9ca3af' }}>—</span>
+                    : <span className="idb-qty-neg">{formatGram(row.outQty, unit)}</span>
+                )}
+              />
+              <Column
+                header="Tồn"
+                style={{ width: '11%' }}
+                body={(row: LedgerRow) => (
+                  <span style={{ color: '#111827', fontWeight: row.kind === 'opening' || row.kind === 'total' ? 700 : 600 }}>
+                    {formatGram(row.balance, unit)}
                   </span>
                 )}
               />
               <Column
                 header="Người thực hiện"
                 style={{ width: '16%' }}
-                body={(row: Tx) => (
-                  <div className="idb-person">
-                    <div className="idb-avatar">{row.userName.charAt(0).toUpperCase()}</div>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.userName}</span>
-                  </div>
-                )}
+                body={(row: LedgerRow) => {
+                  if (row.kind !== 'tx' || !row.tx) return <span style={{ color: '#9ca3af' }}>—</span>
+                  return (
+                    <div className="idb-person">
+                      <div className="idb-avatar">{row.tx.userName.charAt(0).toUpperCase()}</div>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.tx.userName}</span>
+                    </div>
+                  )
+                }}
               />
             </DataTable>
           </div>

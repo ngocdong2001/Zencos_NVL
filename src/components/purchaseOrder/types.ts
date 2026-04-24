@@ -20,6 +20,8 @@ export type PurchaseDraftLine = {
   productId: string
   materialCode: string
   materialName: string
+  inciName: string
+  manufacturerName: string
   quantity: number
   unit: string
   orderUnit: string
@@ -71,6 +73,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     productId: '',
     materialCode: 'RM-EXT-002',
     materialName: 'Chiết xuất Cam thảo (Licorice Extract)',
+    inciName: '',
+    manufacturerName: '',
     quantity: 50,
     unit: 'kg',
     orderUnit: 'kg',
@@ -82,6 +86,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     productId: '',
     materialCode: 'RM-SOL-015',
     materialName: 'Glycerin tinh khiết 99.5%',
+    inciName: '',
+    manufacturerName: '',
     quantity: 200,
     unit: 'kg',
     orderUnit: 'kg',
@@ -93,6 +99,8 @@ export const DRAFT_LINES: PurchaseDraftLine[] = [
     productId: '',
     materialCode: 'RM-SOL-022',
     materialName: 'Propylene Glycol USP',
+    inciName: '',
+    manufacturerName: '',
     quantity: 150,
     unit: 'kg',
     orderUnit: 'kg',

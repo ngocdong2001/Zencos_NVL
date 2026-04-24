@@ -253,6 +253,11 @@ router.get('/receipts/:id', async (req, res) => {
               id: true,
               code: true,
               name: true,
+              inciNames: {
+                where: { isPrimary: true },
+                select: { inciName: true },
+                take: 1,
+              },
               orderUnitRef: {
                 select: {
                   unitName: true,
@@ -355,7 +360,13 @@ router.get('/receipts/:id', async (req, res) => {
       lineAmount: unknown
       qcStatus: string
       hasDocument: boolean
-      product: { id: bigint; code: string; name: string; orderUnitRef: { unitName: string; conversionToBase: unknown } | null }
+      product: {
+        id: bigint
+        code: string
+        name: string
+        inciNames?: Array<{ inciName: string }> | null
+        orderUnitRef: { unitName: string; conversionToBase: unknown } | null
+      }
       manufacturer: { id: bigint; name: string } | null
       documents: Array<{
         id: bigint
@@ -371,6 +382,7 @@ router.get('/receipts/:id', async (req, res) => {
         id: item.product.id.toString(),
         code: item.product.code,
         name: item.product.name,
+        inciName: item.product.inciNames?.[0]?.inciName ?? null,
         orderUnitRef: item.product.orderUnitRef
           ? {
               unitName: item.product.orderUnitRef.unitName,

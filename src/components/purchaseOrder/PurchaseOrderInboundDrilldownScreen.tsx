@@ -2,9 +2,6 @@ import { useMemo, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
-import { Dialog } from 'primereact/dialog'
-import { InputText } from 'primereact/inputtext'
-import { RadioButton } from 'primereact/radiobutton'
 import { formatQuantity } from './format'
 import type { PurchaseRequestInboundDrilldownResponse } from '../../lib/purchaseShortageApi'
 import { recalculatePurchaseRequestReceived } from '../../lib/purchaseShortageApi'
@@ -16,7 +13,8 @@ import {
   type InboundReceiptDetailResponse,
   type InboundReceiptHistoryRowResponse,
 } from '../../lib/inboundApi'
-import { HistoryTimeline, type HistoryTimelineEvent } from '../shared/HistoryTimeline'
+import { type HistoryTimelineEvent } from '../shared/HistoryTimeline'
+import { InboundReceiptDetailDialog } from '../inbound/InboundReceiptDetailDialog'
 
 type Props = {
   data: PurchaseRequestInboundDrilldownResponse | null
@@ -26,14 +24,6 @@ type Props = {
   onRecalculated?: () => void
 }
 
-type QcStatus = 'pending' | 'passed' | 'failed'
-
-const QC_STATUS_OPTIONS: Array<{ label: string; value: QcStatus }> = [
-  { label: 'Chờ QC', value: 'pending' },
-  { label: 'Đạt', value: 'passed' },
-  { label: 'Không đạt', value: 'failed' },
-]
-
 function formatDateOnly(value?: string | null): string {
   if (!value) return '---'
   const date = new Date(value)
@@ -41,42 +31,11 @@ function formatDateOnly(value?: string | null): string {
   return date.toLocaleDateString('vi-VN')
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 }).format(value)
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function getDocTypeLabelShort(docType: string): string {
-  switch (docType) {
-    case 'COA': return 'COA'
-    case 'Invoice': return 'Invoice'
-    case 'MSDS': return 'MSDS'
-    default: return 'Others'
-  }
-}
-
-function getQcStatusLabel(status: QcStatus): string {
-  if (status === 'passed') return 'Đạt'
-  if (status === 'failed') return 'Không đạt'
-  return 'Chờ QC'
-}
-
 function toPoBadgeStatus(value: string): PoStatus {
   if (value === 'draft' || value === 'submitted' || value === 'approved' || value === 'ordered' || value === 'partially_received' || value === 'received' || value === 'cancelled') {
     return value
   }
   return 'draft'
-}
-
-function toInboundStatusLabel(status: string): string {
-  if (status === 'posted') return 'Đã posted'
-  if (status === 'pending_qc') return 'Chờ QC'
-  if (status === 'cancelled') return 'Đã hủy'
-  return 'Nháp'
 }
 
 export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBack, onRecalculated }: Props) {
@@ -270,202 +229,17 @@ export function PurchaseOrderInboundDrilldownScreen({ data, loading, error, onBa
         ) : null}
       </section>
 
-      <Dialog
+      <InboundReceiptDetailDialog
         visible={receiptDialogVisible}
         onHide={() => setReceiptDialogVisible(false)}
-        header={selectedReceiptCode ? `Chi tiết phiếu nhập ${selectedReceiptCode}` : 'Chi tiết phiếu nhập'}
-        style={{ width: '92vw', maxWidth: '1320px' }}
-        modal
-        draggable={false}
-        resizable={false}
-        className="inbound-step4-preview-dialog"
-      >
-        {receiptDetailLoading ? <p className="po-field-success">Đang tải chi tiết phiếu nhập...</p> : null}
-        {receiptDetailError ? <p className="po-field-error">{receiptDetailError}</p> : null}
-
-        {selectedReceiptDetail ? (
-          <section className="inbound-create-card inbound-step4-review-card inbound-readonly-card">
-            <div className="inbound-step4-layout">
-              <aside className="inbound-step4-history-panel">
-                <div className="inbound-step4-section-header">
-                  <i className="pi pi-history" />
-                  <span>LỊCH SỬ THAO TÁC</span>
-                </div>
-                <HistoryTimeline
-                  events={selectedReceiptHistory}
-                  loading={receiptHistoryLoading}
-                  error={receiptHistoryError}
-                  emptyMessage="Chưa có lịch sử thao tác cho phiếu nhập kho này."
-                />
-              </aside>
-
-              <div className="inbound-step4-main">
-                {selectedReceiptDetail.adjustedByReceipt ? <div className="inbound-step4-adjustment-watermark">Hủy do điều chỉnh</div> : null}
-                <div className="inbound-step4-body">
-                  <div className="inbound-step4-banner">
-                    <div className="inbound-step4-banner-left">
-                      <div className="inbound-step4-title-row">
-                        <h3 className="inbound-step4-banner-title">Xác nhận Nhập kho</h3>
-                        <span className={`inbound-step4-status-tag ${selectedReceiptDetail.status}`}>{toInboundStatusLabel(selectedReceiptDetail.status)}</span>
-                      </div>
-                      <p className="inbound-step4-banner-docid">
-                        <InputText value={selectedReceiptDetail.receiptRef} readOnly className="inbound-step4-ref-input" />
-                      </p>
-                    </div>
-                    <div className="inbound-step4-banner-right">
-                      <span className="inbound-step4-lot-label">LOT NUMBER</span>
-                      <span className="inbound-step4-lot-pill">{selectedReceiptDetail.items[0]?.lotNo ?? '—'}</span>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-info-circle" />
-                      <span>THÔNG TIN NGUYÊN LIỆU &amp; ĐỐI TÁC</span>
-                    </div>
-                    <div className="inbound-step4-info-grid">
-                      <div>
-                        <p className="inbound-step4-info-label">Nhà cung cấp</p>
-                        <p className="inbound-step4-info-value">{selectedReceiptDetail.supplier?.name ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="inbound-step4-info-label">Kho lưu trữ</p>
-                        <p className="inbound-step4-info-value">{selectedReceiptDetail.receivingLocation?.name ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="inbound-step4-info-label">Tên nguyên liệu</p>
-                        <p className="inbound-step4-info-value">{selectedReceiptDetail.items[0]?.product.name ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="inbound-step4-info-label">Mã nguyên liệu</p>
-                        <p className="inbound-step4-info-value">{selectedReceiptDetail.items[0]?.product.code ?? '—'}</p>
-                      </div>
-                      <div>
-                        <p className="inbound-step4-info-label">Ngày nhận hàng</p>
-                        <p className="inbound-step4-info-value">{formatDateOnly(selectedReceiptDetail.expectedDate)}</p>
-                      </div>
-                      <div>
-                        <p className="inbound-step4-info-label">Trạng thái kiểm tra</p>
-                        <span className="inbound-step4-qc-badge">{getQcStatusLabel(selectedReceiptDetail.items[0]?.qcStatus ?? 'pending')}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-verified" />
-                      <span>KIỂM TRA QC THEO TỪNG DÒNG</span>
-                    </div>
-                    {selectedReceiptDetail.items.length === 0 ? (
-                      <p className="inbound-step4-no-files">Chưa có dòng nhập kho để QC.</p>
-                    ) : (
-                      <div className="inbound-step4-files-grid inbound-step4-qc-grid">
-                        {selectedReceiptDetail.items.map((item) => (
-                          <div key={item.id} className="inbound-step4-file-card">
-                            <div className="inbound-step4-file-info" style={{ width: '100%' }}>
-                              <p className="inbound-step4-file-name">{item.product.code} - {item.product.name}</p>
-                              <div className="inbound-step4-file-meta" style={{ width: '100%', justifyContent: 'space-between' }}>
-                                <span>LOT: {item.lotNo}</span>
-                                <span>SL: {formatQuantity(item.quantityDisplay)} {item.unitUsed}</span>
-                                <span>{item.documents.length > 0 ? 'Có chứng từ' : 'Thiếu chứng từ'}</span>
-                              </div>
-                              <div className="inbound-step4-qc-radio-group" style={{ marginTop: 10 }}>
-                                {QC_STATUS_OPTIONS.map((option) => (
-                                  <div key={option.value} className="inbound-step4-qc-radio-item">
-                                    <RadioButton
-                                      inputId={`po-drilldown-qc-${item.id}-${option.value}`}
-                                      name={`po-drilldown-qc-${item.id}`}
-                                      value={option.value}
-                                      checked={item.qcStatus === option.value}
-                                      disabled
-                                    />
-                                    <label>{option.label}</label>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-check-circle" />
-                      <span>CHI TIẾT ĐỊNH LƯỢNG &amp; TÀI CHÍNH</span>
-                    </div>
-                    <div className="inbound-step4-stat-row">
-                      <div className="inbound-step4-stat-card">
-                        <p className="inbound-step4-stat-label">Số lượng thực nhập</p>
-                        <p className="inbound-step4-stat-value">
-                          {formatQuantity(selectedReceiptDetail.items.reduce((sum, item) => sum + Number(item.quantityDisplay), 0))}
-                        </p>
-                        <p className="inbound-step4-stat-sub">Tổng theo đơn vị nhập của từng dòng</p>
-                      </div>
-                      <div className="inbound-step4-stat-card">
-                        <p className="inbound-step4-stat-label">Đơn giá trung bình (VND/kg)</p>
-                        <p className="inbound-step4-stat-value">
-                          {selectedReceiptDetail.items.length > 0
-                            ? formatCurrency(Math.round(selectedReceiptDetail.items.reduce((sum, item) => sum + Number(item.unitPricePerKg), 0) / selectedReceiptDetail.items.length)) + ' VND'
-                            : '—'}
-                        </p>
-                        <p className="inbound-step4-stat-sub">Giá trung bình các dòng trong phiếu</p>
-                      </div>
-                    </div>
-
-                    <div className="inbound-step4-total-bar">
-                      <div>
-                        <p className="inbound-step4-total-label">TỔNG GIÁ TRỊ THANH TOÁN</p>
-                        <p className="inbound-step4-total-sub">Tổng cộng toàn bộ dòng chi tiết trong phiếu nhập</p>
-                      </div>
-                      <p className="inbound-step4-total-amount">
-                        {formatCurrency(Math.round(selectedReceiptDetail.items.reduce((sum, item) => sum + Number(item.lineAmount), 0)))} <span>VND</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="inbound-step4-section">
-                    <div className="inbound-step4-section-header">
-                      <i className="pi pi-file-edit" />
-                      <span>HỒ SƠ TÀI LIỆU ĐÍNH KÈM (STEP 3)</span>
-                    </div>
-                    {selectedReceiptDetail.items.flatMap((item) => item.documents).length === 0 ? (
-                      <p className="inbound-step4-no-files">Không có tài liệu đính kèm.</p>
-                    ) : (
-                      <div className="inbound-step4-files-grid">
-                        {selectedReceiptDetail.items.flatMap((item) => item.documents).map((doc) => (
-                          <div key={doc.id} className="inbound-step4-file-card">
-                            <div className="inbound-step4-file-icon-wrap">
-                              <i className="pi pi-file-edit" />
-                            </div>
-                            <div className="inbound-step4-file-info">
-                              <p className="inbound-step4-file-name">{doc.originalName}</p>
-                              <div className="inbound-step4-file-meta">
-                                <span className={`doc-type-badge doc-type-${String(doc.docType).toLowerCase()}`}>{getDocTypeLabelShort(doc.docType)}</span>
-                                <span className="inbound-step4-file-size">{formatFileSize(doc.fileSize)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="inbound-step4-warning">
-                    <i className="pi pi-exclamation-circle inbound-step4-warning-icon" />
-                    <p>
-                      <strong>LƯU Ý QUAN TRỌNG:</strong>{' '}
-                      Đây là màn hình tra cứu read-only theo nội dung step 4 của phiếu nhập.
-                      Dữ liệu không thể chỉnh sửa từ drill-down PO.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : null}
-      </Dialog>
+        receiptRef={selectedReceiptCode}
+        detail={selectedReceiptDetail}
+        detailLoading={receiptDetailLoading}
+        detailError={receiptDetailError}
+        history={selectedReceiptHistory}
+        historyLoading={receiptHistoryLoading}
+        historyError={receiptHistoryError}
+      />
     </>
   )
 }

@@ -42,7 +42,7 @@ function AppLayout() {
     <MasterPage
       sidebar={
         <MasterSidebar
-          brandName="ZencosMS"
+          brandName=""
           navItems={navItems}
           footerItems={sidebarFooterItems}
         />

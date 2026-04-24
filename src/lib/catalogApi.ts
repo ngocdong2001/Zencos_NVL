@@ -25,6 +25,50 @@ export async function fetchMaterials(q?: string): Promise<MaterialRow[]> {
   return http<MaterialRow[]>(`/api/catalog/materials${query}`)
 }
 
+export type InciSuggestion = {
+  inciName: string
+  productId: string
+  productCode: string
+  productName: string
+  baseUnit: string
+  orderUnit: string
+  orderUnitConversionToBase: number
+  manufacturerNames: string
+  supplierNames: string
+  poHistoryCount: number
+  latestPoRef: string | null
+  latestPoDate: string | null
+  latestPoQty: number | null
+  latestPoUnit: string | null
+  latestPoUnitPrice: number | null
+  latestPoSupplier: string | null
+  latestPoManufacturer: string | null
+}
+
+export async function fetchInciSuggestions(q?: string, productId?: string): Promise<InciSuggestion[]> {
+  const params = new URLSearchParams()
+  if (q?.trim()) params.set('q', q.trim())
+  if (productId) params.set('productId', productId)
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return http<InciSuggestion[]>(`/api/catalog/inci-suggestions${qs}`)
+}
+
+export type ManufacturerSuggestion = {
+  name: string
+  country: string | null
+  productId: string
+  productCode: string
+  productName: string
+}
+
+export async function fetchManufacturerSuggestions(q?: string, productId?: string): Promise<ManufacturerSuggestion[]> {
+  const params = new URLSearchParams()
+  if (q?.trim()) params.set('q', q.trim())
+  if (productId) params.set('productId', productId)
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return http<ManufacturerSuggestion[]>(`/api/catalog/manufacturers${qs}`)
+}
+
 export type MaterialManufacturer = {
   id: string
   name: string
