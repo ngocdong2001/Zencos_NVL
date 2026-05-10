@@ -3,6 +3,7 @@ import 'express-async-errors'
 import express, { NextFunction, Request, Response } from 'express'
 import cors from 'cors'
 import authRouter from './routes/auth.js'
+import usersRouter from './routes/users.js'
 import masterDataRouter from './routes/masterData.js'
 import productsRouter from './routes/products.js'
 import inventoryRouter from './routes/inventory.js'
@@ -21,6 +22,7 @@ import inboundDraftsRouter from './routes/inboundDrafts.js'
 import inboundRouter from './routes/inbound.js'
 import dashboardRouter from './routes/dashboard.js'
 import warehouseInventoryRouter from './routes/warehouseInventory.js'
+import productionRouter from './routes/production.js'
 
 // Normalize BigInt values in API responses to avoid JSON serialization failures.
 if (!(BigInt.prototype as any).toJSON) {
@@ -39,6 +41,7 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+app.use('/api/users', usersRouter)
 app.use('/api/master-data', masterDataRouter)
 app.use('/api/products', productsRouter)
 app.use('/api/inventory', inventoryRouter)
@@ -57,6 +60,7 @@ app.use('/api/inbound-drafts', inboundDraftsRouter)
 app.use('/api/inbound', inboundRouter)
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/warehouse', warehouseInventoryRouter)
+app.use('/api/production-orders', productionRouter)
 
 // Global error handler — prevents unhandled DB/Prisma errors from crashing the process
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

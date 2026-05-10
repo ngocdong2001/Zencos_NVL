@@ -1,24 +1,8 @@
-import type { BasicRow, BasicTabId, MaterialRow } from '../components/catalog/types'
+import type { BasicRow, BasicTabId, MaterialRow, ProductOutputRow, ProductOutputType } from '../components/catalog/types'
 
-const API_BASE_URL = 'http://localhost:4000'
+import { apiFetch } from './api'
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || `HTTP ${response.status}`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
-}
+const http = apiFetch
 
 export async function fetchMaterials(q?: string): Promise<MaterialRow[]> {
   const query = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''
@@ -319,3 +303,32 @@ export async function deleteBasic(tab: BasicTabId, id: string) {
 
   return Promise.resolve()
 }
+
+// ── Product Outputs (Thành phẩm / Bán thành phẩm) ──────────────────
+
+export async function fetchProductOutputsCatalog(q?: string, outputType?: ProductOutputType): Promise<ProductOutputRow[]> {
+  const params = new URLSearchParams()
+  if (q?.trim()) params.set('q', q.trim())
+  if (outputType) params.set('outputType', outputType)
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  return http<ProductOutputRow[]>(`/api/catalog/products-outputs${qs}`)
+}
+
+export async function createProductOutput(payload: Omit<ProductOutputRow, 'id'>): Promise<ProductOutputRow> {
+  return http<ProductOutputRow>('/api/catalog/products-outputs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateProductOutput(id: string, payload: Partial<Omit<ProductOutputRow, 'id'>>): Promise<ProductOutputRow> {
+  return http<ProductOutputRow>(`/api/catalog/products-outputs/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteProductOutput(id: string): Promise<void> {
+  return http<void>(`/api/catalog/products-outputs/${id}`, { method: 'DELETE' })
+}
+

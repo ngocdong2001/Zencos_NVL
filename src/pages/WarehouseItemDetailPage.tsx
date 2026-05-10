@@ -476,7 +476,7 @@ export function WarehouseItemDetailPage() {
               <Column
                 header="Đơn giá/Kg"
                 style={{ width: '18%' }}
-                body={(row: LotDetail) => formatVND(row.unitPricePerKg * 1000)}
+                body={(row: LotDetail) => formatVND(row.unitPricePerKg)}
               />
               <Column
                 header="Nhà sản xuất"

@@ -12,6 +12,7 @@ import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import type { InboundWizardState } from '../components/inbound/types'
 import { getInboundDraftDocumentFileUrl } from '../lib/inboundDraftDocApi'
+import { exportInboundReceiptDoc } from '../lib/inboundDocExport'
 import {
   fetchPurchaseRequestInboundDrilldown,
   type PurchaseRequestInboundDrilldownResponse,
@@ -214,6 +215,7 @@ export function InboundStep4Page() {
   const [cancelDialogVisible, setCancelDialogVisible] = useState(false)
   const [cancelBusy, setCancelBusy] = useState(false)
   const [draftSaving, setDraftSaving] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     if (!dbDetail) return
@@ -223,6 +225,23 @@ export function InboundStep4Page() {
     }
     setQcStatuses(next)
   }, [dbDetail])
+
+  async function handleExportDoc() {
+    if (!dbDetail) return
+    setExporting(true)
+    try {
+      await exportInboundReceiptDoc(dbDetail)
+    } catch (err) {
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Lỗi xuất phiếu',
+        detail: err instanceof Error ? err.message : 'Không thể xuất Phiếu tiếp nhận NVL.',
+        life: 4000,
+      })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function handleSaveDraft() {
     if (isPosted) return
@@ -910,6 +929,16 @@ export function InboundStep4Page() {
             disabled={isPosted || confirmed || posting}
             onClick={handleConfirm}
           />
+          {isPosted && dbDetail ? (
+            <Button
+              type="button"
+              className="btn btn-secondary"
+              icon={exporting ? 'pi pi-spin pi-spinner' : 'pi pi-file-word'}
+              label={exporting ? 'Đang xuất...' : 'Phiếu tiếp nhận NVL'}
+              disabled={exporting}
+              onClick={() => { void handleExportDoc() }}
+            />
+          ) : null}
         </div>
       </footer>
 

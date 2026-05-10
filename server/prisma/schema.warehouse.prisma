@@ -39,9 +39,27 @@ enum ExportOrderStatus {
   cancelled
 }
 
+enum ProductionOrderStatus {
+  draft
+  in_progress
+  completed
+  cancelled
+}
+
+enum ProductOutputType {
+  finished
+  semi_finished
+}
+
 enum InventoryTransactionType {
   import
   export
+  adjustment
+}
+
+enum ProductionOutputTransactionType {
+  import_from_production
+  export_to_sale
   adjustment
 }
 
@@ -99,6 +117,7 @@ model User {
   fullName     String           @map("full_name") @db.VarChar(191)
   role         String           @default("warehouse_staff") @db.VarChar(50)
   isActive     Boolean          @default(true) @map("is_active")
+  deletedAt    DateTime?        @map("deleted_at")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
   productDocuments ProductDocument[]
@@ -106,7 +125,10 @@ model User {
   openingStockItemDocuments OpeningStockItemDocument[]
   inboundReceiptItemDocuments InboundReceiptItemDocument[]
   exportOrders     ExportOrder[]
+  productionOrders ProductionOrder[]
+  productionOrderLogs  ProductionOrderLog[]
   inventoryTransactions InventoryTransaction[]
+  outputTransactions ProductionOutputTransaction[]
   requestedPurchaseRequests PurchaseRequest[] @relation("PurchaseRequestRequestedBy")
   approvedPurchaseRequests  PurchaseRequest[] @relation("PurchaseRequestApprovedBy")
   createdInboundReceipts InboundReceipt[] @relation("InboundReceiptCreatedBy")
@@ -148,6 +170,8 @@ model Product {
   inciNames        ProductInciName[]
   manufacturers    ProductManufacturer[]
   productSuppliers ProductSupplier[]
+  productionOrders ProductionOrder[]
+  productionOrderLines ProductionOrderLine[]
 
   @@map("products")
 }
@@ -282,30 +306,33 @@ model BatchDocument {
 }
 
 model ExportOrder {
-  id          BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
-  customerId  BigInt?           @map("customer_id") @db.UnsignedBigInt
-  sourceOrderId BigInt?         @map("source_order_id") @db.UnsignedBigInt
-  adjustedByOrderId BigInt?     @map("adjusted_by_order_id") @db.UnsignedBigInt
-  orderRef    String?           @map("order_ref") @db.VarChar(100)
-  exportedAt  DateTime?         @map("exported_at")
-  createdBy   BigInt            @map("created_by") @db.UnsignedBigInt
-  status      ExportOrderStatus @default(pending)
-  notes       String?           @db.Text
-  dienGiai    String?           @map("Dien_giai") @db.Text
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
-  customer    Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  sourceOrder ExportOrder?      @relation("ExportOrderAdjustmentSource", fields: [sourceOrderId], references: [id], onDelete: SetNull)
-  adjustedByOrder ExportOrder?  @relation("ExportOrderAdjustmentTarget", fields: [adjustedByOrderId], references: [id], onDelete: SetNull)
-  adjustmentOrders ExportOrder[] @relation("ExportOrderAdjustmentSource")
-  adjustedOrders ExportOrder[]  @relation("ExportOrderAdjustmentTarget")
-  creator     User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
-  items       ExportOrderItem[]
-  purchaseRequests PurchaseRequest[]
-  historyEntries ExportOrderHistory[]
+  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  customerId        BigInt?           @map("customer_id") @db.UnsignedBigInt
+  sourceOrderId     BigInt?           @map("source_order_id") @db.UnsignedBigInt
+  adjustedByOrderId BigInt?           @map("adjusted_by_order_id") @db.UnsignedBigInt
+  sourceLocationId  BigInt?           @map("source_location_id") @db.UnsignedBigInt
+  orderRef          String?           @map("order_ref") @db.VarChar(100)
+  exportedAt        DateTime?         @map("exported_at")
+  createdBy         BigInt            @map("created_by") @db.UnsignedBigInt
+  status            ExportOrderStatus @default(pending)
+  notes             String?           @db.Text
+  dienGiai          String?           @map("Dien_giai") @db.Text
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  customer          Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sourceOrder       ExportOrder?      @relation("ExportOrderAdjustmentSource", fields: [sourceOrderId], references: [id], onDelete: SetNull)
+  adjustedByOrder   ExportOrder?      @relation("ExportOrderAdjustmentTarget", fields: [adjustedByOrderId], references: [id], onDelete: SetNull)
+  adjustmentOrders  ExportOrder[]     @relation("ExportOrderAdjustmentSource")
+  adjustedOrders    ExportOrder[]     @relation("ExportOrderAdjustmentTarget")
+  sourceLocation    CatalogLocation?  @relation("ExportOrderSourceLocation", fields: [sourceLocationId], references: [id], onDelete: SetNull)
+  creator           User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  items             ExportOrderItem[]
+  purchaseRequests  PurchaseRequest[]
+  historyEntries    ExportOrderHistory[]
 
   @@index([sourceOrderId])
   @@index([adjustedByOrderId])
+  @@index([sourceLocationId])
   @@unique([sourceOrderId])
   @@unique([adjustedByOrderId])
   @@map("export_orders")
@@ -460,6 +487,9 @@ model CatalogLocation {
   openingStockItems OpeningStockItem[]
   purchaseRequests PurchaseRequest[] @relation("PurchaseRequestReceivingLocation")
   inboundReceipts InboundReceipt[] @relation("InboundReceiptReceivingLocation")
+  exportOrders ExportOrder[] @relation("ExportOrderSourceLocation")
+  productionOrderLines ProductionOrderLine[]
+  outputTransactions ProductionOutputTransaction[]
 
   @@map("inventory_locations")
 }
@@ -714,4 +744,138 @@ model OpeningStockItemDocument {
 
   @@index([itemId])
   @@map("opening_stock_item_documents")
+}
+
+// ─── Danh mục thành phẩm & bán thành phẩm (dùng trong module sản xuất) ────────
+model ProductOutput {
+  id         BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  code       String            @unique @db.VarChar(100)
+  name       String            @db.VarChar(255)
+  outputType ProductOutputType @map("output_type")
+  unit       String            @db.VarChar(50)
+  notes      String?           @db.Text
+  deletedAt  DateTime?         @map("deleted_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+  productionOrders     ProductionOrder[]
+  productionOrderLines ProductionOrderLine[]
+  outputTransactions   ProductionOutputTransaction[]
+
+  @@index([outputType])
+  @@map("products_outputs")
+}
+
+model ProductionOrder {
+  id           BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  orderRef     String?               @map("order_ref") @db.VarChar(100)
+  issuedAt     DateTime              @default(now()) @map("issued_at")
+  skuProductId BigInt?               @map("sku_product_id") @db.UnsignedBigInt
+  skuCode      String?               @map("sku_code") @db.VarChar(100)
+  skuName      String?               @map("sku_name") @db.VarChar(255)
+  productType  String?               @map("product_type") @db.VarChar(100)
+  currentStep  Int                   @default(1) @map("current_step") @db.TinyInt
+  status       ProductionOrderStatus @default(draft)
+  notes        String?               @db.Text
+  createdBy    BigInt                @map("created_by") @db.UnsignedBigInt
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+  outputProductId BigInt?              @map("output_product_id") @db.UnsignedBigInt
+  creator         User                  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  skuProduct      Product?              @relation(fields: [skuProductId], references: [id], onDelete: SetNull)
+  outputProduct   ProductOutput?        @relation(fields: [outputProductId], references: [id], onDelete: SetNull)
+  lines           ProductionOrderLine[]
+  logs            ProductionOrderLog[]
+  outputTransactions ProductionOutputTransaction[]
+
+  @@index([status])
+  @@index([issuedAt])
+  @@index([skuProductId])
+  @@index([outputProductId])
+  @@map("production_orders")
+}
+
+// ─── Production order detail lines (BOM per step) ─────────────────────────────
+// step 1: xuất NVL (direction=out, location=kho NVL)
+// step 2: nhập BTP (direction=in,  location=kho BTP)
+// step 3: xuất BTP (direction=out, location=kho BTP)
+// step 4: nhập TP  (direction=in,  location=kho TP)
+model ProductionOrderLine {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId     BigInt   @map("order_id") @db.UnsignedBigInt
+  step        Int      @db.TinyInt
+  direction   String   @db.VarChar(3)       // 'out' | 'in'
+  productId       BigInt?  @map("product_id") @db.UnsignedBigInt
+  outputProductId BigInt?  @map("output_product_id") @db.UnsignedBigInt
+  productCode     String   @map("product_code") @db.VarChar(100)
+  productName     String   @map("product_name") @db.VarChar(255)
+  lotNo       String?  @map("lot_no") @db.VarChar(100)
+  expiryDate  DateTime? @map("expiry_date") @db.Date
+  plannedQty  Decimal  @default(0) @map("planned_qty") @db.Decimal(15, 4)
+  actualQty   Decimal  @default(0) @map("actual_qty") @db.Decimal(15, 4)
+  wasteQty    Decimal  @default(0) @map("waste_qty") @db.Decimal(15, 4)
+  unit        String   @db.VarChar(50)
+  locationId  BigInt?  @map("location_id") @db.UnsignedBigInt
+  qualityStatus String? @map("quality_status") @db.VarChar(20) // pass|fail|pending (step 4)
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  order         ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product       Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  outputProduct ProductOutput?   @relation(fields: [outputProductId], references: [id], onDelete: SetNull)
+  location      CatalogLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, step])
+  @@map("production_order_lines")
+}
+
+model ProductionOrderLog {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId   BigInt   @map("order_id") @db.UnsignedBigInt
+  userId    BigInt?  @map("user_id") @db.UnsignedBigInt
+  userName  String?  @map("user_name") @db.VarChar(191)
+  action    String   @db.VarChar(500)
+  logType   String   @default("system") @map("log_type") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at")
+  order     ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("production_order_logs")
+}
+
+model ProductionOutputTransaction {
+  id                   BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  productionOrderId    BigInt   @map("production_order_id") @db.UnsignedBigInt
+  outputProductId      BigInt   @map("output_product_id") @db.UnsignedBigInt
+  type                 ProductionOutputTransactionType
+  quantityBase         Decimal  @map("quantity_base") @db.Decimal(15, 4)
+  warehouseLocationId  BigInt?  @map("warehouse_location_id") @db.UnsignedBigInt
+  batchLotNo           String?  @map("batch_lot_no") @db.VarChar(100)
+  batchExpiryDate      DateTime? @map("batch_expiry_date") @db.Date
+  userId               BigInt?  @map("user_id") @db.UnsignedBigInt
+  notes                String?  @db.Text
+  transactionDate      DateTime @default(now()) @map("transaction_date")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  order                ProductionOrder     @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  outputProduct        ProductOutput       @relation(fields: [outputProductId], references: [id], onDelete: Restrict)
+  warehouseLocation    CatalogLocation?    @relation(fields: [warehouseLocationId], references: [id], onDelete: SetNull)
+  user                 User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([productionOrderId])
+  @@index([outputProductId, transactionDate, type])
+  @@map("production_output_transactions")
+}
+
+model PasswordResetToken {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  token     String    @unique @db.VarChar(191)
+  userId    BigInt    @map("user_id") @db.UnsignedBigInt
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }

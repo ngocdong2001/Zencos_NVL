@@ -1419,4 +1419,115 @@ router.delete('/locations/:id', async (req, res) => {
   return res.status(204).send()
 })
 
+// ─── Products Outputs (thành phẩm & bán thành phẩm cho module sản xuất) ───────
+
+const productOutputSchema = z.object({
+  code:       z.string().min(1).max(100),
+  name:       z.string().min(1).max(255),
+  outputType: z.enum(['finished', 'semi_finished']),
+  unit:       z.string().min(1).max(50),
+  notes:      z.string().optional().nullable(),
+})
+
+router.get('/products-outputs', async (req, res) => {
+  const { q, outputType } = req.query as Record<string, string>
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, code, name, output_type, unit, notes, deleted_at
+    FROM products_outputs
+    WHERE deleted_at IS NULL
+      ${outputType && outputType !== 'all' ? Prisma.sql`AND output_type = ${outputType}` : Prisma.sql``}
+      ${q?.trim() ? Prisma.sql`AND (code LIKE ${'%' + q.trim() + '%'} OR name LIKE ${'%' + q.trim() + '%'})` : Prisma.sql``}
+    ORDER BY output_type, code ASC
+  `)
+
+  const data = rows.map((row) => ({
+    id:         String(row.id),
+    code:       String(row.code ?? ''),
+    name:       String(row.name ?? ''),
+    outputType: String(row.output_type ?? ''),
+    unit:       String(row.unit ?? ''),
+    notes:      row.notes != null ? String(row.notes) : null,
+  }))
+
+  return res.json(normalizeForJson(data))
+})
+
+router.get('/products-outputs/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id' })
+
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT id, code, name, output_type, unit, notes, deleted_at
+    FROM products_outputs
+    WHERE id = ${id} AND deleted_at IS NULL
+    LIMIT 1
+  `)
+  if (rows.length === 0) return res.status(404).json({ message: 'Không tìm thấy.' })
+
+  const row = rows[0]
+  return res.json(normalizeForJson({
+    id:         String(row.id),
+    code:       String(row.code ?? ''),
+    name:       String(row.name ?? ''),
+    outputType: String(row.output_type ?? ''),
+    unit:       String(row.unit ?? ''),
+    notes:      row.notes != null ? String(row.notes) : null,
+  }))
+})
+
+router.post('/products-outputs', async (req, res) => {
+  const parsed = productOutputSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Dữ liệu không hợp lệ.', errors: parsed.error.flatten() })
+
+  const d = parsed.data
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO products_outputs (code, name, output_type, unit, notes, created_at, updated_at)
+      VALUES (${d.code}, ${d.name}, ${d.outputType}, ${d.unit}, ${d.notes ?? null}, NOW(3), NOW(3))
+    `)
+  } catch (error) {
+    if (isDuplicateCodeError(error)) return res.status(409).json({ message: 'Mã sản phẩm đầu ra đã tồn tại.', code: d.code })
+    throw error
+  }
+  return res.status(201).json({ ok: true })
+})
+
+router.put('/products-outputs/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id' })
+
+  const parsed = productOutputSchema.partial().safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ message: 'Dữ liệu không hợp lệ.', errors: parsed.error.flatten() })
+
+  const d = parsed.data
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE products_outputs
+      SET
+        code        = COALESCE(${d.code ?? null}, code),
+        name        = COALESCE(${d.name ?? null}, name),
+        output_type = COALESCE(${d.outputType ?? null}, output_type),
+        unit        = COALESCE(${d.unit ?? null}, unit),
+        notes       = COALESCE(${d.notes ?? null}, notes),
+        updated_at  = NOW(3)
+      WHERE id = ${id} AND deleted_at IS NULL
+    `)
+  } catch (error) {
+    if (isDuplicateCodeError(error)) return res.status(409).json({ message: 'Mã sản phẩm đầu ra đã tồn tại.', code: d.code })
+    throw error
+  }
+  return res.json({ ok: true })
+})
+
+router.delete('/products-outputs/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id' })
+
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE products_outputs SET deleted_at = NOW(3), updated_at = NOW(3)
+    WHERE id = ${id} AND deleted_at IS NULL
+  `)
+  return res.status(204).send()
+})
+
 export default router

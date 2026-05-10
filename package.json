@@ -15,7 +15,10 @@
     "api:prisma:generate": "npm --prefix server run prisma:generate"
   },
   "dependencies": {
+    "docxtemplater": "^3.68.6",
     "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "pizzip": "^3.2.0",
     "primeicons": "^7.0.0",
     "primereact": "^10.9.7",
     "react": "^19.2.4",
@@ -30,6 +33,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/file-saver": "^2.0.7",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

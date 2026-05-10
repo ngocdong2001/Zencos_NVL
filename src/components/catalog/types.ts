@@ -1,6 +1,17 @@
-export type TabId = 'classifications' | 'materials' | 'suppliers' | 'customers' | 'locations' | 'units'
+export type TabId = 'classifications' | 'materials' | 'suppliers' | 'customers' | 'locations' | 'units' | 'product_outputs'
 
-export type BasicTabId = Exclude<TabId, 'materials'>
+export type BasicTabId = Exclude<TabId, 'materials' | 'product_outputs'>
+
+export type ProductOutputType = 'finished' | 'semi_finished'
+
+export type ProductOutputRow = {
+  id: string
+  code: string
+  name: string
+  outputType: ProductOutputType
+  unit: string
+  notes: string
+}
 
 export type MaterialRow = {
   id: string

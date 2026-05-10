@@ -1,22 +1,6 @@
-const API_BASE_URL = 'http://localhost:4000'
+import { apiFetch } from './api'
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || `HTTP ${response.status}`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
-}
+const http = apiFetch
 
 export type InventoryStockBatch = {
   id: string
@@ -36,8 +20,10 @@ export type InventoryStockBatch = {
 export type CreateExportOrderPayload = {
   orderRef?: string
   customerId?: string
+  sourceLocationId?: string
   exportedAt?: string
   notes?: string
+  dienGiai?: string
   shortages?: Array<{
     productId: string
     requestedQty: number
@@ -74,8 +60,14 @@ export type ExportOrderListRow = {
   fulfilBlockedReason?: string | null
   exportedAt: string | null
   createdAt: string
+  dienGiai?: string | null
   customer: {
     id: string
+    name: string
+  } | null
+  sourceLocation: {
+    id: string
+    code: string
     name: string
   } | null
   items: Array<{
@@ -115,7 +107,13 @@ export type ExportOrderDetail = {
   exportedAt: string | null
   createdAt: string
   notes: string | null
+  dienGiai: string | null
   customer: {
+    id: string
+    code: string
+    name: string
+  } | null
+  sourceLocation: {
     id: string
     code: string
     name: string

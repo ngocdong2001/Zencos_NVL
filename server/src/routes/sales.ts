@@ -1,4 +1,4 @@
-import { Router } from 'express'
+﻿import { Router } from 'express'
 import { z } from 'zod'
 import { ExportOrderStatus, Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
@@ -61,6 +61,7 @@ router.get('/', requireAuth, requirePermission('sales.read'), async (req: Authen
       where, skip, take: Number(limit), orderBy,
       include: {
         customer: { select: { id: true, name: true } },
+        sourceLocation: { select: { id: true, code: true, name: true } },
         items: { include: { product: { select: { id: true, code: true, name: true } } } },
         purchaseRequests: {
           select: {
@@ -102,6 +103,7 @@ router.get('/:id', requireAuth, requirePermission('sales.read'), async (req: Aut
       sourceOrder: { select: { id: true, orderRef: true, status: true } },
       adjustedByOrder: { select: { id: true, orderRef: true, status: true } },
       customer: true,
+      sourceLocation: { select: { id: true, code: true, name: true } },
       items: {
         include: {
           product: true,
@@ -174,8 +176,10 @@ const shortageSchema = z.object({
 const exportOrderSchema = z.object({
   orderRef: z.string().optional(),
   customerId: z.string().optional(),
+  sourceLocationId: z.string().optional(),
   exportedAt: z.string().optional(),
   notes: z.string().optional(),
+  dienGiai: z.string().optional(),
   shortages: z.array(shortageSchema).optional(),
   items: z.array(exportItemSchema),
 })
@@ -191,8 +195,10 @@ router.post('/', requireAuth, requirePermission('sales.write'), async (req: Auth
       data: {
         orderRef: header.orderRef,
         customerId: header.customerId ? BigInt(header.customerId) : undefined,
+        sourceLocationId: header.sourceLocationId ? BigInt(header.sourceLocationId) : undefined,
         exportedAt: header.exportedAt ? new Date(header.exportedAt) : undefined,
         notes: header.notes,
+        dienGiai: header.dienGiai,
         createdBy,
         items: {
           create: items.map((i) => ({
@@ -215,7 +221,7 @@ router.post('/', requireAuth, requirePermission('sales.write'), async (req: Auth
 
       for (const shortage of header.shortages) {
         const { productId, shortageQty, unitUsed } = shortage
-        const product = await tx.product.findUnique({
+        const product = await tx.material.findUnique({
           where: { id: BigInt(productId) },
           select: {
             orderUnitRef: { select: { unitName: true, conversionToBase: true } },
@@ -300,8 +306,10 @@ router.put('/:id', requireAuth, requirePermission('sales.write'), async (req: Au
         data: {
         orderRef: header.orderRef,
         customerId: header.customerId ? BigInt(header.customerId) : null,
+        sourceLocationId: header.sourceLocationId ? BigInt(header.sourceLocationId) : null,
         exportedAt: header.exportedAt ? new Date(header.exportedAt) : existing.exportedAt,
         notes: header.notes,
+        dienGiai: header.dienGiai ?? null,
         items: {
           create: items.map((i) => ({
             productId: BigInt(i.productId),
@@ -334,7 +342,7 @@ router.put('/:id', requireAuth, requirePermission('sales.write'), async (req: Au
 
         for (const shortage of header.shortages) {
           const { productId, shortageQty, unitUsed } = shortage
-          const product = await tx.product.findUnique({
+          const product = await tx.material.findUnique({
             where: { id: BigInt(productId) },
             select: {
               orderUnitRef: { select: { unitName: true, conversionToBase: true } },

@@ -1,29 +1,7 @@
-const API_BASE_URL = 'http://localhost:4000'
+import { apiFetch } from './api'
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
+const http = apiFetch
 
-  if (!response.ok) {
-    const text = await response.text()
-    let message = text
-    try {
-      const json = JSON.parse(text) as { message?: string }
-      message = json.message ?? text
-    } catch {
-      // keep raw text
-    }
-    throw new Error(message || `HTTP ${response.status}`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
-}
 
 export type OpeningStockRow = {
   id: string

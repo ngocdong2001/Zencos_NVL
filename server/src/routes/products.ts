@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
@@ -21,21 +21,21 @@ router.get('/', requireAuth, requirePermission('products.read'), async (req, res
   if (brandId) where.brandId = brandId
 
   const [data, total] = await Promise.all([
-    prisma.product.findMany({
+    prisma.material.findMany({
       where,
       skip,
       take: Number(limit),
       orderBy: { createdAt: 'desc' },
       include: { variants: { where: { deletedAt: null } } },
     }),
-    prisma.product.count({ where }),
+    prisma.material.count({ where }),
   ])
   res.json({ data, total, page: Number(page), limit: Number(limit) })
 })
 
 // ── Get one ───────────────────────────────────────────────────────────
 router.get('/:id', requireAuth, requirePermission('products.read'), async (req, res) => {
-  const product = await prisma.product.findFirst({
+  const product = await prisma.material.findFirst({
     where: { id: req.params.id, deletedAt: null },
     include: {
       variants: { where: { deletedAt: null } },
@@ -66,10 +66,10 @@ router.post('/', requireAuth, requirePermission('products.write'), async (req, r
   const parsed = productSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
 
-  const existing = await prisma.product.findFirst({ where: { code: parsed.data.code, deletedAt: null } })
+  const existing = await prisma.material.findFirst({ where: { code: parsed.data.code, deletedAt: null } })
   if (existing) { res.status(409).json({ error: 'Product code already exists' }); return }
 
-  const product = await prisma.product.create({
+  const product = await prisma.material.create({
     data: {
       ...parsed.data,
       costPrice: parsed.data.costPrice,
@@ -82,22 +82,22 @@ router.post('/', requireAuth, requirePermission('products.write'), async (req, r
 
 // ── Update ────────────────────────────────────────────────────────────
 router.put('/:id', requireAuth, requirePermission('products.write'), async (req, res) => {
-  const existing = await prisma.product.findFirst({ where: { id: req.params.id, deletedAt: null } })
+  const existing = await prisma.material.findFirst({ where: { id: req.params.id, deletedAt: null } })
   if (!existing) { res.status(404).json({ error: 'Product not found' }); return }
 
   const parsed = productSchema.partial().safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
 
-  const product = await prisma.product.update({ where: { id: req.params.id }, data: parsed.data })
+  const product = await prisma.material.update({ where: { id: req.params.id }, data: parsed.data })
   res.json(product)
 })
 
 // ── Soft Delete ───────────────────────────────────────────────────────
 router.delete('/:id', requireAuth, requirePermission('products.write'), async (req, res) => {
-  const existing = await prisma.product.findFirst({ where: { id: req.params.id, deletedAt: null } })
+  const existing = await prisma.material.findFirst({ where: { id: req.params.id, deletedAt: null } })
   if (!existing) { res.status(404).json({ error: 'Product not found' }); return }
 
-  await prisma.product.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
+  await prisma.material.update({ where: { id: req.params.id }, data: { deletedAt: new Date() } })
   res.status(204).send()
 })
 
@@ -120,7 +120,7 @@ router.post('/:id/variants', requireAuth, requirePermission('products.write'), a
   const parsed = variantSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return }
 
-  const product = await prisma.product.findFirst({ where: { id: req.params.id, deletedAt: null } })
+  const product = await prisma.material.findFirst({ where: { id: req.params.id, deletedAt: null } })
   if (!product) { res.status(404).json({ error: 'Product not found' }); return }
 
   const variant = await prisma.productVariant.create({

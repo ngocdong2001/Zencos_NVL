@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 /**
  * AI Agentic Chat Route
  * ─────────────────────
@@ -141,7 +141,7 @@ async function findProductCandidates(query: string, limit = 5): Promise<ProductC
   const prefilter = tokens.slice(0, 3)
   console.log('🔍 findProductCandidates - query:', query, 'tokens:', tokens)
 
-  const products = await prisma.product.findMany({
+  const products = await prisma.material.findMany({
     where: {
       deletedAt: null,
       ...(prefilter.length > 0
@@ -183,7 +183,7 @@ async function findProductCandidates(query: string, limit = 5): Promise<ProductC
 
 async function resolveProductReference(input: { id?: string; code?: string; name?: string }) {
   if (input.id || input.code) {
-    const product = await prisma.product.findFirst({
+    const product = await prisma.material.findFirst({
       where: {
         deletedAt: null,
         ...(input.id ? { id: input.id } : {}),
@@ -613,14 +613,14 @@ async function executeTool(
     }
     if (!code || !pName) return { error: 'Thiếu mã hoặc tên sản phẩm.' }
 
-    const existing = await prisma.product.findFirst({ where: { code, deletedAt: null } })
+    const existing = await prisma.material.findFirst({ where: { code, deletedAt: null } })
     if (existing) return { error: `Mã hàng "${code}" đã tồn tại trong hệ thống.` }
 
     const cost = toFiniteNumber(costPrice) ?? 0
     const sell = toFiniteNumber(sellPrice) ?? 0
     const alert = toFiniteNumber(alertQty) ?? 0
 
-    const product = await prisma.product.create({
+    const product = await prisma.material.create({
       data: { code, name: pName, costPrice: cost, sellPrice: sell, alertQty: alert, isActive: true },
     })
     return { success: true, product }
@@ -632,7 +632,7 @@ async function executeTool(
     const { q, limit = 5 } = args as { q?: string; limit?: number }
     const size = Math.max(1, Math.min(Number(limit) || 5, 50))
     if (!q) {
-      const data = await prisma.product.findMany({
+      const data = await prisma.material.findMany({
         where: { deletedAt: null },
         take: size,
         orderBy: { createdAt: 'desc' },
@@ -641,7 +641,7 @@ async function executeTool(
     }
 
     const candidates = await findProductCandidates(q, size)
-    const data = await prisma.product.findMany({
+    const data = await prisma.material.findMany({
       where: {
         deletedAt: null,
         ...(q
@@ -752,7 +752,7 @@ async function executeTool(
       return { error: 'Không có trường nào hợp lệ để cập nhật.' }
     }
 
-    const product = await prisma.product.update({ where: { id: existing.id }, data })
+    const product = await prisma.material.update({ where: { id: existing.id }, data })
     console.log('✅ Product updated successfully:', { id: product.id, name: product.name, sellPrice: product.sellPrice })
     return { success: true, product }
   }
@@ -775,7 +775,7 @@ async function executeTool(
       }
     }
 
-    await prisma.product.update({ where: { id: existing.id }, data: { deletedAt: new Date() } })
+    await prisma.material.update({ where: { id: existing.id }, data: { deletedAt: new Date() } })
     console.log('✅ Product deleted successfully:', { id: existing.id, name: existing.name })
     return { success: true, deleted: { id: existing.id, code: existing.code, name: existing.name } }
   }

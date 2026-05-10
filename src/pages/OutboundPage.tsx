@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
+import { InputTextarea } from 'primereact/inputtextarea'
 import { Tag } from 'primereact/tag'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { Dialog } from 'primereact/dialog'
@@ -129,10 +130,13 @@ export function OutboundPage() {
   const fefoPanelRef = useRef<HTMLElement>(null)
 
   const [customerRows, setCustomerRows] = useState<BasicRow[]>([])
+  const [locationOptions, setLocationOptions] = useState<SelectOption[]>([])
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
 
   const [customerId, setCustomerId] = useState('')
+  const [sourceLocationId, setSourceLocationId] = useState('')
+  const [dienGiai, setDienGiai] = useState('')
   const [lines, setLines] = useState<MaterialLine[]>([createEmptyLine()])
   const [activeLineIdx, setActiveLineIdx] = useState(0)
 
@@ -255,9 +259,15 @@ export function OutboundPage() {
           fetchBasics('customers'),
           fetchMaterials(),
         ])
+        const locationRows = await fetchBasics('locations')
         if (cancelled) return
 
         setCustomerRows(customers.filter((r: BasicRow) => r.id && r.name))
+        setLocationOptions(
+          locationRows
+            .filter((r: BasicRow) => r.id && r.status !== 'inactive')
+            .map((r: BasicRow) => ({ value: r.id, label: r.name + (r.code ? ` (${r.code})` : '') }))
+        )
         setMaterials(catalogMaterials)
         setMaterialOptions(
           catalogMaterials.map((r) => ({
@@ -273,9 +283,11 @@ export function OutboundPage() {
           setEditingStatus(detail.status)
           setSourceOrderId(detail.sourceOrder?.id ?? null)
           setAdjustedByOrderId(detail.adjustedByOrder?.id ?? null)
+          setSourceLocationId(detail.sourceLocation?.id ?? '')
           setFormSuccess(null)
           setEditingOrderRef(detail.orderRef)
           setCustomerId(detail.customer?.id ?? '')
+          setDienGiai(detail.dienGiai ?? '')
 
           const blockingPR = detail.purchaseRequests.find((pr) =>
             pr.items.some((item) => toNumeric(item.receivedQtyBase) + 0.0001 < toNumeric(item.quantityNeededBase)),
@@ -657,8 +669,10 @@ export function OutboundPage() {
       const payload = {
         orderRef: isEditMode ? (editingOrderRef ?? undefined) : (newOrderRef.trim() || buildOutboundRef()),
         customerId,
+        sourceLocationId: sourceLocationId || undefined,
         exportedAt: new Date().toISOString(),
         notes: shortageNote,
+        dienGiai: dienGiai.trim() || undefined,
         shortages: shortages.length > 0 ? shortages : undefined,
         items: allItems,
       }
@@ -861,6 +875,35 @@ export function OutboundPage() {
               filter
               showClear
               disabled={loading || isLockedEditMode}
+            />
+          </label>
+
+          <label className="outbound-field">
+            <span>Nguồn kho xuất</span>
+            <Dropdown
+              value={sourceLocationId}
+              options={locationOptions}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(e) => setSourceLocationId(String(e.value ?? ''))}
+              placeholder="Chọn kho xuất hàng..."
+              className="outbound-dropdown outbound-customer-select"
+              filter
+              showClear
+              disabled={loading || isLockedEditMode}
+            />
+          </label>
+
+          <label className="outbound-field">
+            <span>Diễn giải</span>
+            <InputTextarea
+              value={dienGiai}
+              onChange={(e) => setDienGiai(e.target.value)}
+              placeholder="Nhập diễn giải cho phiếu xuất..."
+              rows={3}
+              autoResize
+              disabled={isLockedEditMode}
+              style={{ width: '100%' }}
             />
           </label>
         </div>

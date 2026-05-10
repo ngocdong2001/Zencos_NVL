@@ -35,6 +35,7 @@ type OutboundRow = {
   adjustedByOrderId: string | null
   canFulfil: boolean
   fulfilBlockedReason: string | null
+  dienGiai: string | null
 }
 
 const HISTORY_STATUS_OPTIONS: Array<{ label: string; value: ExportOrderStatus | 'all' }> = [
@@ -123,6 +124,7 @@ function mapOutboundRow(row: ExportOrderListRow): OutboundRow {
     adjustedByOrderId: row.adjustedByOrderId ?? null,
     canFulfil: row.canFulfil ?? true,
     fulfilBlockedReason: row.fulfilBlockedReason ?? null,
+    dienGiai: row.dienGiai ?? null,
   }
 }
 
@@ -431,6 +433,7 @@ export function OutboundListPage() {
           />
           <Column field="exportedDate" header="Ngày xuất" sortable style={{ width: '8.5rem' }} body={(row: OutboundRow) => formatDateVi(row.exportedDate)} />
           <Column field="customer" header="Khách hàng" sortable style={{ width: '14rem' }} />
+          <Column field="dienGiai" header="Diễn giải" style={{ minWidth: '12rem' }} body={(row: OutboundRow) => row.dienGiai ?? '---'} />
           <Column field="itemCount" header="Số mặt hàng" sortable style={{ width: '8rem' }} body={(row: OutboundRow) => <span className="inbound-number">{row.itemCount}</span>} />
           <Column
             field="totalQty"

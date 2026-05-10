@@ -13,7 +13,7 @@ import {
   initialBasicRows,
   tabItems,
 } from '../components/catalog/data'
-import type { BasicRow, BasicTabId, MaterialRow, TabId } from '../components/catalog/types'
+import type { BasicRow, BasicTabId, MaterialRow, ProductOutputRow, TabId } from '../components/catalog/types'
 import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
 import {
   createBasic,
@@ -25,6 +25,10 @@ import {
   fetchNextMaterialCode,
   updateBasic,
   updateMaterial,
+  fetchProductOutputsCatalog,
+  createProductOutput,
+  updateProductOutput,
+  deleteProductOutput,
 } from '../lib/catalogApi'
 
 type OutletContext = { search: string }
@@ -120,6 +124,7 @@ export function CatalogPage() {
   const [catalogs, setCatalogs] = useState(initialBasicRows)
   const [nextMatCode, setNextMatCode] = useState('NVL-001')
   const [loading, setLoading] = useState(false)
+  const [productOutputs, setProductOutputs] = useState<ProductOutputRow[]>([])
   const [pageSize, setPageSize] = useState(10)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importParsing, setImportParsing] = useState(false)
@@ -146,13 +151,18 @@ export function CatalogPage() {
     setCatalogs((prev) => ({ ...prev, [tab]: rows }))
   }
 
+  const refreshProductOutputs = async () => {
+    const rows = await fetchProductOutputsCatalog()
+    setProductOutputs(rows)
+  }
+
   useEffect(() => {
     let cancelled = false
 
     const loadCatalog = async () => {
       try {
         setLoading(true)
-        const [materialsData, nextMaterialCode, suppliersData, customersData, classificationsData, unitsData, locationsData] =
+        const [materialsData, nextMaterialCode, suppliersData, customersData, classificationsData, unitsData, locationsData, productOutputsData] =
           await Promise.all([
             fetchMaterials(),
             fetchNextMaterialCode(),
@@ -161,6 +171,7 @@ export function CatalogPage() {
             fetchBasics('classifications'),
             fetchBasics('units'),
             fetchBasics('locations'),
+            fetchProductOutputsCatalog(),
           ])
 
         if (cancelled) return
@@ -174,6 +185,7 @@ export function CatalogPage() {
           units: unitsData,
           locations: locationsData,
         }))
+        setProductOutputs(productOutputsData)
       } catch (error) {
         console.error('Không tải được dữ liệu catalog:', error)
       } finally {
@@ -211,9 +223,9 @@ export function CatalogPage() {
   }, [materials, onlyActive, search])
 
   const filteredBasics = useMemo(() => {
-    if (activeTab === 'materials') return []
+    if (activeTab === 'materials' || activeTab === 'product_outputs') return []
     const q = search.trim()
-    return catalogs[activeTab].filter((row) => {
+    return catalogs[activeTab as BasicTabId].filter((row) => {
       const searchable = [row.code, row.name, row.contactInfo, row.phone, row.email, row.address, row.note, row.status].join(' ')
       const passesSearch = !q || containsInsensitive(searchable, q)
       const passesStatus = !onlyActive || row.status.toLocaleLowerCase() === 'active'
@@ -221,7 +233,20 @@ export function CatalogPage() {
     })
   }, [activeTab, catalogs, onlyActive, search])
 
-  const totalRows = activeTab === 'materials' ? filteredMaterials.length : filteredBasics.length
+  const filteredProductOutputs = useMemo(() => {
+    if (activeTab !== 'product_outputs') return []
+    const q = search.trim()
+    return productOutputs.filter((row) => {
+      const searchable = [row.code, row.name, row.outputType, row.unit, row.notes].join(' ')
+      return !q || containsInsensitive(searchable, q)
+    })
+  }, [activeTab, productOutputs, search])
+
+  const totalRows = activeTab === 'materials'
+    ? filteredMaterials.length
+    : activeTab === 'product_outputs'
+      ? filteredProductOutputs.length
+      : filteredBasics.length
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const safePage = Math.min(page, totalPages)
 
@@ -235,8 +260,13 @@ export function CatalogPage() {
     [filteredBasics, safePage],
   )
 
+  const pagedProductOutputs = useMemo(
+    () => filteredProductOutputs.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filteredProductOutputs, safePage],
+  )
+
   const visibleIds = useMemo(
-    () => (activeTab === 'materials' ? pagedMaterials.map((r) => r.id) : pagedBasics.map((r) => r.id)),
+    () => (activeTab === 'materials' ? pagedMaterials.map((r) => r.id) : activeTab === 'product_outputs' ? [] : pagedBasics.map((r) => r.id)),
     [activeTab, pagedBasics, pagedMaterials],
   )
 
@@ -246,7 +276,7 @@ export function CatalogPage() {
   const currentRangeEnd = Math.min(totalRows, safePage * pageSize)
 
   const nextBasicCode = useMemo(() => {
-    if (activeTab === 'materials') return ''
+    if (activeTab === 'materials' || activeTab === 'product_outputs') return ''
     const tab = activeTab as BasicTabId
     const prefixMap: Record<BasicTabId, string> = {
       classifications: 'CLA',
@@ -257,6 +287,11 @@ export function CatalogPage() {
     }
     return getNextCode(catalogs[tab].map((row) => row.code), prefixMap[tab], 3)
   }, [activeTab, catalogs])
+
+  const nextProductOutputCode = useMemo(() => {
+    if (activeTab !== 'product_outputs') return ''
+    return getNextCode(productOutputs.map((r) => r.code), 'TP', 3)
+  }, [activeTab, productOutputs])
 
   const classificationById = useMemo(
     () => new Map(catalogs.classifications.map((item) => [item.id, item])),
@@ -383,6 +418,36 @@ export function CatalogPage() {
     }
   }
 
+  const handleSaveProductOutput = async (row: ProductOutputRow): Promise<boolean> => {
+    try {
+      if (isNumericId(row.id)) {
+        await updateProductOutput(row.id, {
+          code: row.code,
+          name: row.name,
+          outputType: row.outputType,
+          unit: row.unit,
+          notes: row.notes,
+        })
+      } else {
+        await createProductOutput({
+          code: row.code,
+          name: row.name,
+          outputType: row.outputType,
+          unit: row.unit,
+          notes: row.notes,
+        })
+      }
+      await refreshProductOutputs()
+      setCatalogNotice(null)
+      return true
+    } catch (error) {
+      console.error('Lưu sản phẩm đầu ra thất bại:', error)
+      const parsed = parseApiError(error, 'Lưu sản phẩm đầu ra thất bại')
+      setCatalogNotice({ tone: 'error', message: parsed.message })
+      return false
+    }
+  }
+
   const deleteRow = (id: string) => {
     if (activeTab === 'materials') {
       void (async () => {
@@ -392,6 +457,15 @@ export function CatalogPage() {
           setSelectedIds((prev) => prev.filter((s) => s !== id))
         } catch (error) {
           console.error('Xóa nguyên liệu thất bại:', error)
+        }
+      })()
+    } else if (activeTab === 'product_outputs') {
+      void (async () => {
+        try {
+          if (isNumericId(id)) await deleteProductOutput(id)
+          await refreshProductOutputs()
+        } catch (error) {
+          console.error('Xóa sản phẩm đầu ra thất bại:', error)
         }
       })()
     } else {
@@ -615,10 +689,16 @@ export function CatalogPage() {
 
       const result = activeTab === 'materials'
         ? await importMaterialRows(rows)
-        : await importBasicRows(rows)
+        : activeTab === 'product_outputs'
+          ? { successCount: 0, failedRows: rows }
+          : await importBasicRows(rows)
 
       if (activeTab === 'materials') {
         await refreshMaterials()
+      } else if (activeTab === 'product_outputs') {
+        setImportParseError('Import chưa được hỗ trợ cho tab Thành phẩm/Bán TP.')
+        setImporting(false)
+        return
       } else {
         await refreshBasicTab(activeTab as BasicTabId)
       }
@@ -681,6 +761,7 @@ export function CatalogPage() {
           allVisibleSelected={allVisibleSelected}
           pagedMaterials={pagedMaterials}
           pagedBasics={pagedBasics}
+          pagedProductOutputs={pagedProductOutputs}
           onToggleSelectAll={(checked) => {
             if (checked) {
               setSelectedIds((prev) => [...new Set([...prev, ...visibleIds])])
@@ -696,10 +777,12 @@ export function CatalogPage() {
           suppliers={catalogs.suppliers}
           onSaveMaterial={handleSaveMaterial}
           onSaveBasic={handleSaveBasic}
+          onSaveProductOutput={handleSaveProductOutput}
           onDelete={deleteRow}
           onManageDetail={(row) => setDetailProduct(row)}
           nextMatCode={nextMatCode}
           nextBasicCode={nextBasicCode}
+          nextProductOutputCode={nextProductOutputCode}
         />
         <ProductDetailDialog product={detailProduct} onHide={() => setDetailProduct(null)} />
       </div>

@@ -13,6 +13,13 @@ import { ProductCreatePage } from '../pages/ProductCreatePage'
 import { PurchaseOrderPage } from '../pages/PurchaseOrderPage'
 import { WarehousePage } from '../pages/WarehousePage'
 import { WarehouseItemDetailPage } from '../pages/WarehouseItemDetailPage'
+import { ProductionListPage } from '../pages/ProductionListPage'
+import { ProductionStep1Page } from '../pages/ProductionStep1Page'
+import { ProductionStep2Page } from '../pages/ProductionStep2Page'
+import { ProductionStep3Page } from '../pages/ProductionStep3Page'
+import { ProductionStep4Page } from '../pages/ProductionStep4Page'
+import { UserManagementPage } from '../pages/UserManagementPage'
+import { RolePermissionsPage } from '../pages/RolePermissionsPage'
 
 export type RouteConfig = {
   path: string
@@ -20,22 +27,32 @@ export type RouteConfig = {
   icon: string
   component: ComponentType
   showInNav?: boolean
+  /** Permission required to access this route. Omit for always-accessible routes. */
+  permission?: string
 }
 
 export const appRoutes: RouteConfig[] = [
-  { path: '/overview', label: 'Tổng quan', icon: 'pi pi-home', component: DashboardPage },
-  { path: '/warehouse', label: 'Quản lý kho', icon: 'pi pi-building', component: WarehousePage },
-  { path: '/warehouse/:id', label: 'Chi tiết Vật tư', icon: 'pi pi-box', component: WarehouseItemDetailPage, showInNav: false },
-  { path: '/inbound', label: 'Nhập kho', icon: 'pi pi-download', component: InboundPage },
-  { path: '/inbound/new', label: 'Tạo phiếu nhập mới', icon: 'pi pi-plus', component: InboundStep1Page, showInNav: false },
-  { path: '/inbound/new/step2', label: 'Chi tiết Lô hàng', icon: 'pi pi-list', component: InboundStep2Page, showInNav: false },
-  { path: '/inbound/new/step3', label: 'Số lượng & Chứng từ', icon: 'pi pi-paperclip', component: InboundStep3Page, showInNav: false },
-  { path: '/inbound/new/step4', label: 'Xác nhận & Hoàn tất', icon: 'pi pi-check-circle', component: InboundStep4Page, showInNav: false },
-  { path: '/outbound', label: 'Xuất kho', icon: 'pi pi-upload', component: OutboundListPage },
-  { path: '/outbound/new', label: 'Tạo lệnh xuất mới', icon: 'pi pi-plus', component: OutboundPage, showInNav: false },
-  { path: '/outbound/:orderId/edit', label: 'Chỉnh sửa lệnh xuất', icon: 'pi pi-pencil', component: OutboundPage, showInNav: false },
-  { path: '/purchase', label: 'Yêu cầu mua hàng', icon: 'pi pi-shopping-cart', component: PurchaseOrderPage },
-  { path: '/catalog', label: 'Danh mục (Catalogs)', icon: 'pi pi-database', component: CatalogPage },
-  { path: '/catalog/products/new', label: 'Tạo Product Mới', icon: 'pi pi-plus-circle', component: ProductCreatePage, showInNav: false },
-  { path: '/opening-stock', label: 'Khai báo tồn kho đầu kỳ', icon: 'pi pi-box', component: OpeningStockPage },
+  { path: '/overview',                  label: 'Tổng quan',                    icon: 'pi pi-home',         component: DashboardPage,           permission: 'reports:view' },
+  { path: '/warehouse',                 label: 'Quản lý kho',                  icon: 'pi pi-building',     component: WarehousePage,            permission: 'warehouse:view' },
+  { path: '/warehouse/:id',             label: 'Chi tiết Vật tư',              icon: 'pi pi-box',          component: WarehouseItemDetailPage,  permission: 'warehouse:detail',  showInNav: false },
+  { path: '/inbound',                   label: 'Nhập kho',                     icon: 'pi pi-download',     component: InboundPage,              permission: 'inbound:view' },
+  { path: '/inbound/new',               label: 'Tạo phiếu nhập mới',           icon: 'pi pi-plus',         component: InboundStep1Page,         permission: 'inbound:write',     showInNav: false },
+  { path: '/inbound/new/step2',         label: 'Chi tiết Lô hàng',             icon: 'pi pi-list',         component: InboundStep2Page,         permission: 'inbound:write',     showInNav: false },
+  { path: '/inbound/new/step3',         label: 'Số lượng & Chứng từ',          icon: 'pi pi-paperclip',    component: InboundStep3Page,         permission: 'inbound:write',     showInNav: false },
+  { path: '/inbound/new/step4',         label: 'Xác nhận & Hoàn tất',          icon: 'pi pi-check-circle', component: InboundStep4Page,         permission: 'inbound:write',     showInNav: false },
+  { path: '/outbound',                  label: 'Xuất kho',                     icon: 'pi pi-upload',       component: OutboundListPage,         permission: 'outbound:view' },
+  { path: '/outbound/new',              label: 'Tạo lệnh xuất mới',            icon: 'pi pi-plus',         component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
+  { path: '/outbound/:orderId/edit',    label: 'Chỉnh sửa lệnh xuất',          icon: 'pi pi-pencil',       component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
+  { path: '/purchase',                  label: 'Yêu cầu mua hàng',             icon: 'pi pi-shopping-cart',component: PurchaseOrderPage,        permission: 'purchase:view' },
+  { path: '/catalog',                   label: 'Danh mục (Catalogs)',           icon: 'pi pi-database',     component: CatalogPage,              permission: 'catalog:view' },
+  { path: '/catalog/products/new',      label: 'Tạo Product Mới',              icon: 'pi pi-plus-circle',  component: ProductCreatePage,        permission: 'catalog:write',     showInNav: false },
+  { path: '/opening-stock',             label: 'Khai báo tồn kho đầu kỳ',      icon: 'pi pi-box',          component: OpeningStockPage,         permission: 'opening-stock:view' },
+  { path: '/production',                      label: 'Quy trình SX',          icon: 'pi pi-cog',          component: ProductionListPage,   permission: 'production:view' },
+  { path: '/production/new',                  label: 'Tạo lệnh sản xuất mới', icon: 'pi pi-plus',         component: ProductionStep1Page,  permission: 'production:write', showInNav: false },
+  { path: '/production/:orderId/buoc-1',      label: 'Bước 1: Xuất NVL',      icon: 'pi pi-cog',          component: ProductionStep1Page,  permission: 'production:write', showInNav: false },
+  { path: '/production/:orderId/buoc-2',      label: 'Bước 2: Nhập BTP',      icon: 'pi pi-cog',          component: ProductionStep2Page,  permission: 'production:write', showInNav: false },
+  { path: '/production/:orderId/buoc-3',      label: 'Bước 3: Xuất BTP',      icon: 'pi pi-cog',          component: ProductionStep3Page,  permission: 'production:write', showInNav: false },
+  { path: '/production/:orderId/buoc-4',      label: 'Bước 4: Nhập TP',       icon: 'pi pi-cog',          component: ProductionStep4Page,  permission: 'production:write', showInNav: false },
+  { path: '/admin/users',               label: 'Quản lý người dùng',           icon: 'pi pi-users',        component: UserManagementPage,       permission: 'users:view',        showInNav: false },
+  { path: '/admin/role-permissions',    label: 'Phân quyền theo vai trò',      icon: 'pi pi-shield',       component: RolePermissionsPage,      permission: 'users:view',        showInNav: false },
 ]

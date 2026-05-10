@@ -7,6 +7,7 @@ export const tabItems: Array<{ id: TabId; label: string }> = [
   { id: 'customers', label: 'Khách hàng' },
   { id: 'locations', label: 'Vị trí kho' },
   { id: 'units', label: 'Đơn vị đo' },
+  { id: 'product_outputs', label: 'Thành phẩm/Bán TP' },
 ]
 
 export const navItems = [

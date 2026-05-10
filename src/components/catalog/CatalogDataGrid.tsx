@@ -5,7 +5,7 @@ import { Column } from 'primereact/column'
 import { InputText } from 'primereact/inputtext'
 import { Dropdown } from 'primereact/dropdown'
 import type { ColumnEvent } from 'primereact/column'
-import type { BasicRow, MaterialRow, TabId } from './types'
+import type { BasicRow, MaterialRow, ProductOutputRow, TabId } from './types'
 import { MaterialRowExpansion } from './MaterialRowExpansion'
 
 const NEW_ID = '__new__'
@@ -14,12 +14,28 @@ export interface CatalogDataGridHandle {
   focusNewRow: () => void
 }
 
+const OUTPUT_TYPE_OPTIONS = [
+  { value: 'finished', label: 'Thành phẩm (TP)' },
+  { value: 'semi_finished', label: 'Bán thành phẩm (BTP)' },
+]
+
+const OUTPUT_TYPE_LABEL: Record<string, string> = {
+  finished: 'Thành phẩm',
+  semi_finished: 'Bán TP',
+}
+
+const OUTPUT_TYPE_CLASS: Record<string, string> = {
+  finished: 'status-pill status-active',
+  semi_finished: 'status-pill status-pending',
+}
+
 type Props = {
   activeTab: TabId
   selectedIds: string[]
   allVisibleSelected: boolean
   pagedMaterials: MaterialRow[]
   pagedBasics: BasicRow[]
+  pagedProductOutputs: ProductOutputRow[]
   classifications: BasicRow[]
   units: BasicRow[]
   suppliers: BasicRow[]
@@ -27,30 +43,34 @@ type Props = {
   onToggleSelectRow: (id: string, checked: boolean) => void
   onSaveMaterial: (row: MaterialRow) => Promise<boolean>
   onSaveBasic: (row: BasicRow) => Promise<boolean>
+  onSaveProductOutput: (row: ProductOutputRow) => Promise<boolean>
   onDelete: (id: string) => void
   onManageDetail: (row: MaterialRow) => void
   nextMatCode: string
   nextBasicCode: string
+  nextProductOutputCode: string
 }
 
 export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   function CatalogDataGrid(
-    { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics,
+    { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics, pagedProductOutputs,
       classifications,
       units,
       suppliers,
-      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onDelete, onManageDetail,
-      nextMatCode, nextBasicCode },
+      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onSaveProductOutput, onDelete, onManageDetail,
+      nextMatCode, nextBasicCode, nextProductOutputCode },
     ref,
   ) {
     const [pendingNewMat, setPendingNewMat] = useState<Partial<MaterialRow>>({})
     const [pendingNewBasic, setPendingNewBasic] = useState<Partial<BasicRow>>({})
+    const [pendingNewProductOutput, setPendingNewProductOutput] = useState<Partial<ProductOutputRow>>({})
     const [isNewMaterialMinStockFocused, setIsNewMaterialMinStockFocused] = useState(false)
     const [savingNewRow, setSavingNewRow] = useState(false)
     const [expandedMaterialIds, setExpandedMaterialIds] = useState<Set<string>>(new Set())
     const newMaterialCodeRef = useRef<HTMLInputElement>(null)
     const newBasicCodeRef = useRef<HTMLInputElement>(null)
     const isMat = activeTab === 'materials'
+    const isProductOutputs = activeTab === 'product_outputs'
 
     const unitNameByCode = useMemo(
       () => new Map(units.map((item) => [item.code, item.name])),
@@ -215,6 +235,187 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       () => basicSelectableRows.filter((row) => selectedIds.includes(row.id)),
       [basicSelectableRows, selectedIds],
     )
+
+    const productOutputRows = useMemo<ProductOutputRow[]>(() => {
+      const newRow: ProductOutputRow = {
+        id: NEW_ID,
+        code: pendingNewProductOutput.code ?? '',
+        name: pendingNewProductOutput.name ?? '',
+        outputType: pendingNewProductOutput.outputType ?? 'finished',
+        unit: pendingNewProductOutput.unit ?? '',
+        notes: pendingNewProductOutput.notes ?? '',
+      }
+      return [...pagedProductOutputs, newRow]
+    }, [pagedProductOutputs, pendingNewProductOutput])
+
+    const canSaveNewProductOutput = Boolean(
+      pendingNewProductOutput.name?.trim()
+      && pendingNewProductOutput.unit?.trim()
+    )
+
+    async function saveNewProductOutputRow() {
+      if (!canSaveNewProductOutput || savingNewRow) return
+      setSavingNewRow(true)
+      try {
+        const candidate: ProductOutputRow = {
+          id: `po-${Date.now()}`,
+          code: pendingNewProductOutput.code?.trim() || nextProductOutputCode,
+          name: pendingNewProductOutput.name!.trim(),
+          outputType: pendingNewProductOutput.outputType ?? 'finished',
+          unit: pendingNewProductOutput.unit!.trim(),
+          notes: pendingNewProductOutput.notes?.trim() || '',
+        }
+        const saved = await onSaveProductOutput(candidate)
+        if (saved) setPendingNewProductOutput({})
+      } finally {
+        setSavingNewRow(false)
+      }
+    }
+
+    function clearNewProductOutputRow() {
+      if (savingNewRow) return
+      setPendingNewProductOutput({})
+    }
+
+    function handleProductOutputCellEditComplete(e: ColumnEvent) {
+      const { rowData, newValue, field, originalEvent: event } = e
+      if (!field) return
+      if (rowData.id === NEW_ID) return
+      const updatedRow: ProductOutputRow = { ...rowData, [field]: newValue }
+      if (!updatedRow.name?.trim() || !updatedRow.unit?.trim()) {
+        event.preventDefault()
+        return
+      }
+      rowData[field] = newValue
+      void onSaveProductOutput(updatedRow)
+    }
+
+    // ── Product Output Body/Editor Templates ─────────────────────────
+
+    function productOutputCodeBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewProductOutput.code ?? nextProductOutputCode}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, code: e.target.value }))}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Mã"
+          />
+        )
+      }
+      return rowData.code
+    }
+
+    function productOutputNameBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewProductOutput.name ?? ''}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, name: e.target.value }))}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Tên *"
+          />
+        )
+      }
+      return rowData.name
+    }
+
+    function productOutputTypeBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <Dropdown
+            value={pendingNewProductOutput.outputType ?? 'finished'}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, outputType: e.value }))}
+            onKeyDown={handleNewRowKeyDown}
+            options={OUTPUT_TYPE_OPTIONS}
+            optionLabel="label"
+            optionValue="value"
+            placeholder="-- Chọn --"
+          />
+        )
+      }
+      return (
+        <span className={OUTPUT_TYPE_CLASS[rowData.outputType] ?? 'status-pill'}>
+          {OUTPUT_TYPE_LABEL[rowData.outputType] ?? rowData.outputType}
+        </span>
+      )
+    }
+
+    function productOutputUnitBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewProductOutput.unit ?? ''}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, unit: e.target.value }))}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Đơn vị *"
+          />
+        )
+      }
+      return rowData.unit
+    }
+
+    function productOutputNotesBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewProductOutput.notes ?? ''}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, notes: e.target.value }))}
+            onKeyDown={handleNewRowKeyDown}
+          />
+        )
+      }
+      return rowData.notes || ''
+    }
+
+    function productOutputDeleteButton(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="icon-btn save-btn" title="Lưu" onClick={() => void saveNewProductOutputRow()} disabled={!canSaveNewProductOutput || savingNewRow}>
+              <i className="pi pi-save" />
+            </button>
+            <button type="button" className="icon-btn" title="Xóa nháp" onClick={clearNewProductOutputRow} disabled={savingNewRow}>
+              ×
+            </button>
+          </div>
+        )
+      }
+      return (
+        <button type="button" className="icon-btn danger" title="Xóa" onClick={() => onDelete(rowData.id)}>
+          <i className="pi pi-trash" />
+        </button>
+      )
+    }
+
+    function productOutputCodeEditor(options: any) {
+      return <InputText value={options.value || ''} onChange={(e) => options.editorCallback?.(e.target.value)} placeholder="Mã" autoFocus />
+    }
+
+    function productOutputNameEditor(options: any) {
+      return <InputText value={options.value || ''} onChange={(e) => options.editorCallback?.(e.target.value)} placeholder="Tên *" />
+    }
+
+    function productOutputTypeEditor(options: any) {
+      return (
+        <Dropdown
+          value={options.value || 'finished'}
+          onChange={(e) => options.editorCallback?.(e.value)}
+          options={OUTPUT_TYPE_OPTIONS}
+          optionLabel="label"
+          optionValue="value"
+          placeholder="-- Chọn --"
+        />
+      )
+    }
+
+    function productOutputUnitEditor(options: any) {
+      return <InputText value={options.value || ''} onChange={(e) => options.editorCallback?.(e.target.value)} placeholder="Đơn vị *" />
+    }
+
+    function productOutputNotesEditor(options: any) {
+      return <InputText value={options.value || ''} onChange={(e) => options.editorCallback?.(e.target.value)} />
+    }
 
     useImperativeHandle(ref, () => ({
       focusNewRow() {
@@ -1044,6 +1245,8 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               stripedRows
               resizableColumns
               columnResizeMode="expand"
+              scrollable
+              scrollHeight="flex"
               stateStorage="local"
               stateKey="catalog-material-table"
               className="catalog-table prime-catalog-table"
@@ -1064,6 +1267,30 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column header="Xử lý" body={materialDeleteButton} style={{ width: '88px' }} />
             </DataTable>
           </>
+        ) : isProductOutputs ? (
+          <>
+            <DataTable
+              value={productOutputRows}
+              dataKey="id"
+              editMode="cell"
+              stripedRows
+              resizableColumns
+              columnResizeMode="expand"
+              scrollable
+              scrollHeight="flex"
+              stateStorage="local"
+              stateKey="catalog-product-outputs-table"
+              className="catalog-table prime-catalog-table basic-table"
+              rowClassName={(row) => (row.id === NEW_ID ? 'new-row' : '')}
+            >
+              <Column field="code" header="Mã" body={productOutputCodeBody} editor={(options) => productOutputCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column field="name" header="Tên sản phẩm" body={productOutputNameBody} editor={(options) => productOutputNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column field="outputType" header="Loại" body={productOutputTypeBody} editor={(options) => productOutputTypeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column field="unit" header="Đơn vị" body={productOutputUnitBody} editor={(options) => productOutputUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column field="notes" header="Ghi chú" body={productOutputNotesBody} editor={(options) => productOutputNotesEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column header="Xử lý" body={productOutputDeleteButton} style={{ width: '88px' }} />
+            </DataTable>
+          </>
         ) : (
           <>
             <DataTable
@@ -1079,6 +1306,8 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               stripedRows
               resizableColumns
               columnResizeMode="expand"
+              scrollable
+              scrollHeight="flex"
               stateStorage="local"
               stateKey={`catalog-basic-table-${activeTab}`}
               className="catalog-table prime-catalog-table basic-table"
@@ -1106,3 +1335,4 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     )
   },
 )
+

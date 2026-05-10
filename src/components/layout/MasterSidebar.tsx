@@ -6,7 +6,7 @@ type NavItem = { path: string; label: string; icon?: string; badge?: number }
 type MasterSidebarProps = {
   brandName: string
   navItems: NavItem[]
-  footerItems?: Array<{ label: string; icon?: string; tone?: 'default' | 'danger' }>
+  footerItems?: Array<{ label: string; icon?: string; tone?: 'default' | 'danger'; onClick?: () => void }>
 }
 
 export function MasterSidebar({ brandName, navItems, footerItems }: MasterSidebarProps) {
@@ -59,6 +59,7 @@ export function MasterSidebar({ brandName, navItems, footerItems }: MasterSideba
             key={item.label}
             type="button"
             className={`sidebar-item ${item.tone === 'danger' ? 'danger' : ''}`}
+            onClick={item.onClick}
           >
             {item.icon
               ? <i className={item.icon} />

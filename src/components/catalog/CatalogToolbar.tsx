@@ -31,6 +31,11 @@ const mappingGuides: Record<TabId, { title: string; columns: string[]; note: str
     columns: ['MÃ ĐƠN VỊ', 'TÊN ĐƠN VỊ', 'ĐƠN VỊ CHA', 'HỆ SỐ QUY ĐỔI', 'MẶC ĐỊNH HIỂN THỊ'],
     note: 'Dùng để chuẩn hóa đơn vị tính và quy đổi nội bộ.',
   },
+  product_outputs: {
+    title: 'Mapping Excel cho Thành phẩm/Bán TP',
+    columns: ['MÃ', 'TÊN', 'LOẠI', 'ĐƠN VỊ', 'GHI CHÚ'],
+    note: 'Cột LOẠI nhận giá trị: finished (thành phẩm) hoặc semi_finished (bán thành phẩm).',
+  },
 }
 
 type CatalogToolbarProps = {

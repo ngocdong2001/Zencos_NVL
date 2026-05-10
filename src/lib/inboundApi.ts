@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:4000'
+import { apiFetch } from './api'
 
 const INBOUND_RECEIPT_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{2,119}$/
 
@@ -111,30 +111,7 @@ export type InboundReceiptDetailResponse = {
   }>
 }
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    let message = text
-    try {
-      const json = JSON.parse(text) as { message?: string; error?: string }
-      message = json.message ?? json.error ?? text
-    } catch {
-      // keep raw response text
-    }
-    throw new Error(message || `HTTP ${response.status}`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
-}
+const http = apiFetch
 
 export function validateInboundReceiptRefFormat(receiptRef: string): string | null {
   const trimmed = receiptRef.trim()

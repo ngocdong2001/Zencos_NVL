@@ -1,47 +1,6 @@
-const API_BASE_URL = 'http://localhost:4000'
+import { apiFetch } from './api'
 
-const TOKEN_STORAGE_KEYS = ['auth.token', 'token', 'accessToken']
-
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null
-
-  for (const key of TOKEN_STORAGE_KEYS) {
-    const local = window.localStorage.getItem(key)
-    if (local?.trim()) return local.trim()
-
-    const session = window.sessionStorage.getItem(key)
-    if (session?.trim()) return session.trim()
-  }
-
-  return null
-}
-
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getAuthToken()
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    let message = text
-    try {
-      const json = JSON.parse(text) as { error?: string; message?: string }
-      message = json.error ?? json.message ?? text
-    } catch {
-      // keep raw text
-    }
-    throw new Error(message || `HTTP ${response.status}`)
-  }
-
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
-}
+const http = apiFetch
 
 export type ShortageStatus = 'critical' | 'warning' | 'stable'
 
