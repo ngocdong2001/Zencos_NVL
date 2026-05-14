@@ -5,7 +5,14 @@ import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Tag } from 'primereact/tag'
 import { ProductionStepBar } from '../components/production/ProductionStepBar'
-import { fetchProductionOrderDetail, updateProductionOrderStatus, type ProductionOrderDetail, type ProductionOrderLine } from '../lib/productionApi'
+import {
+  fetchProductionOrderDetail,
+  upsertProductionOrderLines,
+  updateProductionOrderStatus,
+  type LinePayload,
+  type ProductionOrderDetail,
+  type ProductionOrderLine,
+} from '../lib/productionApi'
 import { showDangerConfirm } from '../lib/confirm'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,22 +29,26 @@ interface BtpExportLine {
   status: 'ok' | 'short' | 'over'
 }
 
+interface Step2BtpSummary {
+  key: string
+  btpCode: string
+  lotNo: string
+  actualQty: number
+  unit: string
+  locationName: string
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const ORDER_NO = 'PSX-20240515-0089'
-
-const BTP_EXPORT_LINES: BtpExportLine[] = [
-  { id: '1', btpCode: 'MELASMA30-BTP', btpName: 'Bán thành phẩm Melasma Cream', lotNo: 'BTP-2405-001', expiryDate: '2026-11-15', requestedQty: 19850, actualQty: 19850, unit: 'g',   status: 'ok' },
-  { id: '2', btpCode: 'PKG-KIT-30G',   btpName: 'Bộ kit đóng gói Melasma 30g',  lotNo: 'KIT-0992',     expiryDate: null,          requestedQty: 660,   actualQty: 660,   unit: 'bộ',  status: 'ok' },
-]
 
 function fmtQty(v: number | null | undefined): string {
   if (v == null) return '—'
   return v.toLocaleString('vi-VN', { maximumFractionDigits: 3 })
 }
 
-function mapLineToExportLine(line: ProductionOrderLine): BtpExportLine {
-  const planned = Number(line.plannedQty)
+function mapLineToExportLine(line: ProductionOrderLine, requestedOverride?: number): BtpExportLine {
+  const planned = requestedOverride ?? Number(line.plannedQty)
   const actual  = Number(line.actualQty)
   const status: BtpExportLine['status'] = actual < planned ? 'short' : actual > planned ? 'over' : 'ok'
   return {
@@ -53,6 +64,64 @@ function mapLineToExportLine(line: ProductionOrderLine): BtpExportLine {
   }
 }
 
+function mapStep2LineToStep3Payload(line: ProductionOrderLine): LinePayload {
+  const plannedQty = Number(line.plannedQty)
+  const actualQty = Number(line.actualQty)
+  return {
+    productId: line.productId,
+    outputProductId: line.outputProductId,
+    productCode: line.productCode,
+    productName: line.productName,
+    lotNo: line.lotNo,
+    expiryDate: line.expiryDate,
+    plannedQty,
+    actualQty,
+    wasteQty: 0,
+    unit: line.unit,
+    locationId: line.locationId,
+    qualityStatus: line.qualityStatus,
+    direction: 'out',
+    notes: line.notes,
+  }
+}
+
+function buildStep2PlannedMap(lines: ProductionOrderLine[]): Map<string, number> {
+  const result = new Map<string, number>()
+  for (const line of lines) {
+    const key = `${line.outputProductId ?? ''}|${line.productCode}|${line.lotNo ?? ''}`
+    result.set(key, Number(line.plannedQty))
+  }
+  return result
+}
+
+function buildStep2BtpSummaries(lines: ProductionOrderLine[]): Step2BtpSummary[] {
+  const grouped = new Map<string, Step2BtpSummary>()
+
+  for (const line of lines) {
+    const key = line.outputProductId ?? `line-${line.id}`
+    const current = grouped.get(key)
+    const qty = Number(line.actualQty)
+
+    if (!current) {
+      grouped.set(key, {
+        key,
+        btpCode: line.outputProduct?.code ?? line.productCode ?? '---',
+        lotNo: line.lotNo ?? '---',
+        actualQty: qty,
+        unit: line.outputProduct?.unit ?? line.unit ?? '',
+        locationName: line.location?.name ?? 'Kho Bán thành phẩm',
+      })
+      continue
+    }
+
+    current.actualQty += qty
+    if (current.lotNo === '---' && line.lotNo) current.lotNo = line.lotNo
+    if (!current.locationName && line.location?.name) current.locationName = line.location.name
+  }
+
+  return Array.from(grouped.values())
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function ProductionStep3Page() {
@@ -60,9 +129,12 @@ export function ProductionStep3Page() {
   const { orderId } = useParams<{ orderId: string }>()
 
   const [order, setOrder] = useState<ProductionOrderDetail | null>(null)
+  const [step3ApiLines, setStep3ApiLines] = useState<ProductionOrderLine[]>([])
   const [exportLines, setExportLines] = useState<BtpExportLine[]>([])
-  const [step2Summary, setStep2Summary] = useState<ProductionOrderLine | null>(null)
+  const [step2Summaries, setStep2Summaries] = useState<Step2BtpSummary[]>([])
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [savingAndNext, setSavingAndNext] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -74,12 +146,83 @@ export function ProductionStep3Page() {
         setOrder(data)
         const step2Lines = data.lines.filter(l => l.step === 2 && l.direction === 'in')
         const step3Lines = data.lines.filter(l => l.step === 3 && l.direction === 'out')
-        setStep2Summary(step2Lines[0] ?? null)
-        setExportLines(step3Lines.map(mapLineToExportLine))
+        const step2PlannedMap = buildStep2PlannedMap(step2Lines)
+        setStep2Summaries(buildStep2BtpSummaries(step2Lines))
+        setStep3ApiLines(step3Lines)
+        setExportLines(
+          (step3Lines.length > 0 ? step3Lines : step2Lines).map((line) => {
+            const key = `${line.outputProductId ?? ''}|${line.productCode}|${line.lotNo ?? ''}`
+            const planned = step2PlannedMap.get(key)
+            return mapLineToExportLine(line, planned)
+          })
+        )
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
   }, [orderId])
+
+  async function saveStep3Lines() {
+    if (!orderId) return
+    const step2Lines = (order?.lines ?? []).filter((line) => line.step === 2 && line.direction === 'in')
+    const step2PlannedMap = buildStep2PlannedMap(step2Lines)
+
+    const sourceLines = step3ApiLines.length > 0
+      ? step3ApiLines
+      : step2Lines
+
+    const payload: LinePayload[] = sourceLines.map((line) =>
+      line.step === 2 ? mapStep2LineToStep3Payload(line) : {
+        ...(() => {
+          const key = `${line.outputProductId ?? ''}|${line.productCode}|${line.lotNo ?? ''}`
+          const plannedFromStep2 = step2PlannedMap.get(key)
+          return { plannedQty: plannedFromStep2 ?? Number(line.plannedQty) }
+        })(),
+        productId: line.productId,
+        outputProductId: line.outputProductId,
+        productCode: line.productCode,
+        productName: line.productName,
+        lotNo: line.lotNo,
+        expiryDate: line.expiryDate,
+        actualQty: Number(line.actualQty),
+        wasteQty: Number(line.wasteQty),
+        unit: line.unit,
+        locationId: line.locationId,
+        qualityStatus: line.qualityStatus,
+        direction: 'out',
+        notes: line.notes,
+      }
+    )
+
+    if (payload.length === 0) return
+    await upsertProductionOrderLines(orderId, 3, payload)
+  }
+
+  async function handleSaveDraft() {
+    if (!orderId) return
+    setSaving(true)
+    setError(null)
+    try {
+      await saveStep3Lines()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lưu thất bại')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleNextStep() {
+    if (!orderId) return
+    setSavingAndNext(true)
+    setError(null)
+    try {
+      await saveStep3Lines()
+      navigate(`/production/${orderId}/buoc-4`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể lưu dữ liệu bước 3')
+    } finally {
+      setSavingAndNext(false)
+    }
+  }
 
   const hasShortage = exportLines.some(l => l.status === 'short')
 
@@ -138,6 +281,12 @@ export function ProductionStep3Page() {
         onNavigate={(s) => { if (orderId) navigate(`/production/${orderId}/buoc-${s}`) }}
       />
 
+      {error && (
+        <div style={{ margin: '12px 24px 0', padding: '10px 16px', background: '#fee2e2', color: '#dc2626', borderRadius: 8, fontSize: 13 }}>
+          <i className="pi pi-exclamation-circle" style={{ marginRight: 8 }} />{error}
+        </div>
+      )}
+
       <div style={{ margin: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* Tóm tắt BTP từ Bước 2 */}
@@ -150,26 +299,47 @@ export function ProductionStep3Page() {
               <span className="prod-card__title">Kết quả Nhập BTP</span>
             </div>
           </div>
-          <div className="prod-xk-meta">
-            <div className="prod-xk-meta__item">
-              <span className="prod-xk-meta__lbl">MÃ BTP</span>
-              <span className="prod-xk-meta__val" style={{ color: '#5269e0', fontWeight: 700 }}>{step2Summary?.productCode ?? '---'}</span>
+          {step2Summaries.length === 0 ? (
+            <div className="prod-xk-meta">
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">MÃ BTP</span>
+                <span className="prod-xk-meta__val" style={{ color: '#5269e0', fontWeight: 700 }}>---</span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">LÔ BTP</span>
+                <span className="prod-xk-meta__val">---</span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">SẢN LƯỢNG NHẬP</span>
+                <span className="prod-xk-meta__val" style={{ fontWeight: 700, color: '#15803d' }}>0</span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">KHO LƯU</span>
+                <span className="prod-xk-meta__val">Kho Bán thành phẩm</span>
+              </div>
             </div>
-            <div className="prod-xk-meta__item">
-              <span className="prod-xk-meta__lbl">LÔ BTP</span>
-              <span className="prod-xk-meta__val">{step2Summary?.lotNo ?? '---'}</span>
+          ) : step2Summaries.map((summary, idx) => (
+            <div className="prod-xk-meta" key={summary.key} style={{ marginTop: idx > 0 ? 8 : 0 }}>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">MÃ BTP</span>
+                <span className="prod-xk-meta__val" style={{ color: '#5269e0', fontWeight: 700 }}>{summary.btpCode}</span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">LÔ BTP</span>
+                <span className="prod-xk-meta__val">{summary.lotNo}</span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">SẢN LƯỢNG NHẬP</span>
+                <span className="prod-xk-meta__val" style={{ fontWeight: 700, color: '#15803d' }}>
+                  {fmtQty(summary.actualQty)} {summary.unit}
+                </span>
+              </div>
+              <div className="prod-xk-meta__item">
+                <span className="prod-xk-meta__lbl">KHO LƯU</span>
+                <span className="prod-xk-meta__val">{summary.locationName}</span>
+              </div>
             </div>
-            <div className="prod-xk-meta__item">
-              <span className="prod-xk-meta__lbl">SẢN LƯỢNG NHẬP</span>
-              <span className="prod-xk-meta__val" style={{ fontWeight: 700, color: '#15803d' }}>
-                {fmtQty(step2Summary ? Number(step2Summary.actualQty) : null)} {step2Summary?.unit ?? ''}
-              </span>
-            </div>
-            <div className="prod-xk-meta__item">
-              <span className="prod-xk-meta__lbl">KHO LƯU</span>
-              <span className="prod-xk-meta__val">{step2Summary?.location?.name ?? 'Kho Bán thành phẩm'}</span>
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* Phiếu xuất kho BTP */}
@@ -221,13 +391,14 @@ export function ProductionStep3Page() {
           </div>
 
           <DataTable
-            value={exportLines.length > 0 ? exportLines : BTP_EXPORT_LINES}
+            value={exportLines}
             className="prod-xk-table"
             dataKey="id"
             scrollable
             scrollHeight="200px"
             style={{ marginTop: 12 }}
             rowHover
+            emptyMessage="Chưa có dòng xuất BTP ở bước 3."
           >
             <Column
               header="STT"
@@ -282,7 +453,7 @@ export function ProductionStep3Page() {
           </DataTable>
 
           <div className="prod-xk-summary">
-            <span><strong>{exportLines.length || BTP_EXPORT_LINES.length}</strong> mặt hàng BTP</span>
+            <span><strong>{exportLines.length}</strong> mặt hàng BTP</span>
             <span className="prod-xk-summary__sep" />
             {hasShortage
               ? <span style={{ color: '#dc2626' }}><i className="pi pi-exclamation-circle" style={{ marginRight: 4 }} />Có vật tư thiếu số lượng</span>
@@ -326,15 +497,22 @@ export function ProductionStep3Page() {
           />
           <Button label="IN PHIẾU"   icon="pi pi-print"      className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
           <Button label="XUẤT EXCEL" icon="pi pi-file-excel" className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
-          <Button label="LƯU NHÁP"   icon="pi pi-save"       className="p-button-outlined"
-            style={{ fontSize: 12, fontWeight: 700, borderColor: '#5269e0', color: '#5269e0' }} />
+          <Button
+            label="LƯU NHÁP"
+            icon="pi pi-save"
+            loading={saving}
+            className="p-button-outlined"
+            style={{ fontSize: 12, fontWeight: 700, borderColor: '#5269e0', color: '#5269e0' }}
+            onClick={handleSaveDraft}
+          />
           <Button
             label="Tiếp theo: Nhập TP"
             icon="pi pi-arrow-right"
             iconPos="right"
+            loading={savingAndNext}
             className="p-button-primary"
             style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
-            onClick={() => navigate(`/production/${orderId}/buoc-4`)}
+            onClick={handleNextStep}
           />
         </div>
       </div>

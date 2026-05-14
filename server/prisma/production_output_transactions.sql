@@ -3,7 +3,7 @@ CREATE TABLE `production_output_transactions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `production_order_id` bigint unsigned NOT NULL,
   `output_product_id` bigint unsigned NOT NULL,
-  `type` enum('import','export','adjustment','production_output') NOT NULL,
+  `type` enum('import_from_production','export_to_sale','adjustment') NOT NULL,
   `quantity_base` decimal(15,4) NOT NULL,
   `warehouse_location_id` bigint unsigned,
   `batch_lot_no` varchar(100),

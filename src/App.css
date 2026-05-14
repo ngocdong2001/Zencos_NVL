@@ -10124,6 +10124,261 @@ input {
   color: #1d4ed8;
 }
 
+/* Step 4 - Figma style receipt UI */
+.prod-step4-info-note {
+  margin: 16px 24px 0;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.prod-step4-info-note > i {
+  color: #1e40af;
+  margin-top: 2px;
+}
+
+.prod-step4-meta-row {
+  margin: 6px 24px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #31383f;
+  font-size: 14px;
+}
+
+.prod-step4-meta-row__owner {
+  color: #1f68f9;
+  font-weight: 600;
+}
+
+.prod-step4-info-note__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.prod-step4-info-note__desc {
+  font-size: 13px;
+  color: #1e40af;
+  margin-top: 2px;
+}
+
+.prod-step4-receipt-card {
+  padding-top: 16px;
+}
+
+.prod-step4-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.prod-step4-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prod-step4-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #161a1d;
+}
+
+.prod-step4-field .p-inputtext,
+.prod-step4-field .p-inputnumber-input,
+.prod-step4-field .p-dropdown,
+.prod-step4-field .p-calendar,
+.prod-step4-field .p-inputtextarea {
+  width: 100%;
+}
+
+.prod-step4-field .p-inputnumber {
+  width: 100%;
+}
+
+.prod-step4-field .p-inputtext,
+.prod-step4-field .p-inputnumber-input,
+.prod-step4-field .p-dropdown,
+.prod-step4-field .p-calendar .p-inputtext {
+  min-height: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.prod-step4-field .p-inputtext,
+.prod-step4-field .p-inputnumber-input,
+.prod-step4-field .p-calendar .p-inputtext {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.prod-step4-field .p-dropdown {
+  display: flex;
+  align-items: center;
+}
+
+.prod-step4-field .p-dropdown .p-dropdown-label {
+  display: flex;
+  align-items: center;
+}
+
+.prod-step4-field .p-calendar {
+  display: flex;
+  align-items: stretch;
+}
+
+.prod-step4-field .p-calendar .p-datepicker-trigger {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+}
+
+.prod-step4-field .p-inputtext[readonly] {
+  background: #f3f5f6;
+  border-color: #dde0e4;
+}
+
+.prod-step4-field--wide {
+  grid-column: span 3;
+}
+
+.prod-step4-waste-card {
+  margin-top: 14px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.prod-step4-waste-card__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prod-step4-waste-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.prod-step4-waste-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prod-step4-waste-metrics > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+  color: #31383f;
+}
+
+.prod-step4-waste-metrics strong {
+  color: #161a1d;
+}
+
+.prod-step4-waste-highlight {
+  margin-top: 6px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.prod-step4-waste-highlight strong {
+  color: #dc2626;
+  font-size: 18px;
+}
+
+.prod-step4-waste-highlight em {
+  color: #ef4444;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.prod-step4-field--note label {
+  text-transform: uppercase;
+  font-size: 12px;
+  color: #31383f;
+}
+
+.prod-step4-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.prod-step4-qc-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prod-step4-qc-lines > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prod-step4-doc-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #31383f;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.prod-step4-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.prod-step4-pill--warning {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.prod-step4-pill--success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+@media (max-width: 1100px) {
+  .prod-step4-fields-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prod-step4-field--wide {
+    grid-column: span 1;
+  }
+
+  .prod-step4-waste-grid,
+  .prod-step4-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Body layout ───────────────────────────────────────────────── */
 .prod-body {
   display: grid;

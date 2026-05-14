@@ -313,7 +313,7 @@ router.patch('/:id/complete', requireAuth, requirePermission('production:write')
     .map(line => ({
       productionOrderId: existing.id,
       outputProductId: line.outputProductId!,
-      type: 'production_output' as const,
+      type: 'import_from_production' as const,
       quantityBase: line.actualQty!,
       warehouseLocationId: line.locationId,
       userId,
@@ -342,10 +342,7 @@ router.patch('/:id/complete', requireAuth, requirePermission('production:write')
     // Create output transactions individually
     for (const txData of transactionsToCreate) {
       await tx.productionOutputTransaction.create({
-        data: {
-          ...txData,
-          outputProduct: { connect: { id: txData.outputProductId } },
-        } as any,
+        data: txData,
       })
     }
 
