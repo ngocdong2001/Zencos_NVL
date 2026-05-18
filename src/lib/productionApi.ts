@@ -37,8 +37,19 @@ export type ProductionOrderListRow = {
   skuProduct: { id: string; code: string; name: string } | null
 }
 
+export type ProductionOrderListItem = ProductionOrderListRow & {
+  lines?: Array<{
+    step: number
+    plannedQty: number
+    actualQty: number
+    lotNo: string | null
+    expiryDate: string | null
+    unit: string
+  }>
+}
+
 export type ProductionOrderListResponse = {
-  data: ProductionOrderListRow[]
+  data: ProductionOrderListItem[]
   total: number
   page: number
   limit: number
@@ -65,7 +76,7 @@ export type ProductionOrderLine = {
   createdAt: string
   updatedAt: string
   location: { id: string; code: string; name: string } | null
-  product:  { id: string; code: string; name: string } | null
+  product:  { id: string; code: string; name: string; productClassification: { code: string; name: string } | null } | null
   outputProduct: { id: string; code: string; name: string; outputType: ProductOutputType; unit: string } | null
 }
 
@@ -83,6 +94,11 @@ export type ProductionOrderLog = {
 export type ProductionOrderDetail = ProductionOrderListRow & {
   lines: ProductionOrderLine[]
   logs:  ProductionOrderLog[]
+  nvlExportedAt: string | null
+  step1ProcessedAt: string | null
+  step2ProcessedAt: string | null
+  step3ProcessedAt: string | null
+  step4ProcessedAt: string | null
 }
 
 export type LinePayload = {
@@ -189,6 +205,12 @@ export async function completeProductionOrder(id: string): Promise<ProductionOrd
   })
 }
 
+export async function confirmNvlExport(id: string): Promise<ProductionOrderDetail> {
+  return http<ProductionOrderDetail>(`/api/production-orders/${id}/confirm-nvl-export`, {
+    method: 'POST',
+  })
+}
+
 // ─── Lines ────────────────────────────────────────────────────────────────────
 
 export async function fetchProductionOrderLines(
@@ -203,17 +225,19 @@ export async function upsertProductionOrderLines(
   id: string,
   step: number,
   lines: LinePayload[],
+  processedAt?: string | null,
 ): Promise<ProductionOrderLine[]> {
   return http<ProductionOrderLine[]>(`/api/production-orders/${id}/lines/${step}`, {
     method: 'PUT',
-    body: JSON.stringify({ lines }),
+    body: JSON.stringify({ lines, processedAt: processedAt ?? null }),
   })
 }
 
 // ─── Logs ─────────────────────────────────────────────────────────────────────
 
-export async function fetchProductionOrderLogs(id: string): Promise<ProductionOrderLog[]> {
-  return http<ProductionOrderLog[]>(`/api/production-orders/${id}/logs`)
+export async function fetchProductionOrderLogs(id: string, step?: number): Promise<ProductionOrderLog[]> {
+  const qs = step !== undefined ? `?step=${step}` : ''
+  return http<ProductionOrderLog[]>(`/api/production-orders/${id}/logs${qs}`)
 }
 
 // ─── Product Outputs catalog ──────────────────────────────────────────────────

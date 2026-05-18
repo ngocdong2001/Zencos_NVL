@@ -156,7 +156,7 @@ const PERMISSION_MATRIX = [
     { label: 'Sửa / Tạo mới', perm: 'inbound:write' },
     { label: 'Xóa',           perm: 'inbound:delete' },
   ]},
-  { module: 'Xuất kho (Outbound)',      actions: [
+  { module: 'Xuất kho NVL',              actions: [
     { label: 'Xem danh sách', perm: 'outbound:view' },
     { label: 'Xem chi tiết',  perm: 'outbound:detail' },
     { label: 'Sửa / Tạo mới', perm: 'outbound:write' },

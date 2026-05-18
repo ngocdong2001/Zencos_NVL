@@ -23,6 +23,7 @@ import inboundRouter from './routes/inbound.js'
 import dashboardRouter from './routes/dashboard.js'
 import warehouseInventoryRouter from './routes/warehouseInventory.js'
 import productionRouter from './routes/production.js'
+import tpSalesRouter from './routes/tpSales.js'
 
 // Normalize BigInt values in API responses to avoid JSON serialization failures.
 if (!(BigInt.prototype as any).toJSON) {
@@ -61,6 +62,7 @@ app.use('/api/inbound', inboundRouter)
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/warehouse', warehouseInventoryRouter)
 app.use('/api/production-orders', productionRouter)
+app.use('/api/tp-sales', tpSalesRouter)
 
 // Global error handler — prevents unhandled DB/Prisma errors from crashing the process
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

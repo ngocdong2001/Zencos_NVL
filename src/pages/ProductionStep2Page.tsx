@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AutoComplete } from 'primereact/autocomplete'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { InputNumber } from 'primereact/inputnumber'
@@ -12,12 +13,14 @@ import {
   fetchProductOutputs,
   upsertProductionOrderLines,
   updateProductionOrderStatus,
+  advanceProductionStep,
   type ProductOutput,
   type ProductionOrderDetail,
   type ProductionOrderLine,
   type ProductionOrderLog,
 } from '../lib/productionApi'
 import { showDangerConfirm } from '../lib/confirm'
+import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,7 +74,7 @@ function SourceCardItem({ card }: { card: SourceCard }) {
         </div>
         <p className="prod-source-card__name">{card.itemName}</p>
         <div className="prod-source-card__stat">
-          <span className="prod-source-card__stat-label">Sản lượng dự kiến</span>
+          <span className="prod-source-card__stat-label">SL Thực nhập</span>
           <span className="prod-source-card__stat-value">{fmtQty(card.availableQty)} {card.availableUnit}</span>
         </div>
       </div>
@@ -314,10 +317,15 @@ export function ProductionStep2Page() {
   const [semiFinishedOutputs, setSemiFinishedOutputs] = useState<ProductOutput[]>([])
   const [step1Nvl, setStep1Nvl] = useState<NvlOption[]>([])
   const [nvlSuggestions, setNvlSuggestions] = useState<Record<number, string[]>>({})
+  const [btpOutputMap, setBtpOutputMap] = useState<Record<string, { planned: number | null; actual: number | null; unit: string; lotNo: string | null }>>({})
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [processedAt, setProcessedAt] = useState<Date | null>(null)
+
+  // Flow diagram modal
+  const [showFlowModal, setShowFlowModal] = useState(false)
 
   useEffect(() => {
     if (!orderId) return
@@ -329,6 +337,14 @@ export function ProductionStep2Page() {
         const step2Lines = data.lines.filter(l => l.step === 2 && l.direction === 'in')
         setSourceCards(step1Lines.map(mapApiLineToSourceCard))
         setBomLines(step2Lines.map(mapApiLineToBom))
+        // Load BTP output quantities (direction='out' lines in step 2)
+        const step2OutLines = data.lines.filter(l => l.step === 2 && l.direction === 'out')
+        const btpMap: Record<string, { planned: number | null; actual: number | null; unit: string; lotNo: string | null }> = {}
+        for (const l of step2OutLines) {
+          const key = l.outputProductId ?? l.productCode
+          btpMap[key] = { planned: Number(l.plannedQty) || null, actual: Number(l.actualQty) || null, unit: l.unit, lotNo: l.lotNo ?? null }
+        }
+        setBtpOutputMap(btpMap)
         setStep1Nvl(step1Lines.map(l => ({
           code: l.productCode,
           name: l.productName,
@@ -337,6 +353,7 @@ export function ProductionStep2Page() {
           qty: Number(l.actualQty),
         })))
         setLogs(data.logs ?? [])
+        setProcessedAt(data.step2ProcessedAt ? new Date(data.step2ProcessedAt) : null)
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -354,6 +371,16 @@ export function ProductionStep2Page() {
         ? { ...l, outputProductId: item.id, btpCode: item.code, btpName: item.name }
         : l,
     ))
+    // Re-key btpOutputMap from old key to new key
+    const oldKey = oldBtpId ?? oldBtpCode
+    const newKey = item.id
+    setBtpOutputMap(prev => {
+      const existing = prev[oldKey]
+      if (!existing) return { ...prev, [newKey]: { planned: null, actual: null, unit: item.unit ?? '', lotNo: null } }
+      const next = { ...prev, [newKey]: { ...existing, unit: item.unit ?? '' } }
+      delete next[oldKey]
+      return next
+    })
   }
 
   function clearGroupBtp(oldBtpCode: string, oldBtpId: string | null) {
@@ -537,12 +564,22 @@ export function ProductionStep2Page() {
     )
   }
 
+  function updateBtpOutput(key: string, field: 'planned' | 'actual', value: number | null): void
+  function updateBtpOutput(key: string, field: 'lotNo', value: string | null): void
+  function updateBtpOutput(key: string, field: 'planned' | 'actual' | 'lotNo', value: number | string | null) {
+    setBtpOutputMap(prev => ({
+      ...prev,
+      [key]: { ...(prev[key] ?? { planned: null, actual: null, unit: '', lotNo: null }), [field]: value },
+    }))
+  }
+
   async function handleSave() {
     if (!orderId) return
     setSaving(true)
     setError(null)
     try {
-      await upsertProductionOrderLines(orderId, 2, bomLines.map(l => ({
+      // NVL input lines (direction='in')
+      const nvlLines = bomLines.map(l => ({
         outputProductId: l.outputProductId,
         productCode: l.inputCode,
         productName: l.inputName,
@@ -553,7 +590,26 @@ export function ProductionStep2Page() {
         unit:       l.unit,
         direction:  'in' as const,
         notes:      l.notes || null,
-      })))
+      }))
+      // BTP output lines (direction='out') — one per BTP group
+      const btpGroups = Array.from(
+        new Map(bomLines.filter(l => l.btpCode).map(l => [l.outputProductId ?? l.btpCode, l])).entries()
+      )
+      const btpOutLines = btpGroups
+        .filter(([, rep]) => rep.btpCode)
+        .map(([key, rep]) => ({
+          outputProductId: rep.outputProductId,
+          productCode: rep.btpCode,
+          productName: rep.btpName,
+          lotNo: btpOutputMap[key]?.lotNo ?? null,
+          plannedQty: btpOutputMap[key]?.planned ?? 0,
+          actualQty:  btpOutputMap[key]?.actual  ?? 0,
+          wasteQty:   Math.max(0, (btpOutputMap[key]?.planned ?? 0) - (btpOutputMap[key]?.actual ?? 0)),
+          unit:       btpOutputMap[key]?.unit ?? semiFinishedOutputs.find(p => p.id === rep.outputProductId || p.code === rep.btpCode)?.unit ?? '',
+          direction:  'out' as const,
+          notes:      null,
+        }))
+      await upsertProductionOrderLines(orderId, 2, [...nvlLines, ...btpOutLines], processedAt?.toISOString() ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lưu thất bại')
     } finally {
@@ -639,44 +695,96 @@ export function ProductionStep2Page() {
         .filter(Boolean)
     )
     const hasMissing = step1Nvl.some(o => !usedCodes.has(o.code) && !usedInOtherGroups.has(o.code))
+    const groupKey = row.outputProductId ?? row.btpCode
+    const btpOut = btpOutputMap[groupKey] ?? { planned: null, actual: null, unit: '' }
+    const btpUnit = btpOut.unit || (semiFinishedOutputs.find(p => p.id === row.outputProductId || p.code === row.btpCode)?.unit ?? '')
     return (
-      <div className="prod-bom-group-hdr">
-        <span className="prod-bom-group-hdr__badge">BTP</span>
-        <BomGroupBtpSelector
-          btpCode={row.btpCode}
-          btpName={row.btpName}
-          options={semiFinishedOutputs}
-          onConfirm={(item) => updateGroupBtp(row.btpCode, row.outputProductId, item)}
-          onClear={() => clearGroupBtp(row.btpCode, row.outputProductId)}
-        />
-        <div className="prod-bom-group-hdr__stats">
-          {totalPlanned > 0 && <span>KH: <b>{fmtQty(totalPlanned)}</b></span>}
-          {totalActual  > 0 && <span className="prod-bom-group-hdr__actual">TN: <b>{fmtQty(totalActual)}</b></span>}
-          {totalWaste  !== 0 && <span className={totalWaste > 0 ? 'prod-bom-waste--pos' : ''}>HH: <b>{fmtQty(totalWaste)}</b></span>}
-        </div>
-        {hasMissing && (
-          <Button
-            label="↓ Fill từ Bước 1"
-            icon="pi pi-download"
-            className="p-button-text p-button-sm"
-            style={{ color: '#0284c7', fontSize: 12 }}
-            tooltip="Tự động thêm các NVL từ bước 1 chưa có trong nhóm này"
-            tooltipOptions={{ position: 'top' }}
-            onClick={() => autoFillGroupFromStep1(row.btpCode, row.outputProductId)}
+      <div className="prod-bom-group-hdr" style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 0 }}>
+        {/* Info area: covers STT(48)+MãNVL(210)+TênNVL(350) columns minus group-header TD left-padding(10) = 598px */}
+        <div style={{ width: 598, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+          <span className="prod-bom-group-hdr__badge">BTP</span>
+          <BomGroupBtpSelector
+            btpCode={row.btpCode}
+            btpName={row.btpName}
+            options={semiFinishedOutputs}
+            onConfirm={(item) => updateGroupBtp(row.btpCode, row.outputProductId, item)}
+            onClear={() => clearGroupBtp(row.btpCode, row.outputProductId)}
           />
-        )}
-        <Button
-          label="+ Thêm NVL"
-          className="p-button-text p-button-sm prod-bom-group-hdr__add-nvl"
-          onClick={() => addLineToGroup(row.btpCode, row.btpName, row.outputProductId)}
-        />
-        <Button
-          icon="pi pi-trash"
-          className="p-button-text p-button-sm p-button-danger prod-bom-group-hdr__del"
-          tooltip="Xóa nhóm BTP"
-          tooltipOptions={{ position: 'top' }}
-          onClick={() => deleteGroup(row.btpCode, row.outputProductId)}
-        />
+          <div className="prod-bom-group-hdr__stats" style={{ flex: 1, minWidth: 0 }}>
+            {totalWaste  !== 0 && <span className={totalWaste > 0 ? 'prod-bom-waste--pos' : ''}>HH NVL: <b>{fmtQty(totalWaste)}</b></span>}
+          </div>
+        </div>
+        {/* Lô BTP — 130px, paddingLeft/Right 8px mirrors actual data-cell padding → input at cell content area */}
+        <div
+          style={{ width: 130, flexShrink: 0, paddingLeft: 8, paddingRight: 8 }}
+          onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
+        >
+          <InputText
+            value={btpOut.lotNo ?? ''}
+            onChange={(e) => updateBtpOutput(groupKey, 'lotNo', e.target.value || null)}
+            disabled={isLocked}
+            placeholder="Lô BTP..."
+            style={{ width: '100%', fontSize: 12, padding: '4px 6px', height: 30 }}
+          />
+        </div>
+        {/* SL KH — 130px, paddingRight 8 → mirrors actual data-cell right padding, right-aligned */}
+        <div
+          style={{ width: 130, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 8 }}
+          onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
+        >
+          <InputNumber
+            value={btpOut.planned}
+            onValueChange={(e) => updateBtpOutput(groupKey, 'planned', e.value ?? null)}
+            locale="vi-VN"
+            maxFractionDigits={3}
+            disabled={isLocked}
+            placeholder="KH..."
+            suffix={btpUnit ? ` ${btpUnit}` : undefined}
+            inputStyle={{ width: 114, fontSize: 12 }}
+          />
+        </div>
+        {/* SL TN — 130px, paddingRight 8 → mirrors actual data-cell right padding, right-aligned */}
+        <div
+          style={{ width: 130, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 8 }}
+          onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
+        >
+          <InputNumber
+            value={btpOut.actual}
+            onValueChange={(e) => updateBtpOutput(groupKey, 'actual', e.value ?? null)}
+            locale="vi-VN"
+            maxFractionDigits={3}
+            disabled={isLocked}
+            placeholder="Thực nhập..."
+            suffix={btpUnit ? ` ${btpUnit}` : undefined}
+            inputStyle={{ width: 114, fontSize: 12 }}
+          />
+        </div>
+        {/* Right: action buttons spanning remaining columns */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+          {hasMissing && (
+            <Button
+              label="↓ Fill từ Bước 1"
+              icon="pi pi-download"
+              className="p-button-text p-button-sm"
+              style={{ color: '#0284c7', fontSize: 12 }}
+              tooltip="Tự động thêm các NVL từ bước 1 chưa có trong nhóm này"
+              tooltipOptions={{ position: 'top' }}
+              onClick={() => autoFillGroupFromStep1(row.btpCode, row.outputProductId)}
+            />
+          )}
+          <Button
+            label="+ Thêm NVL"
+            className="p-button-text p-button-sm prod-bom-group-hdr__add-nvl"
+            onClick={() => addLineToGroup(row.btpCode, row.btpName, row.outputProductId)}
+          />
+          <Button
+            icon="pi pi-trash"
+            className="p-button-text p-button-sm p-button-danger prod-bom-group-hdr__del"
+            tooltip="Xóa nhóm BTP"
+            tooltipOptions={{ position: 'top' }}
+            onClick={() => deleteGroup(row.btpCode, row.outputProductId)}
+          />
+        </div>
       </div>
     )
   }
@@ -688,6 +796,8 @@ export function ProductionStep2Page() {
       </div>
     )
   }
+
+  const isLocked = order?.status === 'completed' || order?.status === 'cancelled'
 
   return (
     <div className="prod-page">
@@ -720,23 +830,40 @@ export function ProductionStep2Page() {
         </div>
       )}
 
+      {isLocked && (
+        <div style={{ margin: '8px 24px 0', padding: '10px 16px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#475569' }}>
+          <i className="pi pi-lock" style={{ color: '#64748b' }} />
+          <span>Phiếu đã <strong>{order?.status === 'completed' ? 'hoàn tất' : 'bị hủy'}</strong> — chỉ xem, không thể chỉnh sửa.</span>
+        </div>
+      )}
+
       <div className="prod-body" style={{ gridTemplateColumns: '1fr' }}>
         <div className="prod-main">
+
+          {/* Ngày xử lý */}
+          <div className="prod-card" style={{ padding: '14px 20px' }}>
+            <div className="prod-form-field" style={{ maxWidth: 260 }}>
+              <label>NGÀY XỬ LÝ (BƯỚC 2)</label>
+              <Calendar
+                value={processedAt}
+                onChange={(e) => setProcessedAt(e.value as Date | null)}
+                dateFormat="dd/mm/yy"
+                placeholder="Chọn ngày xử lý"
+                showIcon
+                disabled={isLocked}
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
 
           {/* Nguồn cấp & Đích đến */}
           <div className="prod-card">
             <div className="prod-card__title-row">
               <div className="prod-card__title-left">
                 <i className="pi pi-box" style={{ color: '#64748b' }} />
-                <span className="prod-card__title">Nguồn cấp &amp; Đích đến</span>
+                <span className="prod-card__title">Sơ đồ luồng vật tư</span>
               </div>
-              <Button
-                label="Sơ đồ luồng vật tư"
-                icon="pi pi-chevron-right"
-                iconPos="right"
-                className="p-button-text p-button-sm"
-                style={{ color: '#1d4ed8', fontSize: 13, padding: '4px 8px' }}
-              />
+              
             </div>
 
 {/* Per-BTP source rows */}
@@ -765,8 +892,9 @@ export function ProductionStep2Page() {
                   const groupLines = bomLines.filter(l =>
                     l.btpCode === btpRep.btpCode && l.outputProductId === btpRep.outputProductId
                   )
-                  const groupActual = groupLines.reduce((s, l) => s + (l.actualQty ?? 0), 0)
-                  const groupUnit = groupLines.find(l => l.unit)?.unit ?? ''
+                  const btpKey = btpRep.outputProductId ?? btpRep.btpCode
+                  const btpActual = btpOutputMap[btpKey]?.actual ?? null
+                  const groupUnit = (btpOutputMap[btpKey]?.unit || groupLines.find(l => l.unit)?.unit) ?? ''
                   const nvlCards = groupLines.filter(l => l.inputCode || l.inputName)
                   return (
                     <div key={btpRep.outputProductId ?? btpRep.btpCode} className="prod-sources-btp__row">
@@ -799,7 +927,7 @@ export function ProductionStep2Page() {
                           code: btpRep.btpCode || '—',
                           warehouseName: btpRep.locationName || 'Kho BTP',
                           itemName: btpRep.btpName || '(Chưa chọn BTP)',
-                          availableQty: groupActual,
+                          availableQty: btpActual ?? 0,
                           availableUnit: groupUnit,
                           exportQty: null,
                           isEditable: false,
@@ -875,6 +1003,7 @@ export function ProductionStep2Page() {
                         onValueChange={(e) => handleFieldChange(row.id, 'plannedQty', e.value ?? null)}
                         locale="vi-VN"
                         maxFractionDigits={3}
+                        disabled={isLocked}
                         inputClassName="prod-bom-input prod-bom-input--num"
                       />
                     )}
@@ -889,6 +1018,7 @@ export function ProductionStep2Page() {
                         onValueChange={(e) => handleFieldChange(row.id, 'actualQty', e.value ?? null)}
                         locale="vi-VN"
                         maxFractionDigits={3}
+                        disabled={isLocked}
                         inputClassName="prod-bom-input prod-bom-input--num"
                       />
                     )}
@@ -978,18 +1108,23 @@ export function ProductionStep2Page() {
       {/* Footer */}
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
-          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
+          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} disabled={isLocked} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
         </div>
         <div className="prod-footer-bar__right">
+          <Button
+            label="Xem lưu đồ NVL"
+            icon="pi pi-sitemap"
+            className="p-button-outlined p-button-secondary"
+            style={{ fontSize: 12, fontWeight: 700 }}
+            onClick={() => setShowFlowModal(true)}
+          />
           <Button
             label="← Bước 1: Xuất NVL"
             className="p-button-outlined p-button-secondary"
             style={{ fontSize: 12, fontWeight: 700 }}
             onClick={() => navigate(`/production/${orderId}/buoc-1`)}
           />
-          <Button label="IN PHIẾU"   icon="pi pi-print"      className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
-          <Button label="XUẤT EXCEL" icon="pi pi-file-excel" className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
-          <Button label="LƯU NHÁP"   icon="pi pi-save"  loading={saving}    className="p-button-outlined"
+          <Button label="LƯU NHÁP"   icon="pi pi-save"  loading={saving}    disabled={isLocked} className="p-button-outlined"
             style={{ fontSize: 12, fontWeight: 700, borderColor: '#5269e0', color: '#5269e0' }}
             onClick={handleSave}
           />
@@ -997,12 +1132,25 @@ export function ProductionStep2Page() {
             label="Tiếp theo: Xuất BTP"
             icon="pi pi-arrow-right"
             iconPos="right"
+            disabled={isLocked}
             className="p-button-primary"
             style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
-            onClick={() => navigate(`/production/${orderId}/buoc-3`)}
+            onClick={async () => {
+              if (orderId && order && order.currentStep < 3) {
+                try { await advanceProductionStep(orderId) } catch { /* ignore */ }
+              }
+              navigate(`/production/${orderId}/buoc-3`)
+            }}
           />
         </div>
       </div>
+
+      {/* Flow diagram modal */}
+      <ProductionFlowModal
+        visible={showFlowModal}
+        orderId={orderId}
+        onHide={() => setShowFlowModal(false)}
+      />
     </div>
   )
 }

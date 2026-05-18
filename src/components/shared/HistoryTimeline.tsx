@@ -43,7 +43,11 @@ function mapHistoryStyle(actionType: string) {
   if (actionType === 'adjustment_created') return { tone: 'tone-ordered', icon: 'pi pi-history', badge: 'Tạo điều chỉnh' }
   if (actionType === 'adjusted') return { tone: 'tone-approved', icon: 'pi pi-sync', badge: 'Đã void điều chỉnh' }
   if (actionType === 'adjustment_restored') return { tone: 'tone-approved', icon: 'pi pi-history', badge: 'Đã phục hồi' }
-  return { tone: 'tone-cancelled', icon: 'pi pi-times-circle', badge: 'Đã hủy' }
+  // Production-specific log types
+  if (actionType === 'system') return { tone: 'tone-created',  icon: 'pi pi-file-edit',     badge: 'Tạo mới'  }
+  if (actionType === 'process') return { tone: 'tone-approved', icon: 'pi pi-check-circle',  badge: 'Xử lý'   }
+  if (actionType === 'update')  return { tone: 'tone-updated',  icon: 'pi pi-pencil',         badge: 'Cập nhật' }
+  return { tone: 'tone-updated', icon: 'pi pi-info-circle', badge: 'Thao tác' }
 }
 
 function historyMarkerTemplate(event: HistoryTimelineEvent) {

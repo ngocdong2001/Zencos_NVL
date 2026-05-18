@@ -5,6 +5,7 @@ import type { ProductionOrderDetail } from './productionApi'
 interface StockCardSummaryRow {
   locationName: string
   btpCode: string
+  btpName: string
   actualQty: number
   unit: string
 }
@@ -22,12 +23,13 @@ interface ExportOptions {
   step3Summaries: StockCardSummaryRow[]
 }
 
-interface MovementRow {
+interface PerMaterialRow {
   date: Date
-  importBtp: number
-  importTp: number
-  exportBtp: number
-  exportTp: number
+  code: string
+  name: string
+  importQty: number
+  exportQty: number
+  unit: string
   note: string
   remark: string
 }
@@ -43,36 +45,45 @@ function formatQtyVn(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(value)
 }
 
-function buildMovements(order: ProductionOrderDetail, options: ExportOptions): MovementRow[] {
-  const createdAt = new Date(order.createdAt)
-  const movements: MovementRow[] = []
+function buildRows(order: ProductionOrderDetail, options: ExportOptions): PerMaterialRow[] {
+  const rows: PerMaterialRow[] = []
+  const step3Date = order.step3ProcessedAt ? new Date(order.step3ProcessedAt) : new Date(order.createdAt)
+  const step4Date = order.step4ProcessedAt ? new Date(order.step4ProcessedAt) : new Date()
 
   for (const row of options.step3Summaries) {
-    movements.push({
-      date: createdAt,
-      importBtp: 0,
-      importTp: 0,
-      exportBtp: row.actualQty,
-      exportTp: 0,
-      note: `XK BTP ${row.btpCode} cho công đoạn đóng gói`,
-      remark: row.locationName,
+    rows.push({
+      date: step3Date,
+      code: row.btpCode,
+      name: row.btpName || row.btpCode,
+      importQty: 0,
+      exportQty: row.actualQty,
+      unit: row.unit,
+      note: `Xuất BTP cho công đoạn đóng gói (${row.locationName})`,
+      remark: '',
     })
   }
 
-  movements.push({
-    date: new Date(),
-    importBtp: 0,
-    importTp: options.receiptLine.quantity,
-    exportBtp: 0,
-    exportTp: 0,
-    note: `NK TP hoàn tất lệnh ${order.orderRef}`,
+  rows.push({
+    date: step4Date,
+    code: options.receiptLine.tpCode,
+    name: options.receiptLine.tpName || options.receiptLine.tpCode,
+    importQty: options.receiptLine.quantity,
+    exportQty: 0,
+    unit: options.receiptLine.unit,
+    note: `Nhập TP hoàn tất lệnh ${order.orderRef ?? order.id}`,
     remark: options.receiptLine.notes || '',
   })
 
-  return movements
+  return rows
 }
 
-function applyBorders(worksheet: ExcelJS.Worksheet, fromRow: number, toRow: number, fromCol: number, toCol: number) {
+function applyBorders(
+  worksheet: ExcelJS.Worksheet,
+  fromRow: number,
+  toRow: number,
+  fromCol: number,
+  toCol: number,
+) {
   for (let r = fromRow; r <= toRow; r += 1) {
     for (let c = fromCol; c <= toCol; c += 1) {
       const cell = worksheet.getCell(r, c)
@@ -91,31 +102,34 @@ function setCenter(cell: ExcelJS.Cell, bold = false) {
   cell.font = { name: 'Times New Roman', size: 12, bold }
 }
 
+// Column layout (A-J, 10 columns):
+// A: STT | B: Ngày | C: Mã vật tư | D: Tên vật tư | E: Nhập | F: Xuất | G: Tồn | H: ĐVT | I: Diễn giải | J: Ghi chú
+
 export async function exportFinishedGoodsStockCard(options: ExportOptions): Promise<void> {
   const { order, receiptLine } = options
   const workbook = new ExcelJS.Workbook()
   const worksheet = workbook.addWorksheet('The kho thanh pham')
 
   worksheet.columns = [
-    { width: 8 },
-    { width: 14 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 28 },
-    { width: 10 },
-    { width: 14 },
+    { width: 6 },  // A: STT
+    { width: 14 }, // B: Ngày
+    { width: 14 }, // C: Mã vật tư
+    { width: 34 }, // D: Tên vật tư
+    { width: 12 }, // E: Nhập
+    { width: 12 }, // F: Xuất
+    { width: 12 }, // G: Tồn
+    { width: 8 },  // H: ĐVT
+    { width: 32 }, // I: Diễn giải
+    { width: 14 }, // J: Ghi chú
   ]
 
-  worksheet.mergeCells('A1:K1')
+  // ── Title block ──────────────────────────────────────────────────────────────
+  worksheet.mergeCells('A1:J1')
   worksheet.getCell('A1').value = 'THẺ KHO - THÀNH PHẨM'
   worksheet.getCell('A1').font = { name: 'Times New Roman', size: 18, bold: true }
   worksheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }
 
-  worksheet.mergeCells('A2:K2')
+  worksheet.mergeCells('A2:J2')
   worksheet.getCell('A2').value = '( CÔNG TY TNHH OHELAH COSMETICS )'
   worksheet.getCell('A2').font = { name: 'Times New Roman', size: 14, bold: true }
   worksheet.getCell('A2').alignment = { horizontal: 'center', vertical: 'middle' }
@@ -125,118 +139,124 @@ export async function exportFinishedGoodsStockCard(options: ExportOptions): Prom
   worksheet.getCell('G4').value = 'Tờ số :'
   worksheet.getCell('I4').value = order.orderRef ?? '---'
 
+  // ── Order info ────────────────────────────────────────────────────────────────
   worksheet.getCell('A6').value = 'Tên sản phẩm :'
   worksheet.mergeCells('C6:G6')
-  worksheet.getCell('C6').value = `${receiptLine.tpName || '---'} ${receiptLine.tpCode ? `(${receiptLine.tpCode})` : ''}`
-  worksheet.getCell('A7').value = 'Ngày đặt hàng :'
+  worksheet.getCell('C6').value =
+    `${receiptLine.tpName || '---'} ${receiptLine.tpCode ? `(${receiptLine.tpCode})` : ''}`
+  worksheet.getCell('A7').value = 'Ngày lập lệnh :'
   worksheet.getCell('C7').value = formatDateVn(order.createdAt)
   worksheet.getCell('A8').value = 'Số lượng đặt hàng :'
   worksheet.getCell('C8').value = formatQtyVn(receiptLine.plannedQty)
   worksheet.getCell('A9').value = 'Đơn vị tính :'
   worksheet.getCell('C9').value = receiptLine.unit || '---'
 
-  worksheet.mergeCells('A11:A13')
-  worksheet.getCell('A11').value = 'STT'
-  worksheet.mergeCells('B11:B13')
-  worksheet.getCell('B11').value = 'Ngày, tháng'
-
-  worksheet.mergeCells('C11:D11')
-  worksheet.getCell('C11').value = 'Nhập'
-  worksheet.mergeCells('E11:F11')
-  worksheet.getCell('E11').value = 'Xuất'
-  worksheet.mergeCells('G11:H11')
-  worksheet.getCell('G11').value = 'Tồn'
-
-  worksheet.getCell('C12').value = 'BTP'
-  worksheet.getCell('D12').value = 'TP'
-  worksheet.getCell('E12').value = 'BTP'
-  worksheet.getCell('F12').value = 'TP'
-  worksheet.getCell('G12').value = 'BTP'
-  worksheet.getCell('H12').value = 'TP'
-
-  worksheet.mergeCells('I11:I13')
-  worksheet.getCell('I11').value = 'Diễn giải'
-  worksheet.mergeCells('J11:J13')
-  worksheet.getCell('J11').value = 'Ký nhận'
-  worksheet.mergeCells('K11:K13')
-  worksheet.getCell('K11').value = 'Ghi chú'
-
-  for (let col = 1; col <= 11; col += 1) {
-    setCenter(worksheet.getCell(11, col), true)
-    setCenter(worksheet.getCell(12, col), true)
-    setCenter(worksheet.getCell(13, col), true)
+  for (const r of [6, 7, 8, 9]) {
+    worksheet.getCell(`A${r}`).font = { name: 'Times New Roman', size: 12 }
+    worksheet.getCell(`C${r}`).font = { name: 'Times New Roman', size: 12 }
   }
 
-  let rowIdx = 14
-  let runningBtp = 0
-  let runningTp = 0
-  const movements = buildMovements(order, options)
+  // ── Table header (rows 11-12) ─────────────────────────────────────────────────
+  worksheet.mergeCells('A11:A12')
+  worksheet.getCell('A11').value = 'STT'
+  worksheet.mergeCells('B11:B12')
+  worksheet.getCell('B11').value = 'Ngày, tháng'
+  worksheet.mergeCells('C11:C12')
+  worksheet.getCell('C11').value = 'Mã vật tư'
+  worksheet.mergeCells('D11:D12')
+  worksheet.getCell('D11').value = 'Tên vật tư'
+  worksheet.mergeCells('E11:E12')
+  worksheet.getCell('E11').value = 'Nhập'
+  worksheet.mergeCells('F11:F12')
+  worksheet.getCell('F11').value = 'Xuất'
+  worksheet.mergeCells('G11:G12')
+  worksheet.getCell('G11').value = 'Tồn'
+  worksheet.mergeCells('H11:H12')
+  worksheet.getCell('H11').value = 'ĐVT'
+  worksheet.mergeCells('I11:I12')
+  worksheet.getCell('I11').value = 'Diễn giải'
+  worksheet.mergeCells('J11:J12')
+  worksheet.getCell('J11').value = 'Ghi chú'
 
+  for (let col = 1; col <= 10; col += 1) {
+    setCenter(worksheet.getCell(11, col), true)
+    setCenter(worksheet.getCell(12, col), true)
+  }
+  worksheet.getRow(11).height = 24
+
+  // ── Data rows ─────────────────────────────────────────────────────────────────
+  let rowIdx = 13
+
+  // Opening balance row
   worksheet.getCell(`B${rowIdx}`).value = '* TỒN KHO ĐẦU KỲ :'
-  worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(runningBtp)
-  worksheet.getCell(`H${rowIdx}`).value = formatQtyVn(runningTp)
-  worksheet.getCell(`B${rowIdx}`).font = { name: 'Times New Roman', bold: true, italic: true }
+  worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(0)
+  worksheet.getCell(`B${rowIdx}`).font = { name: 'Times New Roman', bold: true, italic: true, size: 12 }
+  worksheet.getCell(`G${rowIdx}`).font = { name: 'Times New Roman', size: 12 }
+  worksheet.getCell(`G${rowIdx}`).alignment = { horizontal: 'center' }
   rowIdx += 1
 
+  const rows = buildRows(order, options)
+  const balanceByCode = new Map<string, number>()
   let stt = 1
-  let totalImportBtp = 0
-  let totalImportTp = 0
-  let totalExportBtp = 0
-  let totalExportTp = 0
+  const totalNhap: Record<string, number> = {}
+  const totalXuat: Record<string, number> = {}
 
-  for (const m of movements) {
-    runningBtp += m.importBtp - m.exportBtp
-    runningTp += m.importTp - m.exportTp
+  for (const m of rows) {
+    const prev = balanceByCode.get(m.code) ?? 0
+    const balance = prev + m.importQty - m.exportQty
+    balanceByCode.set(m.code, balance)
 
-    totalImportBtp += m.importBtp
-    totalImportTp += m.importTp
-    totalExportBtp += m.exportBtp
-    totalExportTp += m.exportTp
+    totalNhap[m.code] = (totalNhap[m.code] ?? 0) + m.importQty
+    totalXuat[m.code] = (totalXuat[m.code] ?? 0) + m.exportQty
 
     worksheet.getCell(`A${rowIdx}`).value = stt
     worksheet.getCell(`B${rowIdx}`).value = formatDateVn(m.date)
-    worksheet.getCell(`C${rowIdx}`).value = m.importBtp ? formatQtyVn(m.importBtp) : '-'
-    worksheet.getCell(`D${rowIdx}`).value = m.importTp ? formatQtyVn(m.importTp) : '-'
-    worksheet.getCell(`E${rowIdx}`).value = m.exportBtp ? formatQtyVn(m.exportBtp) : '-'
-    worksheet.getCell(`F${rowIdx}`).value = m.exportTp ? formatQtyVn(m.exportTp) : '-'
-    worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(runningBtp)
-    worksheet.getCell(`H${rowIdx}`).value = formatQtyVn(runningTp)
+    worksheet.getCell(`C${rowIdx}`).value = m.code
+    worksheet.getCell(`D${rowIdx}`).value = m.name
+    worksheet.getCell(`E${rowIdx}`).value = m.importQty > 0 ? formatQtyVn(m.importQty) : '-'
+    worksheet.getCell(`F${rowIdx}`).value = m.exportQty > 0 ? formatQtyVn(m.exportQty) : '-'
+    worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(balance)
+    worksheet.getCell(`H${rowIdx}`).value = m.unit
     worksheet.getCell(`I${rowIdx}`).value = m.note
-    worksheet.getCell(`J${rowIdx}`).value = ''
-    worksheet.getCell(`K${rowIdx}`).value = m.remark
+    worksheet.getCell(`J${rowIdx}`).value = m.remark
 
     for (let col = 1; col <= 8; col += 1) {
       worksheet.getCell(rowIdx, col).alignment = { vertical: 'middle', horizontal: 'center' }
       worksheet.getCell(rowIdx, col).font = { name: 'Times New Roman', size: 12 }
     }
-
+    worksheet.getCell(`D${rowIdx}`).alignment = { vertical: 'middle', horizontal: 'left' }
     worksheet.getCell(`I${rowIdx}`).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
-    worksheet.getCell(`K${rowIdx}`).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
+    worksheet.getCell(`J${rowIdx}`).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
     worksheet.getCell(`I${rowIdx}`).font = { name: 'Times New Roman', size: 12 }
-    worksheet.getCell(`K${rowIdx}`).font = { name: 'Times New Roman', size: 12 }
+    worksheet.getCell(`J${rowIdx}`).font = { name: 'Times New Roman', size: 12 }
 
     stt += 1
     rowIdx += 1
   }
 
-  worksheet.getCell(`A${rowIdx}`).value = 'TỔNG CỘNG'
-  worksheet.mergeCells(`A${rowIdx}:B${rowIdx}`)
-  worksheet.getCell(`C${rowIdx}`).value = formatQtyVn(totalImportBtp)
-  worksheet.getCell(`D${rowIdx}`).value = formatQtyVn(totalImportTp)
-  worksheet.getCell(`E${rowIdx}`).value = formatQtyVn(totalExportBtp)
-  worksheet.getCell(`F${rowIdx}`).value = formatQtyVn(totalExportTp)
-  worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(runningBtp)
-  worksheet.getCell(`H${rowIdx}`).value = formatQtyVn(runningTp)
+  // ── Totals row ────────────────────────────────────────────────────────────────
+  const grandNhap = Object.values(totalNhap).reduce((s, v) => s + v, 0)
+  const grandXuat = Object.values(totalXuat).reduce((s, v) => s + v, 0)
+  const grandTon = grandNhap - grandXuat
 
-  for (let col = 1; col <= 11; col += 1) {
+  worksheet.mergeCells(`A${rowIdx}:C${rowIdx}`)
+  worksheet.getCell(`A${rowIdx}`).value = 'TỔNG CỘNG'
+  worksheet.getCell(`E${rowIdx}`).value = formatQtyVn(grandNhap)
+  worksheet.getCell(`F${rowIdx}`).value = formatQtyVn(grandXuat)
+  worksheet.getCell(`G${rowIdx}`).value = formatQtyVn(grandTon)
+
+  for (let col = 1; col <= 10; col += 1) {
     const cell = worksheet.getCell(rowIdx, col)
     cell.font = { name: 'Times New Roman', size: 12, bold: true }
     cell.alignment = { vertical: 'middle', horizontal: col <= 8 ? 'center' : 'left' }
   }
 
-  applyBorders(worksheet, 11, rowIdx, 1, 11)
+  applyBorders(worksheet, 11, rowIdx, 1, 10)
 
   const fileSafeRef = (order.orderRef ?? `PO_${order.id}`).replace(/[^A-Za-z0-9_-]/g, '_')
   const buffer = await workbook.xlsx.writeBuffer()
-  saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `The_kho_thanh_pham_${fileSafeRef}.xlsx`)
+  saveAs(
+    new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    `The_kho_thanh_pham_${fileSafeRef}.xlsx`,
+  )
 }

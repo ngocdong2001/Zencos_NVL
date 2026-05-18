@@ -41,7 +41,7 @@ const linesInclude = {
     orderBy: { id: 'asc' as const },
     include: {
       location:      { select: { id: true, code: true, name: true } },
-      product:       { select: { id: true, code: true, name: true } },
+      product:       { select: { id: true, code: true, name: true, productClassification: { select: { code: true, name: true } } } },
       outputProduct: { select: { id: true, code: true, name: true, outputType: true, unit: true } },
     },
   },
@@ -101,6 +101,19 @@ router.get('/', requireAuth, requirePermission('production:view'), async (req: A
         creator:       { select: { id: true, fullName: true } },
         skuProduct:    { select: { id: true, code: true, name: true } },
         outputProduct: { select: { id: true, code: true, name: true, outputType: true, unit: true } },
+        lines: {
+          where: { step: 4, direction: 'in', outputProductId: { not: null } },
+          select: {
+            step: true,
+            plannedQty: true,
+            actualQty: true,
+            lotNo: true,
+            expiryDate: true,
+            unit: true,
+          },
+          orderBy: { step: 'asc' as const },
+          take: 1,
+        },
       },
     }),
     prisma.productionOrder.count({ where }),
@@ -161,6 +174,7 @@ router.post('/', requireAuth, requirePermission('production:write'), async (req:
           userName: req.auth!.email,
           action:   `Khởi tạo phiếu sản xuất ${orderRef}`,
           logType:  'system',
+          step:     1,
         },
       },
     },
@@ -202,6 +216,119 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
   return res.json(serializeBigInt(order))
 })
 
+// ─── CONFIRM NVL EXPORT (Step 1) ──────────────────────────────────────────────
+// POST /api/production-orders/:id/confirm-nvl-export
+// Creates inventory deduct transactions for all step-1 NVL out lines.
+// Idempotent guard: if nvlExportedAt is already set, returns 409.
+
+router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
+  const orderId = BigInt(req.params.id)
+  const userId  = BigInt(req.auth!.sub)
+
+  const existing = await prisma.productionOrder.findUnique({
+    where:  { id: orderId },
+    select: { id: true, status: true, nvlExportedAt: true, orderRef: true },
+  })
+  if (!existing) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
+  if (existing.status === 'cancelled') return res.status(400).json({ message: 'Phiếu đã hủy.' })
+
+  // Find batches already transacted for this order (active, not cancelled) — for deduplication
+  const existingTxns = await prisma.inventoryTransaction.findMany({
+    where: { productionOrderId: orderId, isCancelled: false, type: 'export' },
+    select: { batchId: true },
+  })
+  const alreadyTransactedBatchIds = new Set(existingTxns.map(t => t.batchId))
+
+  // Fetch step-1 out lines
+  const step1Lines = await prisma.productionOrderLine.findMany({
+    where: { orderId, step: 1, direction: 'out' },
+    include: { product: { select: { id: true, code: true } } },
+  })
+  if (step1Lines.length === 0)
+    return res.status(400).json({ message: 'Chưa có dữ liệu NVL xuất kho. Vui lòng lưu bước 1 trước.' })
+
+  // Build list of (batch, qty) to process
+  type BatchDeduct = { batchId: bigint; qty: number; lineNotes: string }
+  const deducts: BatchDeduct[] = []
+
+  for (const line of step1Lines) {
+    if (!line.productId || !line.lotNo) continue
+    const qty = typeof line.actualQty === 'object'
+      ? (line.actualQty as unknown as { toNumber(): number }).toNumber()
+      : Number(line.actualQty)
+    if (qty <= 0) continue
+
+    const batch = await prisma.batch.findFirst({
+      where: { productId: line.productId, lotNo: line.lotNo, deletedAt: null },
+      select: { id: true },
+    })
+    if (!batch) {
+      return res.status(422).json({
+        message: `Không tìm thấy lô hàng "${line.lotNo}" cho sản phẩm "${line.productCode}". Kiểm tra lại dữ liệu lô.`,
+      })
+    }
+    // Skip batches already transacted for this order (deduplication)
+    if (alreadyTransactedBatchIds.has(batch.id)) continue
+    deducts.push({
+      batchId: batch.id,
+      qty,
+      lineNotes: `Xuất NVL cho lệnh ${existing.orderRef ?? orderId.toString()}`,
+    })
+  }
+
+  if (deducts.length === 0)
+    return res.status(200).json(serializeBigInt(await prisma.productionOrder.findUnique({ where: { id: orderId }, include: orderInclude })))
+
+  // Execute in a single transaction
+  await prisma.$transaction(async (tx) => {
+    const now = new Date()
+
+    for (const d of deducts) {
+      // Deduct batch qty
+      await tx.batch.update({
+        where: { id: d.batchId },
+        data: { currentQtyBase: { decrement: d.qty } },
+      })
+      // Create inventory transaction
+      await tx.inventoryTransaction.create({
+        data: {
+          batchId:          d.batchId,
+          userId,
+          productionOrderId: orderId,
+          type:             'export',
+          quantityBase:     d.qty,
+          isCancelled:      false,
+          notes:            d.lineNotes,
+          transactionDate:  now,
+        },
+      })
+    }
+
+    // Mark NVL as exported (only set timestamp on first export) and log
+    await tx.productionOrder.update({
+      where: { id: orderId },
+      data:  {
+        nvlExportedAt: existing.nvlExportedAt ?? now,
+        logs: {
+          create: {
+            userId,
+            userName: req.auth!.email,
+            action:   `Xác nhận xuất kho NVL – ${deducts.length} lô hàng đã trừ kho`,
+            logType:  'process',
+            step:     1,
+          },
+        },
+      },
+    })
+  })
+
+  const updated = await prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: orderInclude,
+  })
+  return res.json(serializeBigInt(updated))
+})
+
 // ─── UPDATE STATUS ────────────────────────────────────────────────────────────
 
 const patchStatusSchema = z.object({
@@ -216,6 +343,79 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
   const statusLabel: Record<string, string> = {
     draft: 'Bản nháp', in_progress: 'Đang sản xuất', completed: 'Hoàn thành', cancelled: 'Đã hủy',
   }
+
+  const existingOrder = await prisma.productionOrder.findUnique({
+    where: { id: BigInt(req.params.id) },
+    select: { id: true, status: true, nvlExportedAt: true, orderRef: true },
+  })
+  if (!existingOrder) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
+
+  // When cancelling an order that already had NVL exported → create reversal transactions
+  if (parsed.data.status === 'cancelled' && existingOrder.nvlExportedAt) {
+    const activeTxns = await prisma.inventoryTransaction.findMany({
+      where: { productionOrderId: existingOrder.id, isCancelled: false, type: 'export' },
+      select: { id: true, batchId: true, quantityBase: true },
+    })
+
+    if (activeTxns.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        const now = new Date()
+        for (const txn of activeTxns) {
+          const qty = typeof txn.quantityBase === 'object'
+            ? (txn.quantityBase as unknown as { toNumber(): number }).toNumber()
+            : Number(txn.quantityBase)
+
+          // Restore batch qty
+          await tx.batch.update({
+            where: { id: txn.batchId },
+            data:  { currentQtyBase: { increment: qty } },
+          })
+          // Create reversal transaction (audit trail)
+          await tx.inventoryTransaction.create({
+            data: {
+              batchId:           txn.batchId,
+              userId,
+              productionOrderId: existingOrder.id,
+              type:              'import',
+              quantityBase:      qty,
+              isCancelled:       false,
+              notes:             `Hoàn kho NVL – hủy lệnh ${existingOrder.orderRef ?? existingOrder.id.toString()}`,
+              transactionDate:   now,
+            },
+          })
+          // Mark original transaction as cancelled (keep for audit trail)
+          await tx.inventoryTransaction.update({
+            where: { id: txn.id },
+            data:  { isCancelled: true },
+          })
+        }
+
+        // Update status + log
+        await tx.productionOrder.update({
+          where: { id: existingOrder.id },
+          data: {
+            status:  'cancelled' as ProductionOrderStatus,
+            logs: {
+              create: {
+                userId,
+                userName: req.auth!.email,
+                action:   `Hủy phiếu – đã hoàn trả ${activeTxns.length} giao dịch xuất NVL vào kho`,
+                logType:  'process',
+                step:     1,
+              },
+            },
+          },
+        })
+      })
+
+      const updated = await prisma.productionOrder.findUnique({
+        where: { id: existingOrder.id },
+        include: orderInclude,
+      })
+      return res.json(serializeBigInt(updated))
+    }
+  }
+
   const order = await prisma.productionOrder.update({
     where: { id: BigInt(req.params.id) },
     data: {
@@ -394,6 +594,7 @@ const linePayloadSchema = z.object({
 
 const upsertLinesSchema = z.object({
   lines: z.array(linePayloadSchema),
+  processedAt: z.string().optional().nullable(),
 })
 
 router.put('/:id/lines/:step', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
@@ -414,6 +615,9 @@ router.put('/:id/lines/:step', requireAuth, requirePermission('production:write'
     return res.status(400).json({ message: 'Dữ liệu không hợp lệ.', errors: parsed.error.flatten() })
 
   const userId = BigInt(req.auth!.sub)
+
+  const stepDateKey = `step${step}ProcessedAt` as 'step1ProcessedAt' | 'step2ProcessedAt' | 'step3ProcessedAt' | 'step4ProcessedAt'
+  const processedAtValue = parsed.data.processedAt ? new Date(parsed.data.processedAt) : null
 
   await prisma.$transaction([
     prisma.productionOrderLine.deleteMany({ where: { orderId, step } }),
@@ -439,6 +643,10 @@ router.put('/:id/lines/:step', requireAuth, requirePermission('production:write'
         },
       })
     ),
+    prisma.productionOrder.update({
+      where: { id: orderId },
+      data: { [stepDateKey]: processedAtValue },
+    }),
     prisma.productionOrderLog.create({
       data: {
         orderId,
@@ -464,8 +672,12 @@ router.put('/:id/lines/:step', requireAuth, requirePermission('production:write'
 // ─── GET LOGS ─────────────────────────────────────────────────────────────────
 
 router.get('/:id/logs', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {
+  const stepFilter = req.query.step !== undefined ? Number(req.query.step) : undefined
   const logs = await prisma.productionOrderLog.findMany({
-    where: { orderId: BigInt(req.params.id) },
+    where: {
+      orderId: BigInt(req.params.id),
+      ...(stepFilter !== undefined ? { step: stepFilter } : {}),
+    },
     orderBy: { createdAt: 'desc' },
     include: { user: { select: { id: true, fullName: true } } },
   })

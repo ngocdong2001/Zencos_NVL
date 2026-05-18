@@ -9,6 +9,8 @@ import { InboundStep4Page } from '../pages/InboundStep4Page'
 import { OpeningStockPage } from '../pages/OpeningStockPage'
 import { OutboundListPage } from '../pages/OutboundListPage'
 import { OutboundPage } from '../pages/OutboundPage'
+import { TpOutboundListPage } from '../pages/TpOutboundListPage'
+import { TpOutboundPage } from '../pages/TpOutboundPage'
 import { ProductCreatePage } from '../pages/ProductCreatePage'
 import { PurchaseOrderPage } from '../pages/PurchaseOrderPage'
 import { WarehousePage } from '../pages/WarehousePage'
@@ -18,6 +20,7 @@ import { ProductionStep1Page } from '../pages/ProductionStep1Page'
 import { ProductionStep2Page } from '../pages/ProductionStep2Page'
 import { ProductionStep3Page } from '../pages/ProductionStep3Page'
 import { ProductionStep4Page } from '../pages/ProductionStep4Page'
+import { ProductionFlowDiagramPage } from '../pages/ProductionFlowDiagramPage'
 import { UserManagementPage } from '../pages/UserManagementPage'
 import { RolePermissionsPage } from '../pages/RolePermissionsPage'
 
@@ -40,9 +43,12 @@ export const appRoutes: RouteConfig[] = [
   { path: '/inbound/new/step2',         label: 'Chi tiết Lô hàng',             icon: 'pi pi-list',         component: InboundStep2Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step3',         label: 'Số lượng & Chứng từ',          icon: 'pi pi-paperclip',    component: InboundStep3Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step4',         label: 'Xác nhận & Hoàn tất',          icon: 'pi pi-check-circle', component: InboundStep4Page,         permission: 'inbound:write',     showInNav: false },
-  { path: '/outbound',                  label: 'Xuất kho',                     icon: 'pi pi-upload',       component: OutboundListPage,         permission: 'outbound:view' },
+  { path: '/outbound',                  label: 'Xuất kho NVL',                 icon: 'pi pi-upload',       component: OutboundListPage,         permission: 'outbound:view' },
   { path: '/outbound/new',              label: 'Tạo lệnh xuất mới',            icon: 'pi pi-plus',         component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
   { path: '/outbound/:orderId/edit',    label: 'Chỉnh sửa lệnh xuất',          icon: 'pi pi-pencil',       component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
+  { path: '/tp-outbound',               label: 'Xuất kho TP',                  icon: 'pi pi-truck',        component: TpOutboundListPage,       permission: 'outbound:view' },
+  { path: '/tp-outbound/new',           label: 'Tạo lệnh xuất TP mới',         icon: 'pi pi-plus',         component: TpOutboundPage,           permission: 'outbound:write',    showInNav: false },
+  { path: '/tp-outbound/:orderId/edit', label: 'Chi tiết lệnh xuất TP',        icon: 'pi pi-pencil',       component: TpOutboundPage,           permission: 'outbound:write',    showInNav: false },
   { path: '/purchase',                  label: 'Yêu cầu mua hàng',             icon: 'pi pi-shopping-cart',component: PurchaseOrderPage,        permission: 'purchase:view' },
   { path: '/catalog',                   label: 'Danh mục (Catalogs)',           icon: 'pi pi-database',     component: CatalogPage,              permission: 'catalog:view' },
   { path: '/catalog/products/new',      label: 'Tạo Product Mới',              icon: 'pi pi-plus-circle',  component: ProductCreatePage,        permission: 'catalog:write',     showInNav: false },
@@ -53,6 +59,7 @@ export const appRoutes: RouteConfig[] = [
   { path: '/production/:orderId/buoc-2',      label: 'Bước 2: Nhập BTP',      icon: 'pi pi-cog',          component: ProductionStep2Page,  permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/buoc-3',      label: 'Bước 3: Xuất BTP',      icon: 'pi pi-cog',          component: ProductionStep3Page,  permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/buoc-4',      label: 'Bước 4: Nhập TP',       icon: 'pi pi-cog',          component: ProductionStep4Page,  permission: 'production:write', showInNav: false },
+  { path: '/production/:orderId/luu-do',       label: 'Lưu đồ NVL',            icon: 'pi pi-sitemap',      component: ProductionFlowDiagramPage, permission: 'production:view', showInNav: false },
   { path: '/admin/users',               label: 'Quản lý người dùng',           icon: 'pi pi-users',        component: UserManagementPage,       permission: 'users:view',        showInNav: false },
   { path: '/admin/role-permissions',    label: 'Phân quyền theo vai trò',      icon: 'pi pi-shield',       component: RolePermissionsPage,      permission: 'users:view',        showInNav: false },
 ]

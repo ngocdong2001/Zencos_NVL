@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
+import { Dialog } from 'primereact/dialog'
 import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
 import { ProductionStepBar } from '../components/production/ProductionStepBar'
 import { OutboundMaterialPanel, type MaterialLine, type AllocationRow } from '../components/outbound/OutboundMaterialPanel'
-import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderStatus, upsertProductionOrderLines, fetchProductOutputs, type ProductionOrderDetail, type ProductOutput } from '../lib/productionApi'
+import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderStatus, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
+import { exportNvlRequestDoc } from '../lib/productionNvlRequestExport'
+import { fetchBasics } from '../lib/catalogApi'
+import type { BasicRow } from '../components/catalog/types'
 import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity } from '../components/purchaseOrder/format'
+import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
+import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -22,14 +29,51 @@ export function ProductionStep1Page() {
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [nvlExported, setNvlExported] = useState(false)
+
+  // Export dialog
+  const [showExportDialog, setShowExportDialog] = useState(false)
+  const [classifications, setClassifications] = useState<BasicRow[]>([])
+  const [classLoading, setClassLoading] = useState(false)
+  const [selectedClassCode, setSelectedClassCode] = useState<Set<string>>(new Set())
+  const [exporting, setExporting] = useState(false)
 
   // Track current lines from OutboundMaterialPanel
   const currentLinesRef = useRef<MaterialLine[]>([])
   const [initialPanelLines, setInitialPanelLines] = useState<MaterialLine[] | undefined>(undefined)
 
+  // History
+  const [historyEvents, setHistoryEvents] = useState<HistoryTimelineEvent[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+
+  // Flow diagram modal
+  const [showFlowModal, setShowFlowModal] = useState(false)
+
+  const loadHistory = async (id: string) => {
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const rows: ProductionOrderLog[] = await fetchProductionOrderLogs(id, 1)
+      setHistoryEvents(rows.map((r) => ({
+        id: r.id,
+        actionType: r.logType,
+        action: r.action,
+        actorName: r.user?.fullName ?? r.userName ?? 'Hệ thống',
+        at: r.createdAt,
+      })))
+    } catch (err) {
+      setHistoryEvents([])
+      setHistoryError(err instanceof Error ? err.message : 'Không thể tải lịch sử thao tác.')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   // Editable header fields (used when creating new order)
   const [orderRef, setOrderRef] = useState('')
   const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [processedAt, setProcessedAt] = useState<Date | null>(null)
   const [outputProductId, setOutputProductId] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
 
@@ -50,8 +94,10 @@ export function ProductionStep1Page() {
         setOrder(data)
         setOrderRef(data.orderRef ?? '')
         setIssueDate(data.issuedAt ? new Date(data.issuedAt).toISOString().slice(0, 10) : '')
+        setProcessedAt(data.step1ProcessedAt ? new Date(data.step1ProcessedAt) : null)
         setOutputProductId(data.outputProductId ?? null)
         setNotes(data.notes ?? '')
+        setNvlExported(!!data.nvlExportedAt)
 
         // Reconstruct panel lines from saved step-1 out lines
         const step1Lines = data.lines.filter(l => l.step === 1 && l.direction === 'out')
@@ -98,6 +144,11 @@ export function ProductionStep1Page() {
       .finally(() => setLoading(false))
   }, [orderId])
 
+  useEffect(() => {
+    if (!orderId) { setHistoryEvents([]); return }
+    void loadHistory(orderId)
+  }, [orderId])
+
   async function handleCreate() {
     setSaving(true)
     setError(null)
@@ -127,6 +178,7 @@ export function ProductionStep1Page() {
         setCancelling(true)
         try {
           await updateProductionOrderStatus(orderId, 'cancelled')
+          void loadHistory(orderId)
           navigate('/production')
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Không thể hủy phiếu')
@@ -164,18 +216,44 @@ export function ProductionStep1Page() {
     setError(null)
     setSaveSuccess(false)
     try {
-      await upsertProductionOrderLines(orderId, 1, payloads)
-      setSaveSuccess(true)
-      setTimeout(() => setSaveSuccess(false), 3000)
+      await upsertProductionOrderLines(orderId, 1, payloads, processedAt?.toISOString() ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lưu xuất NVL thất bại')
-    } finally {
       setSavingLines(false)
+      return
     }
+    setSavingLines(false)
+
+    // Show confirmation dialog to actually deduct inventory
+    showDangerConfirm({
+      header: nvlExported ? 'Xác nhận xuất thêm NVL' : 'Xác nhận xuất kho NVL',
+      message: nvlExported
+        ? `Xác nhận xuất thêm NVL mới vào lệnh ${order?.orderRef ?? orderId}? Chỉ các dòng chưa xuất kho sẽ bị trừ tồn.`
+        : `Xác nhận xuất ${payloads.length} dòng NVL khỏi kho cho lệnh ${order?.orderRef ?? orderId}? Tồn kho sẽ bị trừ ngay sau khi xác nhận.`,
+      acceptLabel: nvlExported ? 'Xác nhận xuất thêm' : 'Xác nhận xuất kho',
+      rejectLabel: 'Quay lại',
+      onAccept: async () => {
+        setSavingLines(true)
+        setError(null)
+        try {
+          const updated = await confirmNvlExport(orderId)
+          setOrder(updated)
+          setNvlExported(true)
+          setSaveSuccess(true)
+          setTimeout(() => setSaveSuccess(false), 4000)
+          void loadHistory(orderId)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Xuất kho NVL thất bại')
+        } finally {
+          setSavingLines(false)
+        }
+      },
+    })
   }
 
   const displayOrderRef = order?.orderRef ?? orderRef ?? '---'
   const displayCreator = order?.creator?.fullName ?? '---'
+  const isLocked = order?.status === 'completed' || order?.status === 'cancelled'
 
   if (loading) {
     return (
@@ -218,7 +296,17 @@ export function ProductionStep1Page() {
         </div>
       )}
 
-      <div style={{ margin: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {isLocked && (
+        <div style={{ margin: '8px 24px 0', padding: '10px 16px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#475569' }}>
+          <i className="pi pi-lock" style={{ color: '#64748b' }} />
+          <span>Phiếu đã <strong>{order?.status === 'completed' ? 'hoàn tất' : 'bị hủy'}</strong> — chỉ xem, không thể chỉnh sửa.</span>
+        </div>
+      )}
+
+      <div style={{ margin: '16px 24px 0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16, alignItems: 'start' }}>
+
+        {/* Main content column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
 
         {/* Thông tin chung Phiếu */}
         <div className="prod-card">
@@ -242,6 +330,18 @@ export function ProductionStep1Page() {
             <div className="prod-form-field">
               <label>NGÀY LẬP</label>
               <InputText value={issueDate} onChange={(e) => setIssueDate(e.target.value)} placeholder="YYYY-MM-DD" readOnly={!!orderId} />
+            </div>
+            <div className="prod-form-field">
+              <label>NGÀY XỬ LÝ (BƯỚC 1)</label>
+              <Calendar
+                value={processedAt}
+                onChange={(e) => setProcessedAt(e.value as Date | null)}
+                dateFormat="dd/mm/yy"
+                placeholder="Chọn ngày xử lý"
+                showIcon
+                disabled={!orderId || isLocked}
+                style={{ width: '100%' }}
+              />
             </div>
             <div className="prod-form-field" style={{ gridColumn: 'span 2' }}>
               <label>SẢN PHẨM ĐẦU RA</label>
@@ -317,45 +417,112 @@ export function ProductionStep1Page() {
             <OutboundMaterialPanel
               initialLines={initialPanelLines}
               onLinesChange={(lines) => { currentLinesRef.current = lines }}
+              disabled={isLocked}
+              lockExistingLines={nvlExported && !isLocked}
             />
           </div>
         )}
 
-      </div>
+        </div>{/* end main content column */}
+
+        {/* History sidebar */}
+        {orderId ? (
+          <aside className="outbound-history-panel">
+            <div className="outbound-history-panel-header">
+              <i className="pi pi-history" />
+              <span>LỊCH SỬ THAO TÁC</span>
+            </div>
+            <HistoryTimeline
+              events={historyEvents}
+              loading={historyLoading}
+              error={historyError}
+              emptyMessage="Chưa có lịch sử thao tác cho phiếu sản xuất này."
+            />
+          </aside>
+        ) : (
+          <aside className="outbound-history-panel outbound-history-panel-placeholder">
+            <div className="outbound-history-panel-header">
+              <i className="pi pi-history" />
+              <span>LỊCH SỬ THAO TÁC</span>
+            </div>
+            <p className="outbound-history-placeholder-copy">Lịch sử thao tác sẽ hiển thị sau khi lưu phiếu.</p>
+          </aside>
+        )}
+
+      </div>{/* end row */}
 
       {/* Footer */}
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
           <Button label="Quay lại" icon="pi pi-arrow-left" className="p-button-text p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} onClick={() => navigate('/production')} />
-          {orderId && (
+          {orderId && !isLocked && (
             <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
           )}
         </div>
         <div className="prod-footer-bar__right">
           {saveSuccess && (
             <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <i className="pi pi-check-circle" />Đã lưu xuất NVL
+              <i className="pi pi-check-circle" />{nvlExported ? 'Đã xuất thêm NVL thành công' : 'Đã xuất kho NVL thành công'}
             </span>
           )}
+          {!saveSuccess && nvlExported && (
+            <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <i className="pi pi-check-circle" />NVL đã xuất kho
+            </span>
+          )}
+          <Button
+            label="Xem lưu đồ NVL"
+            icon="pi pi-sitemap"
+            className="p-button-outlined p-button-secondary"
+            style={{ fontSize: 12, fontWeight: 700 }}
+            disabled={!orderId}
+            onClick={() => setShowFlowModal(true)}
+          />
           {orderId ? (
             <>
               <Button
-                label="Lưu xuất NVL"
-                icon="pi pi-save"
+                label={nvlExported ? 'Xuất thêm NVL' : 'Lưu xuất NVL'}
+                icon={nvlExported ? 'pi pi-plus' : 'pi pi-save'}
                 loading={savingLines}
+                disabled={isLocked}
                 className="p-button-outlined p-button-success"
                 style={{ fontSize: 12, fontWeight: 700 }}
                 onClick={handleSaveLines}
               />
-              <Button label="IN PHIẾU"   icon="pi pi-print"      className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
-              <Button label="XUẤT EXCEL" icon="pi pi-file-excel" className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
+              <Button
+                label="XUẤT YÊU CẦU NVL"
+                icon="pi pi-file-word"
+                disabled={!order}
+                className="p-button-outlined p-button-secondary"
+                style={{ fontSize: 12, fontWeight: 700 }}
+                onClick={async () => {
+                  if (!order) return
+                  setSelectedClassCode(new Set())
+                  setShowExportDialog(true)
+                  setClassLoading(true)
+                  try {
+                    const rows = await fetchBasics('classifications')
+                    setClassifications(rows.filter((r) => r.status !== 'inactive'))
+                  } catch {
+                    setClassifications([])
+                  } finally {
+                    setClassLoading(false)
+                  }
+                }}
+              />
               <Button
                 label="Tiếp theo: Nhập BTP"
                 icon="pi pi-arrow-right"
                 iconPos="right"
+                disabled={isLocked}
                 className="p-button-primary"
                 style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
-                onClick={() => navigate(`/production/${orderId}/buoc-2`)}
+                onClick={async () => {
+                  if (orderId && order && order.currentStep < 2) {
+                    try { await advanceProductionStep(orderId) } catch { /* ignore */ }
+                  }
+                  navigate(`/production/${orderId}/buoc-2`)
+                }}
               />
             </>
           ) : (
@@ -371,6 +538,97 @@ export function ProductionStep1Page() {
           )}
         </div>
       </div>
+
+      {/* ── Export classification dialog ─────────────────────────────── */}
+      <Dialog
+        header="Xuất Phiếu Yêu Cầu NVL"
+        visible={showExportDialog}
+        style={{ width: 420 }}
+        onHide={() => { if (!exporting) setShowExportDialog(false) }}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button
+              label="Hủy"
+              icon="pi pi-times"
+              className="p-button-text"
+              disabled={exporting}
+              onClick={() => setShowExportDialog(false)}
+            />
+            <Button
+              label={exporting ? 'Đang xuất...' : 'Xuất file'}
+              icon="pi pi-file-word"
+              loading={exporting}
+              disabled={selectedClassCode.size === 0}
+              onClick={async () => {
+                if (!order || selectedClassCode.size === 0) return
+                const codes = [...selectedClassCode]
+                const names = codes
+                  .map((c) => classifications.find((cl) => cl.code === c)?.name ?? c)
+                  .join(', ')
+                setExporting(true)
+                try {
+                  await exportNvlRequestDoc(order, codes, names)
+                  setShowExportDialog(false)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Không thể xuất phiếu yêu cầu NVL.')
+                } finally {
+                  setExporting(false)
+                }
+              }}
+            />
+          </div>
+        }
+      >
+        {classLoading ? (
+          <p style={{ margin: 0, color: '#888' }}>Đang tải danh mục phân loại...</p>
+        ) : (
+          <>
+            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#555' }}>
+              Chọn phân loại vật liệu muốn xuất phiếu:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {classifications.map((cls) => (
+                <label
+                  key={cls.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderRadius: 6, cursor: 'pointer',
+                    border: `1px solid ${selectedClassCode.has(cls.code) ? '#5269e0' : '#ddd'}`,
+                    background: selectedClassCode.has(cls.code) ? '#f0f3ff' : '#fff',
+                    fontWeight: selectedClassCode.has(cls.code) ? 600 : 400,
+                    fontSize: 13,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    value={cls.code}
+                    checked={selectedClassCode.has(cls.code)}
+                    onChange={(e) => {
+                      const next = new Set(selectedClassCode)
+                      if (e.target.checked) next.add(cls.code)
+                      else next.delete(cls.code)
+                      setSelectedClassCode(next)
+                    }}
+                    style={{ accentColor: '#5269e0', width: 15, height: 15 }}
+                  />
+                  <span>{cls.name}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#999' }}>{cls.code}</span>
+                </label>
+              ))}
+              {classifications.length === 0 && (
+                <p style={{ margin: 0, color: '#aaa', fontSize: 13 }}>Không có phân loại nào.</p>
+              )}
+            </div>
+          </>
+        )}
+      </Dialog>
+
+      {/* Flow diagram modal */}
+      <ProductionFlowModal
+        visible={showFlowModal}
+        orderId={orderId}
+        onHide={() => setShowFlowModal(false)}
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Tag } from 'primereact/tag'
@@ -9,11 +10,13 @@ import {
   fetchProductionOrderDetail,
   upsertProductionOrderLines,
   updateProductionOrderStatus,
+  advanceProductionStep,
   type LinePayload,
   type ProductionOrderDetail,
   type ProductionOrderLine,
 } from '../lib/productionApi'
 import { showDangerConfirm } from '../lib/confirm'
+import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,7 +71,8 @@ function mapStep2LineToStep3Payload(line: ProductionOrderLine): LinePayload {
   const plannedQty = Number(line.plannedQty)
   const actualQty = Number(line.actualQty)
   return {
-    productId: line.productId,
+    // For step-2 BTP out lines, productCode IS the BTP code; use outputProductId as productId if productId is null
+    productId: line.productId ?? line.outputProductId,
     outputProductId: line.outputProductId,
     productCode: line.productCode,
     productName: line.productName,
@@ -98,6 +102,7 @@ function buildStep2BtpSummaries(lines: ProductionOrderLine[]): Step2BtpSummary[]
   const grouped = new Map<string, Step2BtpSummary>()
 
   for (const line of lines) {
+    // For direction='out' BTP lines: productCode = BTP code, actualQty = SL Thực nhập from step-2 group header
     const key = line.outputProductId ?? `line-${line.id}`
     const current = grouped.get(key)
     const qty = Number(line.actualQty)
@@ -105,10 +110,10 @@ function buildStep2BtpSummaries(lines: ProductionOrderLine[]): Step2BtpSummary[]
     if (!current) {
       grouped.set(key, {
         key,
-        btpCode: line.outputProduct?.code ?? line.productCode ?? '---',
+        btpCode: line.productCode ?? '---',
         lotNo: line.lotNo ?? '---',
         actualQty: qty,
-        unit: line.outputProduct?.unit ?? line.unit ?? '',
+        unit: line.unit ?? '',
         locationName: line.location?.name ?? 'Kho Bán thành phẩm',
       })
       continue
@@ -137,6 +142,10 @@ export function ProductionStep3Page() {
   const [savingAndNext, setSavingAndNext] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [processedAt, setProcessedAt] = useState<Date | null>(null)
+
+  // Flow diagram modal
+  const [showFlowModal, setShowFlowModal] = useState(false)
 
   useEffect(() => {
     if (!orderId) return
@@ -144,18 +153,22 @@ export function ProductionStep3Page() {
     fetchProductionOrderDetail(orderId)
       .then((data) => {
         setOrder(data)
-        const step2Lines = data.lines.filter(l => l.step === 2 && l.direction === 'in')
+        // BTP output lines from step 2 (quantities entered in group-header inputs)
+        const step2Lines = data.lines.filter(l => l.step === 2 && l.direction === 'out')
         const step3Lines = data.lines.filter(l => l.step === 3 && l.direction === 'out')
         const step2PlannedMap = buildStep2PlannedMap(step2Lines)
         setStep2Summaries(buildStep2BtpSummaries(step2Lines))
         setStep3ApiLines(step3Lines)
+        // Always build export lines from step-2 BTP output lines (ignore stale step-3 DB entries
+        // which may contain NVL codes from an older version of the save logic)
         setExportLines(
-          (step3Lines.length > 0 ? step3Lines : step2Lines).map((line) => {
+          step2Lines.map((line) => {
             const key = `${line.outputProductId ?? ''}|${line.productCode}|${line.lotNo ?? ''}`
             const planned = step2PlannedMap.get(key)
             return mapLineToExportLine(line, planned)
           })
         )
+        setProcessedAt(data.step3ProcessedAt ? new Date(data.step3ProcessedAt) : null)
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -163,38 +176,13 @@ export function ProductionStep3Page() {
 
   async function saveStep3Lines() {
     if (!orderId) return
-    const step2Lines = (order?.lines ?? []).filter((line) => line.step === 2 && line.direction === 'in')
-    const step2PlannedMap = buildStep2PlannedMap(step2Lines)
+    const step2Lines = (order?.lines ?? []).filter((line) => line.step === 2 && line.direction === 'out')
 
-    const sourceLines = step3ApiLines.length > 0
-      ? step3ApiLines
-      : step2Lines
-
-    const payload: LinePayload[] = sourceLines.map((line) =>
-      line.step === 2 ? mapStep2LineToStep3Payload(line) : {
-        ...(() => {
-          const key = `${line.outputProductId ?? ''}|${line.productCode}|${line.lotNo ?? ''}`
-          const plannedFromStep2 = step2PlannedMap.get(key)
-          return { plannedQty: plannedFromStep2 ?? Number(line.plannedQty) }
-        })(),
-        productId: line.productId,
-        outputProductId: line.outputProductId,
-        productCode: line.productCode,
-        productName: line.productName,
-        lotNo: line.lotNo,
-        expiryDate: line.expiryDate,
-        actualQty: Number(line.actualQty),
-        wasteQty: Number(line.wasteQty),
-        unit: line.unit,
-        locationId: line.locationId,
-        qualityStatus: line.qualityStatus,
-        direction: 'out',
-        notes: line.notes,
-      }
-    )
+    // Always rebuild step-3 lines from step-2 BTP output lines to ensure correct product codes
+    const payload: LinePayload[] = step2Lines.map(mapStep2LineToStep3Payload)
 
     if (payload.length === 0) return
-    await upsertProductionOrderLines(orderId, 3, payload)
+    await upsertProductionOrderLines(orderId, 3, payload, processedAt?.toISOString() ?? null)
   }
 
   async function handleSaveDraft() {
@@ -216,6 +204,9 @@ export function ProductionStep3Page() {
     setError(null)
     try {
       await saveStep3Lines()
+      if (order && order.currentStep < 4) {
+        try { await advanceProductionStep(orderId) } catch { /* ignore */ }
+      }
       navigate(`/production/${orderId}/buoc-4`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu dữ liệu bước 3')
@@ -225,14 +216,6 @@ export function ProductionStep3Page() {
   }
 
   const hasShortage = exportLines.some(l => l.status === 'short')
-
-  const expiryBody = (row: BtpExportLine) => {
-    if (!row.expiryDate) return <span style={{ color: '#94a3b8', fontSize: 12 }}>Không có</span>
-    const date = new Date(row.expiryDate)
-    const diffDays = Math.ceil((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-    const color = diffDays <= 30 ? '#dc2626' : diffDays <= 90 ? '#d97706' : '#16a34a'
-    return <span style={{ fontSize: 12, fontWeight: 600, color }}>{date.toLocaleDateString('vi-VN')}</span>
-  }
 
   const statusBody = (row: BtpExportLine) => {
     const map: Record<BtpExportLine['status'], { label: string; bg: string; color: string }> = {
@@ -255,6 +238,8 @@ export function ProductionStep3Page() {
       </div>
     )
   }
+
+  const isLocked = order?.status === 'completed' || order?.status === 'cancelled'
 
   return (
     <div className="prod-page">
@@ -287,7 +272,30 @@ export function ProductionStep3Page() {
         </div>
       )}
 
+      {isLocked && (
+        <div style={{ margin: '8px 24px 0', padding: '10px 16px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#475569' }}>
+          <i className="pi pi-lock" style={{ color: '#64748b' }} />
+          <span>Phiếu đã <strong>{order?.status === 'completed' ? 'hoàn tất' : 'bị hủy'}</strong> — chỉ xem, không thể chỉnh sửa.</span>
+        </div>
+      )}
+
       <div style={{ margin: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Ngày xử lý */}
+        <div className="prod-card" style={{ padding: '14px 20px' }}>
+          <div className="prod-form-field" style={{ maxWidth: 260 }}>
+            <label>NGÀY XỬ LÝ (BƯỚC 3)</label>
+            <Calendar
+              value={processedAt}
+              onChange={(e) => setProcessedAt(e.value as Date | null)}
+              dateFormat="dd/mm/yy"
+              placeholder="Chọn ngày xử lý"
+              showIcon
+              disabled={isLocked}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
 
         {/* Tóm tắt BTP từ Bước 2 */}
         <div className="prod-card prod-card--step-done">
@@ -351,17 +359,7 @@ export function ProductionStep3Page() {
               </span>
               <span className="prod-card__title">Phiếu xuất kho BTP</span>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span className="prod-xk-status" style={{ background: '#fef9c3', color: '#a16207', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>
-                CHỜ XỬ LÝ
-              </span>
-              <Button
-                label="Tạo phiếu xuất"
-                icon="pi pi-plus"
-                className="p-button-outlined p-button-sm"
-                style={{ fontSize: 12, color: '#5269e0', borderColor: '#5269e0', padding: '4px 12px' }}
-              />
-            </div>
+
           </div>
 
           <div className="prod-xk-ref">
@@ -424,7 +422,6 @@ export function ProductionStep3Page() {
               )}
               style={{ minWidth: 120 }}
             />
-            <Column header="HSD" body={expiryBody} style={{ minWidth: 100 }} />
             <Column
               header="SL Yêu cầu"
               body={(row: BtpExportLine) => (
@@ -467,7 +464,7 @@ export function ProductionStep3Page() {
       {/* Footer */}
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
-          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={() => {
+          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} disabled={isLocked} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={() => {
             if (!orderId) return
             showDangerConfirm({
               header: 'Hủy phiếu sản xuất',
@@ -490,17 +487,23 @@ export function ProductionStep3Page() {
         </div>
         <div className="prod-footer-bar__right">
           <Button
+            label="Xem lưu đồ NVL"
+            icon="pi pi-sitemap"
+            className="p-button-outlined p-button-secondary"
+            style={{ fontSize: 12, fontWeight: 700 }}
+            onClick={() => setShowFlowModal(true)}
+          />
+          <Button
             label="← Bước 2: Nhập BTP"
             className="p-button-outlined p-button-secondary"
             style={{ fontSize: 12, fontWeight: 700 }}
             onClick={() => navigate(`/production/${orderId}/buoc-2`)}
           />
-          <Button label="IN PHIẾU"   icon="pi pi-print"      className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
-          <Button label="XUẤT EXCEL" icon="pi pi-file-excel" className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
           <Button
             label="LƯU NHÁP"
             icon="pi pi-save"
             loading={saving}
+            disabled={isLocked}
             className="p-button-outlined"
             style={{ fontSize: 12, fontWeight: 700, borderColor: '#5269e0', color: '#5269e0' }}
             onClick={handleSaveDraft}
@@ -510,12 +513,20 @@ export function ProductionStep3Page() {
             icon="pi pi-arrow-right"
             iconPos="right"
             loading={savingAndNext}
+            disabled={isLocked}
             className="p-button-primary"
             style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
             onClick={handleNextStep}
           />
         </div>
       </div>
+
+      {/* Flow diagram modal */}
+      <ProductionFlowModal
+        visible={showFlowModal}
+        orderId={orderId}
+        onHide={() => setShowFlowModal(false)}
+      />
     </div>
   )
 }

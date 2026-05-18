@@ -116,6 +116,8 @@ function getLineDerived(line: MaterialLine) {
 type Props = {
   /** Disable all editing (view-only mode) */
   disabled?: boolean
+  /** Lock existing lines (from initialLines) but still allow adding new lines */
+  lockExistingLines?: boolean
   /** Called whenever the lines array changes */
   onLinesChange?: (lines: MaterialLine[]) => void
   /** Pre-populate lines (e.g. from saved data) – applied once on mount */
@@ -124,7 +126,7 @@ type Props = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function OutboundMaterialPanel({ disabled = false, onLinesChange, initialLines }: Props) {
+export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines }: Props) {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
 
@@ -132,6 +134,8 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
   const [materials, setMaterials] = useState<MaterialRow[]>([])
   const [lines, setLines] = useState<MaterialLine[]>(() => initialLines && initialLines.length > 0 ? initialLines : [createEmptyLine()])
   const [activeLineIdx, setActiveLineIdx] = useState(0)
+  // Track which line keys were present at initial load — those are locked when lockExistingLines=true
+  const lockedLineKeysRef = useRef<Set<string>>(new Set(initialLines?.map(l => l.key) ?? []))
   const [loading, setLoading] = useState(false)
   const [panelError, setPanelError] = useState<string | null>(null)
 
@@ -142,6 +146,24 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
       initialLinesRef.current = initialLines
       setLines(initialLines)
       setActiveLineIdx(0)
+      // Refresh locked keys when initial lines are set (e.g. after async load)
+      lockedLineKeysRef.current = new Set(initialLines.map(l => l.key))
+
+      // Load stock for each pre-populated line that has a materialId but no stock data yet
+      initialLines.forEach((line) => {
+        if (!line.materialId || line.stockRows.length > 0) return
+        setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
+        Promise.all([
+          fetchInventoryStock(line.materialId),
+          fetchFefoSuggestions(line.materialId, 6),
+        ])
+          .then(([stock, fefo]) => {
+            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
+          })
+          .catch(() => {
+            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false } : l))
+          })
+      })
     }
   }, [initialLines])
   useEffect(() => {
@@ -385,6 +407,10 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
   }
 
   // ── Render ──
+  // Per-line disabled state: full disabled, OR lockExistingLines for locked keys
+  const isLineDisabled = (lineKey: string) =>
+    disabled || (lockExistingLines && lockedLineKeysRef.current.has(lineKey))
+
   return (
     <div>
       {panelError && (
@@ -436,7 +462,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                         className="ob-drill-dropdown"
                         filter
                         showClear
-                        disabled={loading || disabled}
+                        disabled={loading || isLineDisabled(line.key)}
                       />
                     </div>
 
@@ -458,7 +484,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                             onBlur={() => handleLineQtyBlur(idx)}
                             placeholder="Nhập SL"
                             className="ob-drill-qty-input"
-                            disabled={disabled}
+                            disabled={isLineDisabled(line.key)}
                           />
                         </div>
                         <div className="ob-drill-stock-info">
@@ -472,7 +498,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                           rounded
                           size="small"
                           onClick={() => applyFefoAutoAllocation(idx)}
-                          disabled={disabled || !line.materialId || line.requestedQtyValue <= 0 || d.lots.length === 0}
+                          disabled={isLineDisabled(line.key) || !line.materialId || line.requestedQtyValue <= 0 || d.lots.length === 0}
                           tooltip="Tự phân bổ FEFO"
                           tooltipOptions={{ position: 'top' }}
                         />
@@ -490,7 +516,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                               type="button"
                               className="ob-drill-fefo-hint-btn"
                               onClick={() => addLotToLine(idx, lot)}
-                              disabled={disabled}
+                              disabled={isLineDisabled(line.key)}
                               title={`${lot.lotNo} – Tồn: ${formatQuantity(toNumeric(lot.currentQtyBase))} – HSD: ${formatDateVi(lot.expiryDate)}`}
                             >
                               <Tag value={lot.lotNo} severity={expTag.severity === 'danger' ? 'danger' : expTag.severity === 'warning' ? 'warning' : 'success'} />
@@ -522,7 +548,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                           <Checkbox
                             checked={line.shortageAcknowledged}
                             onChange={(e: CheckboxChangeEvent) => updateLine(idx, (l) => ({ ...l, shortageAcknowledged: Boolean(e.checked) }))}
-                            disabled={disabled}
+                            disabled={isLineDisabled(line.key)}
                           />
                           <span>Xác nhận xuất thiếu</span>
                         </label>
@@ -538,7 +564,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                         onClick={(e) => { e.stopPropagation(); removeLine(idx) }}
                         aria-label={`Xóa dòng ${idx + 1}`}
                         title="Xóa dòng"
-                        disabled={disabled}
+                        disabled={isLineDisabled(line.key)}
                       >
                         <i className="pi pi-trash" style={{ color: '#ef4444', fontSize: '0.85rem' }} />
                       </button>
@@ -584,7 +610,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                                 onBlur={() => commitAllocationInput(idx, row.batchId)}
                                 placeholder="0"
                                 className="ob-drill-branch-input"
-                                disabled={disabled}
+                                disabled={isLineDisabled(line.key)}
                               />
                             </div>
                             <div className="ob-drill-branch-action-col">
@@ -594,7 +620,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                                 onClick={() => removeAllocationRow(idx, row.batchId)}
                                 aria-label={`Xóa lô ${row.lotNo}`}
                                 title="Xóa lô"
-                                disabled={disabled}
+                                disabled={isLineDisabled(line.key)}
                               >
                                 <i className="pi pi-times" style={{ color: '#ef4444', fontSize: '0.8rem' }} />
                               </button>
@@ -652,7 +678,7 @@ export function OutboundMaterialPanel({ disabled = false, onLinesChange, initial
                       onClick={() => addLotToLine(activeLineIdx, lot)}
                       aria-label={`Thêm lô ${lot.lotNo}`}
                       title="Thêm vào phân bổ"
-                      disabled={disabled}
+                      disabled={isLineDisabled(lines[activeLineIdx]?.key ?? '')}
                     >
                       <i className="pi pi-arrow-right" aria-hidden />
                     </button>

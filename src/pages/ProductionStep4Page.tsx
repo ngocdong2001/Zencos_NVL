@@ -17,6 +17,7 @@ import {
   type ProductionOrderLine,
 } from '../lib/productionApi'
 import { showDangerConfirm } from '../lib/confirm'
+import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 interface TpReceiptLine {
   id: string
@@ -39,6 +40,7 @@ interface Step3BtpSummary {
   key: string
   locationName: string
   btpCode: string
+  btpName: string
   actualQty: number
   unit: string
 }
@@ -123,6 +125,7 @@ function buildStep3BtpSummaries(lines: ProductionOrderLine[]): Step3BtpSummary[]
         key,
         locationName: line.location?.name ?? 'Kho Bán thành phẩm',
         btpCode: line.outputProduct?.code ?? line.productCode ?? '---',
+        btpName: line.outputProduct?.name ?? line.productName ?? '',
         actualQty: qty,
         unit: line.outputProduct?.unit ?? line.unit ?? '',
       })
@@ -158,6 +161,10 @@ export function ProductionStep4Page() {
   const [cancelling, setCancelling] = useState(false)
   const [exportingStockCard, setExportingStockCard] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [processedAt, setProcessedAt] = useState<Date | null>(null)
+
+  // Flow diagram modal
+  const [showFlowModal, setShowFlowModal] = useState(false)
 
   useEffect(() => {
     if (!orderId) return
@@ -182,6 +189,7 @@ export function ProductionStep4Page() {
           setInputQtyTouched(false)
           setReceiptLines([])
         }
+        setProcessedAt(data.step4ProcessedAt ? new Date(data.step4ProcessedAt) : null)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -210,7 +218,7 @@ export function ProductionStep4Page() {
       notes: line.notes || null,
     }))
 
-    await upsertProductionOrderLines(orderId, 4, payload)
+    await upsertProductionOrderLines(orderId, 4, payload, processedAt?.toISOString() ?? null)
 
     const refreshed = await fetchProductionOrderDetail(orderId)
     setOrder(refreshed)
@@ -257,18 +265,39 @@ export function ProductionStep4Page() {
   }
 
   const handleComplete = async () => {
-    if (!orderId) return
-    try {
-      setCompleting(true)
-      setError(null)
-      await saveStep4Lines()
-      await completeProductionOrder(orderId)
-      navigate('/production')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể hoàn tất phiếu')
-    } finally {
-      setCompleting(false)
+    if (!orderId || !primaryLine) return
+
+    // Validate required fields: quantity, lotNo, expiryDate
+    const missingFields = []
+    if (!primaryLine.quantity) missingFields.push('Số lượng thực nhập')
+    if (!primaryLine.lotNo?.trim()) missingFields.push('Lô nhập mới')
+    if (!primaryLine.expiryDate) missingFields.push('Hạn sử dụng')
+
+    if (missingFields.length > 0) {
+      setError(`Vui lòng điền đầy đủ các trường bắt buộc: ${missingFields.join(', ')}`)
+      return
     }
+
+    // Show confirmation before completing
+    showDangerConfirm({
+      header: 'Xác nhận hoàn tất phiếu',
+      message: `Bạn chắc chắn muốn hoàn tất phiếu ${order?.orderRef ?? orderId}? Dữ liệu sẽ bị khóa lại và không thể chỉnh sửa.`,
+      acceptLabel: 'Xác nhận hoàn tất',
+      rejectLabel: 'Quay lại',
+      onAccept: async () => {
+        setCompleting(true)
+        setError(null)
+        try {
+          await saveStep4Lines()
+          await completeProductionOrder(orderId)
+          navigate('/production')
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Không thể hoàn tất phiếu')
+        } finally {
+          setCompleting(false)
+        }
+      },
+    })
   }
 
   const handleExportStockCard = async () => {
@@ -307,6 +336,7 @@ export function ProductionStep4Page() {
   const convertedQty = primaryLine?.quantity ?? 0
   const wasteQty = effectiveInputQty - convertedQty
   const wastePct = effectiveInputQty > 0 ? (wasteQty / effectiveInputQty) * 100 : null
+  const isLocked = order?.status === 'completed' || order?.status === 'cancelled'
 
   if (loading) {
     return (
@@ -360,7 +390,31 @@ export function ProductionStep4Page() {
         </div>
       )}
 
+      {isLocked && (
+        <div style={{ margin: '8px 24px 0', padding: '10px 16px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: '#475569' }}>
+          <i className="pi pi-lock" style={{ color: '#64748b' }} />
+          <span>Phiếu đã <strong>{order?.status === 'completed' ? 'hoàn tất' : 'bị hủy'}</strong> — chỉ xem, không thể chỉnh sửa.</span>
+        </div>
+      )}
+
       <div style={{ margin: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Ngày xử lý */}
+        <div className="prod-card" style={{ padding: '14px 20px' }}>
+          <div className="prod-form-field" style={{ maxWidth: 260 }}>
+            <label>NGÀY XỬ LÝ (BƯỚC 4)</label>
+            <Calendar
+              value={processedAt}
+              onChange={(e) => setProcessedAt(e.value as Date | null)}
+              dateFormat="dd/mm/yy"
+              placeholder="Chọn ngày xử lý"
+              showIcon
+              disabled={isLocked}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+
         <div className="prod-card prod-card--step-done">
           <div className="prod-card__title-row">
             <div className="prod-card__title-left">
@@ -423,7 +477,7 @@ export function ProductionStep4Page() {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span className="prod-xk-status" style={{ background: '#dcfce7', color: '#15803d', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>
-                Giai đoạn 3: Hoàn tất
+                Giai đoạn 4: Hoàn tất
               </span>
             </div>
           </div>
@@ -444,7 +498,7 @@ export function ProductionStep4Page() {
                   <InputText value={primaryLine.tpName} readOnly />
                 </div>
                 <div className="prod-step4-field">
-                  <label>Số lượng thực nhập</label>
+                  <label><span style={{ color: '#dc2626' }}>*</span> Số lượng thực nhập</label>
                   <InputNumber
                     value={primaryLine.quantity}
                     onValueChange={(e) => handleLineChange(primaryLine.id, 'quantity', e.value ?? 0)}
@@ -452,20 +506,22 @@ export function ProductionStep4Page() {
                     min={0}
                     maxFractionDigits={3}
                     locale="vi-VN"
+                    disabled={isLocked}
                     suffix={primaryLine.unit ? ` ${primaryLine.unit}` : undefined}
                     inputStyle={{ width: '100%', textAlign: 'left' }}
                   />
                 </div>
                 <div className="prod-step4-field">
-                  <label>Lô nhập mới</label>
+                  <label><span style={{ color: '#dc2626' }}>*</span> Lô nhập mới</label>
                   <InputText
                     value={primaryLine.lotNo}
                     onChange={(e) => handleLineChange(primaryLine.id, 'lotNo', e.target.value)}
                     placeholder="Nhập số lô"
+                    readOnly={isLocked}
                   />
                 </div>
                 <div className="prod-step4-field">
-                  <label>Hạn sử dụng</label>
+                  <label><span style={{ color: '#dc2626' }}>*</span> Hạn sử dụng</label>
                   <Calendar
                     value={primaryLine.expiryDate ? new Date(primaryLine.expiryDate) : null}
                     onChange={(e) => {
@@ -474,6 +530,7 @@ export function ProductionStep4Page() {
                     }}
                     dateFormat="dd/mm/yy"
                     showIcon
+                    disabled={isLocked}
                     style={{ width: '100%' }}
                   />
                 </div>
@@ -501,6 +558,7 @@ export function ProductionStep4Page() {
                           min={0}
                           maxFractionDigits={3}
                           locale="vi-VN"
+                          disabled={isLocked}
                           suffix={outputUnit ? ` ${outputUnit}` : undefined}
                           inputStyle={{ width: 190, textAlign: 'right', fontWeight: 600 }}
                         />
@@ -531,6 +589,7 @@ export function ProductionStep4Page() {
                       onChange={(e) => handleLineChange(primaryLine.id, 'notes', e.target.value)}
                       rows={5}
                       autoResize
+                      disabled={isLocked}
                       placeholder="Mô tả nguyên nhân hao hụt..."
                     />
                   </div>
@@ -547,16 +606,22 @@ export function ProductionStep4Page() {
 
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
-          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
+          <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} disabled={isLocked} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
         </div>
         <div className="prod-footer-bar__right">
+          <Button
+            label="Xem lưu đồ NVL"
+            icon="pi pi-sitemap"
+            className="p-button-outlined p-button-secondary"
+            style={{ fontSize: 12, fontWeight: 700 }}
+            onClick={() => setShowFlowModal(true)}
+          />
           <Button
             label="← Bước 3: Xuất BTP"
             className="p-button-outlined p-button-secondary"
             style={{ fontSize: 12, fontWeight: 700 }}
             onClick={() => navigate(`/production/${orderId}/buoc-3`)}
           />
-          <Button label="IN PHIẾU" icon="pi pi-print" className="p-button-outlined p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} />
           <Button
             label="XUẤT THẺ KHO TP"
             icon="pi pi-file-excel"
@@ -570,6 +635,7 @@ export function ProductionStep4Page() {
             label="LƯU NHÁP"
             icon="pi pi-save"
             loading={saving}
+            disabled={isLocked}
             className="p-button-outlined"
             style={{ fontSize: 12, fontWeight: 700, borderColor: '#5269e0', color: '#5269e0' }}
             onClick={handleSaveDraft}
@@ -578,12 +644,20 @@ export function ProductionStep4Page() {
             label="XÁC NHẬN HOÀN TẤT"
             icon="pi pi-check-circle"
             loading={completing}
+            disabled={isLocked}
             className="p-button-primary"
             style={{ background: '#10b981', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
             onClick={handleComplete}
           />
         </div>
       </div>
+
+      {/* Flow diagram modal */}
+      <ProductionFlowModal
+        visible={showFlowModal}
+        orderId={orderId}
+        onHide={() => setShowFlowModal(false)}
+      />
     </div>
   )
 }

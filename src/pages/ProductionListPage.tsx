@@ -7,7 +7,7 @@ import { Dropdown } from 'primereact/dropdown'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { fetchProductionOrders,
   type ProductionOrderStatus,
-  type ProductionOrderListRow,
+  type ProductionOrderListItem,
   type ProductOutputType,
 } from '../lib/productionApi'
 
@@ -25,6 +25,11 @@ type ProductionOrderRow = {
   outputProduct: { id: string; code: string; name: string; outputType: ProductOutputType } | null
   currentStep: number
   status: ProductionStatus
+  plannedQty: number | null
+  actualQty: number | null
+  unit: string | null
+  lotNo: string | null
+  expiryDate: string | null
 }
 
 type OutletContext = { search: string }
@@ -73,7 +78,8 @@ function formatDateVi(value: string | null): string {
   return date.toLocaleDateString('vi-VN')
 }
 
-function mapApiRow(row: ProductionOrderListRow): ProductionOrderRow {
+function mapApiRow(row: ProductionOrderListItem): ProductionOrderRow {
+  const outLine = row.lines?.[0] ?? null
   return {
     id: String(row.id),
     orderRef: row.orderRef ?? `PSX-${row.id}`,
@@ -84,6 +90,11 @@ function mapApiRow(row: ProductionOrderListRow): ProductionOrderRow {
     outputProduct: row.outputProduct ?? null,
     currentStep: row.currentStep,
     status: row.status,
+    plannedQty: outLine ? Number(outLine.plannedQty) : null,
+    actualQty: outLine ? Number(outLine.actualQty) : null,
+    unit: outLine?.unit ?? null,
+    lotNo: outLine?.lotNo ?? null,
+    expiryDate: outLine?.expiryDate ?? null,
   }
 }
 
@@ -245,7 +256,7 @@ export function ProductionListPage() {
                 <button
                   type="button"
                   className="inbound-code-btn"
-                  onClick={() => navigate(`/production/${row.id}/buoc-1`)}
+                  onClick={() => navigate(`/production/${row.id}/buoc-${row.currentStep}`)}
                 >
                   {row.orderRef}
                 </button>
@@ -294,6 +305,48 @@ export function ProductionListPage() {
               )}
             />
             <Column
+              header="Số lượng KH"
+              style={{ width: '9rem', textAlign: 'right' }}
+              body={(row: ProductionOrderRow) => (
+                row.plannedQty != null
+                  ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {row.plannedQty.toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
+                      {row.unit ? <span style={{ marginLeft: 4, color: '#94a3b8', fontSize: 11 }}>{row.unit}</span> : null}
+                    </span>
+                  : <span style={{ color: '#94a3b8' }}>---</span>
+              )}
+            />
+            <Column
+              header="SL thực nhập"
+              style={{ width: '9rem', textAlign: 'right' }}
+              body={(row: ProductionOrderRow) => (
+                row.actualQty != null
+                  ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {row.actualQty.toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
+                      {row.unit ? <span style={{ marginLeft: 4, color: '#94a3b8', fontSize: 11 }}>{row.unit}</span> : null}
+                    </span>
+                  : <span style={{ color: '#94a3b8' }}>---</span>
+              )}
+            />
+            <Column
+              header="Số lô"
+              style={{ width: '9rem' }}
+              body={(row: ProductionOrderRow) => (
+                row.lotNo
+                  ? <span>{row.lotNo}</span>
+                  : <span style={{ color: '#94a3b8' }}>---</span>
+              )}
+            />
+            <Column
+              header="Hạn sử dụng"
+              style={{ width: '9rem' }}
+              body={(row: ProductionOrderRow) => (
+                row.expiryDate
+                  ? formatDateVi(row.expiryDate)
+                  : <span style={{ color: '#94a3b8' }}>---</span>
+              )}
+            />
+            <Column
               header="Công đoạn"
               style={{ width: '11rem' }}
               body={(row: ProductionOrderRow) => (
@@ -327,7 +380,7 @@ export function ProductionListPage() {
                     aria-label="Xem chi tiết"
                     tooltip="Xem chi tiết"
                     tooltipOptions={{ position: 'top' }}
-                    onClick={() => navigate(`/production/${row.id}/buoc-1`)}
+                    onClick={() => navigate(`/production/${row.id}/buoc-${row.currentStep}`)}
                   />
                   {row.status !== 'completed' && row.status !== 'cancelled' && (
                     <Button
@@ -341,6 +394,16 @@ export function ProductionListPage() {
                       onClick={() => navigate(`/production/${row.id}/buoc-${row.currentStep}`)}
                     />
                   )}
+                  <Button
+                    type="button"
+                    icon="pi pi-sitemap"
+                    text
+                    className="icon-btn"
+                    aria-label="Lưu đồ NVL"
+                    tooltip="Lưu đồ NVL"
+                    tooltipOptions={{ position: 'top' }}
+                    onClick={() => navigate(`/production/${row.id}/luu-do`)}
+                  />
                 </span>
               )}
             />

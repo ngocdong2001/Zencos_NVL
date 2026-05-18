@@ -5,6 +5,7 @@ const http = apiFetch
 export type InventoryStockBatch = {
   id: string
   lotNo: string
+  invoiceNumber: string | null
   expiryDate: string | null
   currentQtyBase: number
   manufacturerName: string | null
