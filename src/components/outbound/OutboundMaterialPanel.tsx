@@ -219,10 +219,6 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     () => (activeLine ? getLineDerived(activeLine) : null),
     [activeLine],
   )
-  const usedMaterialIds = useMemo(
-    () => new Set(lines.map((l) => l.materialId).filter(Boolean)),
-    [lines],
-  )
   const anyStockLoading = lines.some((l) => l.stockLoading)
 
   // ── Line management ──
@@ -433,9 +429,6 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
             const d = getLineDerived(line)
             const isActive = idx === activeLineIdx
             const isExpanded = Boolean(line.materialId)
-            const lineMatOptions = materialOptions.filter(
-              (opt) => opt.value === line.materialId || !usedMaterialIds.has(opt.value),
-            )
             const allocPercent = line.requestedQtyValue > 0
               ? Math.min(100, Math.round((d.allocatedQty / line.requestedQtyValue) * 100))
               : 0
@@ -456,7 +449,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                     <div className="ob-drill-mat-select">
                       <Dropdown
                         value={line.materialId}
-                        options={lineMatOptions}
+                        options={materialOptions}
                         onChange={(e) => { void handleLineMaterialChange(idx, String(e.value ?? '')) }}
                         placeholder="Chọn nguyên liệu..."
                         className="ob-drill-dropdown"

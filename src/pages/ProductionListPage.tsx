@@ -5,6 +5,7 @@ import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dropdown } from 'primereact/dropdown'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
+import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 import { fetchProductionOrders,
   type ProductionOrderStatus,
   type ProductionOrderListItem,
@@ -114,6 +115,8 @@ export function ProductionListPage() {
   const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<ProductionStatus | 'all'>('all')
   const [highlightId, setHighlightId] = useState<string | null>(highlightedId)
+  const [showFlowModal, setShowFlowModal] = useState(false)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -402,7 +405,7 @@ export function ProductionListPage() {
                     aria-label="Lưu đồ NVL"
                     tooltip="Lưu đồ NVL"
                     tooltipOptions={{ position: 'top' }}
-                    onClick={() => navigate(`/production/${row.id}/luu-do`)}
+                    onClick={() => { setSelectedOrderId(row.id); setShowFlowModal(true) }}
                   />
                 </span>
               )}
@@ -424,6 +427,13 @@ export function ProductionListPage() {
           onPageSizeChange={(size) => { setPageSize(size); setPage(1) }}
         />
       </section>
+
+      {/* Flow diagram modal */}
+      <ProductionFlowModal
+        visible={showFlowModal}
+        orderId={selectedOrderId}
+        onHide={() => setShowFlowModal(false)}
+      />
     </section>
   )
 }

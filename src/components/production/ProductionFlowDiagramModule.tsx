@@ -5,6 +5,8 @@ import {
   type ProductionOrderDetail,
   type ProductionOrderLine,
 } from '../../lib/productionApi'
+import { fetchProductLots, type LotDetail } from '../../lib/warehouseApi'
+import { fetchInboundReceiptDetail, type InboundReceiptDetailResponse } from '../../lib/inboundApi'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +23,9 @@ export type FlowNode = {
   lotNo: string | null
   qualityStatus: 'pass' | 'fail' | 'pending' | null
   stepDone: boolean
+  consumedQty?: number   // NVL only: step2 actual consumption
+  returnQty?: number     // NVL only: planned return to warehouse (from step1 wasteQty)
+  productId?: string | null  // NVL only: for fetching lot/receipt detail
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -197,12 +202,113 @@ export function NvlCard({ node, selected, onClick }: { node: FlowNode; selected:
       )}
       <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 5 }}>
         <span style={{ fontSize: 9, color: '#64748b' }}>
-          Kế hoạch: {node.plannedQty > 0 ? fmtQty(node.plannedQty, node.unit) : '---'}
+          KH: {node.plannedQty > 0 ? fmtQty(node.plannedQty, node.unit) : '---'}
         </span>
         <span style={{ fontSize: 9, fontWeight: 700, color: node.actualQty > 0 ? '#10b981' : '#f59e0b', marginLeft: 8 }}>
-          Thực tế: {node.actualQty > 0 ? fmtQty(node.actualQty, node.unit) : '---'}
+          Xuất kho: {node.actualQty > 0 ? fmtQty(node.actualQty, node.unit) : '---'}
         </span>
       </div>
+      {node.consumedQty !== undefined && node.actualQty > 0 && (() => {
+        const diff = node.actualQty - node.consumedQty
+        const isExcess = diff > 0.0001
+        const isShort  = diff < -0.0001
+        return (
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 5, marginTop: 4 }}>
+            <div style={{ fontSize: 9, color: '#64748b' }}>
+              Tiêu hao: <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                {node.consumedQty > 0 ? fmtQty(node.consumedQty, node.unit) : <span style={{ color: '#94a3b8' }}>Chưa có B2</span>}
+              </span>
+            </div>
+            {(isExcess || isShort) && (
+              <div style={{ marginTop: 3 }}>
+                <span style={{
+                  fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
+                  background: isExcess ? '#dcfce7' : '#ffedd5',
+                  color: isExcess ? '#15803d' : '#c2410c',
+                }}>
+                  {isExcess ? `Dư +${fmtQty(diff, node.unit)}` : `Thiếu ${fmtQty(diff, node.unit)}`}
+                </span>
+              </div>
+            )}
+            {node.returnQty !== undefined && node.returnQty > 0.0001 && (
+              <div style={{ marginTop: 3 }}>
+                <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 6, background: '#f5f3ff', color: '#7c3aed' }}>
+                  ↩ Hoàn nhập: {fmtQty(node.returnQty, node.unit)}
+                </span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+    </button>
+  )
+}
+
+// ─── NVL compact row (used when > 5 NVLs) ───────────────────────────────────
+
+export function NvlCompactRow({ node, selected, onClick }: { node: FlowNode; selected: boolean; onClick: () => void }) {
+  const diff = (node.consumedQty !== undefined && node.actualQty > 0)
+    ? node.actualQty - node.consumedQty
+    : null
+  const isExcess = diff !== null && diff > 0.0001
+  const isShort  = diff !== null && diff < -0.0001
+  const showQty  = node.actualQty > 0
+  const hasReturn = node.returnQty !== undefined && node.returnQty > 0
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex', flexDirection: 'column', gap: 4,
+        width: '100%', textAlign: 'left', cursor: 'pointer',
+        background: selected ? '#eff6ff' : isExcess ? '#f0fdf4' : isShort ? '#fff7ed' : '#fff',
+        border: `1px solid ${selected ? '#5269e0' : isExcess ? '#bbf7d0' : isShort ? '#fed7aa' : '#e2e8f0'}`,
+        borderRadius: 10, padding: '7px 10px',
+        boxShadow: selected ? '0 0 0 2px #5269e020' : 'none',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
+    >
+      {/* Row 1: code + name + lot */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap', flexShrink: 0 }}>{node.code}</span>
+        <span style={{ fontSize: 11, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
+        {node.lotNo && (
+          <span style={{ fontSize: 9, color: '#7c3aed', background: '#f5f3ff', borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap', flexShrink: 0 }}>Lô: {node.lotNo}</span>
+        )}
+      </div>
+      {/* Row 2: quantities + diff + return */}
+      {showQty && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>
+            <span style={{ color: '#94a3b8' }}>Xuất:</span> <strong style={{ color: '#1e293b' }}>{fmtQty(node.actualQty, node.unit)}</strong> {node.unit}
+          </span>
+          {node.consumedQty !== undefined && (
+            <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>
+              <span style={{ color: '#94a3b8' }}>Tiêu hao:</span>{' '}
+              {node.consumedQty > 0
+                ? <><strong style={{ color: '#1e293b' }}>{fmtQty(node.consumedQty, node.unit)}</strong> {node.unit}</>
+                : <em style={{ color: '#94a3b8', fontSize: 9 }}>Chưa có B2</em>}
+            </span>
+          )}
+          {diff !== null && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+              background: isExcess ? '#dcfce7' : isShort ? '#ffedd5' : '#f1f5f9',
+              color: isExcess ? '#15803d' : isShort ? '#c2410c' : '#64748b',
+            }}>
+              {isExcess ? `Dư +${fmtQty(diff, node.unit)}` : isShort ? `Thiếu ${fmtQty(Math.abs(diff), node.unit)}` : '✓'}
+            </span>
+          )}
+          {hasReturn && (
+            <span style={{
+              fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+              background: '#f5f3ff', color: '#7c3aed',
+            }}>
+              ↩ Hoàn nhập: {fmtQty(node.returnQty!, node.unit)} {node.unit}
+            </span>
+          )}
+        </div>
+      )}
     </button>
   )
 }
@@ -326,6 +432,35 @@ function PanelRow({ label, value, vc = '#1e293b' }: { label: string; value: stri
 }
 
 export function NodeDetailPanel({ node, order }: { node: FlowNode | null; order: ProductionOrderDetail | null }) {
+  const [lotInfo, setLotInfo] = useState<LotDetail | null>(null)
+  const [receiptInfo, setReceiptInfo] = useState<InboundReceiptDetailResponse | null>(null)
+  const [loadingLot, setLoadingLot] = useState(false)
+
+  useEffect(() => {
+    if (!node || node.type !== 'nvl' || !node.productId || !node.lotNo) {
+      setLotInfo(null)
+      setReceiptInfo(null)
+      return
+    }
+    let cancelled = false
+    setLoadingLot(true)
+    setLotInfo(null)
+    setReceiptInfo(null)
+    fetchProductLots(node.productId)
+      .then(async (lots) => {
+        if (cancelled) return
+        const lot = lots.find((l) => l.lotNo === node.lotNo) ?? null
+        setLotInfo(lot)
+        if (lot?.receiptId) {
+          const receipt = await fetchInboundReceiptDetail(lot.receiptId)
+          if (!cancelled) setReceiptInfo(receipt)
+        }
+      })
+      .catch(() => { if (!cancelled) { setLotInfo(null); setReceiptInfo(null) } })
+      .finally(() => { if (!cancelled) setLoadingLot(false) })
+    return () => { cancelled = true }
+  }, [node?.productId, node?.lotNo, node?.type])
+
   if (!node) {
     return (
       <aside style={{
@@ -391,6 +526,29 @@ export function NodeDetailPanel({ node, order }: { node: FlowNode | null; order:
             vc={variance >= 0 ? '#10b981' : '#dc2626'}
           />
         )}
+        {node.type === 'nvl' && node.consumedQty !== undefined && (
+          <>
+            <PanelRow
+              label="Thực tiêu hao (Bước 2)"
+              value={node.consumedQty > 0 ? fmtQty(node.consumedQty, node.unit) : 'Chưa có dữ liệu B2'}
+              vc={node.consumedQty > 0 ? '#1e293b' : '#94a3b8'}
+            />
+            {node.actualQty > 0 && (() => {
+              const diff = node.actualQty - node.consumedQty
+              if (Math.abs(diff) < 0.0001) return null
+              return (
+                <PanelRow
+                  label={diff > 0 ? 'Còn dư (có thể hoàn nhập)' : 'Thiếu hụt'}
+                  value={`${diff > 0 ? '+' : ''}${fmtQty(diff, node.unit)}`}
+                  vc={diff > 0 ? '#15803d' : '#c2410c'}
+                />
+              )
+            })()}
+            {node.returnQty !== undefined && node.returnQty > 0.0001 && (
+              <PanelRow label="SL Hoàn nhập" value={fmtQty(node.returnQty, node.unit)} vc="#7c3aed" />
+            )}
+          </>
+        )}
         {node.lotNo && <PanelRow label="Số lô" value={node.lotNo} />}
         {node.qualityStatus && (
           <div>
@@ -413,6 +571,73 @@ export function NodeDetailPanel({ node, order }: { node: FlowNode | null; order:
           <div style={{ fontSize: 13, fontWeight: 700, color: '#304fe8' }}>{order.orderRef ?? `PSX-${order.id}`}</div>
         </div>
       )}
+
+      {node.type === 'nvl' && (
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <i className="pi pi-box" style={{ marginRight: 5, fontSize: 11 }} />
+            Phiếu nhập đầu vào
+          </div>
+          {loadingLot ? (
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>
+              <i className="pi pi-spin pi-spinner" style={{ fontSize: 12 }} /> Đang tải...
+            </div>
+          ) : !node.productId || !node.lotNo ? (
+            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Không có thông tin lô.</div>
+          ) : !lotInfo && !loadingLot ? (
+            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Không tìm thấy dữ liệu lô.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {receiptInfo && (
+                <>
+                  <PanelRow label="Mã phiếu nhập" value={receiptInfo.receiptRef} vc="#304fe8" />
+                  {receiptInfo.supplier && <PanelRow label="Nhà cung cấp" value={receiptInfo.supplier.name} />}
+                  {receiptInfo.receivedAt && (
+                    <PanelRow label="Ngày nhập kho" value={new Date(receiptInfo.receivedAt).toLocaleDateString('vi-VN')} />
+                  )}
+                  {receiptInfo.purchaseRequest && (
+                    <PanelRow label="Phiếu mua hàng" value={receiptInfo.purchaseRequest.requestRef} />
+                  )}
+                  {receiptInfo.receivingLocation && (
+                    <PanelRow label="Kho nhập" value={receiptInfo.receivingLocation.name} />
+                  )}
+                  {(() => {
+                    const item = receiptInfo.items.find((i) => i.lotNo === node.lotNo)
+                    if (!item) return null
+                    return (
+                      <>
+                        <PanelRow
+                          label="SL nhập (đơn vị mua)"
+                          value={`${item.quantityDisplay.toLocaleString('vi-VN')} ${item.unitUsed}`}
+                        />
+                        <PanelRow
+                          label="Đơn giá nhập"
+                          value={item.unitPricePerKg.toLocaleString('vi-VN') + ' đ/kg'}
+                        />
+                        {item.invoiceNumber && <PanelRow label="Số hóa đơn" value={item.invoiceNumber} />}
+                        {item.manufacturer && <PanelRow label="Nhà sản xuất" value={item.manufacturer.name} />}
+                        {item.expiryDate && (
+                          <PanelRow label="Hạn sử dụng" value={new Date(item.expiryDate).toLocaleDateString('vi-VN')} vc="#dc2626" />
+                        )}
+                        <div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Kết quả QC</div>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 10,
+                            background: item.qcStatus === 'passed' ? '#dcfce7' : item.qcStatus === 'failed' ? '#fee2e2' : '#fef9c3',
+                            color: item.qcStatus === 'passed' ? '#15803d' : item.qcStatus === 'failed' ? '#b91c1c' : '#a16207',
+                          }}>
+                            {item.qcStatus === 'passed' ? 'Đạt' : item.qcStatus === 'failed' ? 'Không đạt' : 'Chờ QC'}
+                          </span>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   )
 }
@@ -431,6 +656,7 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null)
+  const [compactOverride, setCompactOverride] = useState<boolean | null>(null)
 
   useEffect(() => {
     if (!orderId) return
@@ -442,15 +668,36 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
       .finally(() => setLoading(false))
   }, [orderId])
 
-  const nvlNodes: FlowNode[] = lines
-    .filter((l) => l.step === 1 && l.direction === 'out')
-    .map((l) => ({
-      id: l.id, type: 'nvl' as const,
-      code: l.productCode, name: l.productName,
-      plannedQty: Number(l.plannedQty), actualQty: Number(l.actualQty),
-      unit: l.unit, lotNo: l.lotNo, qualityStatus: l.qualityStatus,
-      stepDone: !!order && !!(order.nvlExportedAt ?? order.step1ProcessedAt),
-    }))
+  // Build consumption map from step-2 in lines (actual NVL consumed in production)
+  const consumedMap = new Map<string, number>()
+  for (const l of lines.filter((ll) => ll.step === 2 && ll.direction === 'in')) {
+    const key = `${l.productCode}|${l.lotNo ?? ''}`
+    consumedMap.set(key, (consumedMap.get(key) ?? 0) + Number(l.actualQty))
+  }
+  // Group step1 out lines by productCode+lotNo (same NVL may be added multiple times)
+  type NvlGroup = { firstId: string; line: typeof lines[0]; exported: number; planned: number; waste: number }
+  const nvlGroupMap = new Map<string, NvlGroup>()
+  for (const l of lines.filter((ll) => ll.step === 1 && ll.direction === 'out')) {
+    const key = `${l.productCode}|${l.lotNo ?? ''}`
+    const existing = nvlGroupMap.get(key)
+    if (existing) {
+      existing.exported += Number(l.actualQty)
+      existing.planned += Number(l.plannedQty)
+      existing.waste += Number(l.wasteQty)
+    } else {
+      nvlGroupMap.set(key, { firstId: l.id, line: l, exported: Number(l.actualQty), planned: Number(l.plannedQty), waste: Number(l.wasteQty) })
+    }
+  }
+  const nvlNodes: FlowNode[] = Array.from(nvlGroupMap.entries()).map(([key, g]) => ({
+    id: g.firstId, type: 'nvl' as const,
+    code: g.line.productCode, name: g.line.productName,
+    plannedQty: g.planned, actualQty: g.exported,
+    unit: g.line.unit, lotNo: g.line.lotNo, qualityStatus: g.line.qualityStatus,
+    stepDone: !!order && !!(order.nvlExportedAt ?? order.step1ProcessedAt),
+    consumedQty: consumedMap.get(key) ?? 0,
+    returnQty: g.waste,
+    productId: g.line.productId,
+  }))
 
   const btpOutLines = lines.filter((l) => l.step === 2 && l.direction === 'out')
   const btpRaw: FlowNode[] = btpOutLines.length > 0
@@ -532,6 +779,13 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
   const btpStatus = order ? getStepStatus(order, 2) : { label: 'Chờ', color: '#94a3b8' }
   const tpStatus = order ? getStepStatus(order, 4) : { label: 'Chờ', color: '#94a3b8' }
   const packLabel = packagingLabel(tpNodes)
+
+  // Layout widths — switch to compact NVL rows when many materials
+  const autoCompact = nvlNodes.length > 5
+  const useCompactNvl = compactOverride !== null ? compactOverride : autoCompact
+  const nvlBoxWidth = useCompactNvl ? 320 : 214
+  const nvlColWidth = nvlBoxWidth + 120   // NVL box + arrow
+  const tpAbsLeft  = nvlColWidth + 141    // after BTP column
 
   return (
     <div style={{
@@ -641,13 +895,33 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
               <i className="pi pi-spin pi-spinner" style={{ fontSize: 28, color: '#304fe8' }} />
             </div>
           ) : (
-            <div style={{ minWidth: 736 }}>
+            <div style={{ minWidth: nvlBoxWidth + 522 }}>
               {/* Column headers */}
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
-                <div style={{ width: 214 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#5a5f68', textTransform: 'uppercase', letterSpacing: '1.2px' }}>
-                    Nguyên Vật Liệu (NVL)
-                  </span>
+                <div style={{ width: nvlBoxWidth }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#5a5f68', textTransform: 'uppercase', letterSpacing: '1.2px' }}>
+                      Nguyên Vật Liệu (NVL)
+                    </span>
+                    {nvlNodes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCompactOverride(!(compactOverride !== null ? compactOverride : autoCompact))}
+                        title={useCompactNvl ? 'Chuyển sang xem thẻ' : 'Chuyển sang xem danh sách'}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 4,
+                          background: useCompactNvl ? '#eff6ff' : '#f8fafc',
+                          border: `1px solid ${useCompactNvl ? '#bfdbfe' : '#e2e8f0'}`,
+                          borderRadius: 6, padding: '2px 7px',
+                          fontSize: 10, color: useCompactNvl ? '#1d4ed8' : '#64748b',
+                          cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <i className={`pi ${useCompactNvl ? 'pi-list' : 'pi-th-large'}`} style={{ fontSize: 9 }} />
+                        {useCompactNvl ? 'Danh sách' : 'Thẻ'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ width: 120 }} />
                 <div style={{ width: 141 }}>
@@ -667,24 +941,32 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
               {btpGroups.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'stretch', marginBottom: 16, position: 'relative' }}>
                   {/* Left: NVL + Arrow rows */}
-                  <div style={{ display: 'flex', flexDirection: 'column', width: 334, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', width: nvlColWidth, flexShrink: 0 }}>
                     {btpGroups.map((group) => (
                       <div key={group.btp.id} style={{ display: 'flex', alignItems: 'center', paddingTop: 8, paddingBottom: 8 }}>
                         <div style={{
-                          width: 214, flexShrink: 0,
-                          border: '1.5px dashed #dedfe3', borderRadius: 14, padding: '11px 17px',
+                          width: nvlBoxWidth, flexShrink: 0,
+                          border: '1.5px dashed #dedfe3', borderRadius: 14, padding: useCompactNvl ? '8px 10px' : '11px 17px',
                         }}>
                           {group.nvls.length > 0 ? (
-                            group.nvls.map((nvl, i) => (
-                              <div key={nvl.id}>
-                                <NvlCard node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
-                                {i < group.nvls.length - 1 && (
-                                  <div style={{ textAlign: 'center', padding: '6px 0', color: '#94a3b8', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>+</div>
-                                )}
+                            useCompactNvl ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {group.nvls.map((nvl) => (
+                                  <NvlCompactRow key={nvl.id} node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
+                                ))}
                               </div>
-                            ))
+                            ) : (
+                              group.nvls.map((nvl, i) => (
+                                <div key={nvl.id}>
+                                  <NvlCard node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
+                                  {i < group.nvls.length - 1 && (
+                                    <div style={{ textAlign: 'center', padding: '6px 0', color: '#94a3b8', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>+</div>
+                                  )}
+                                </div>
+                              ))
+                            )
                           ) : (
-                            <EmptySlot label="Chưa có NVL" height={95} />
+                            <EmptySlot label="Chưa có NVL" height={useCompactNvl ? 32 : 95} />
                           )}
                         </div>
                         <FlowArrow label="Kết hợp SX" arrowColor="#5269e0" pillBorderColor="#bfdbfe" pillTextColor="#1d4ed8" />
@@ -694,7 +976,7 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
 
                   {/* BTP column: absolutely positioned */}
                   <div style={{
-                    position: 'absolute', left: 334, top: 0, bottom: 0, width: 141,
+                    position: 'absolute', left: nvlColWidth, top: 0, bottom: 0, width: 141,
                     display: 'flex', flexDirection: 'column',
                     justifyContent: 'center', alignItems: 'stretch',
                   }}>
@@ -715,7 +997,7 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
 
                   {/* TP section: absolutely positioned */}
                   <div style={{
-                    position: 'absolute', left: 475, top: 0, bottom: 0, width: 261,
+                    position: 'absolute', left: tpAbsLeft, top: 0, bottom: 0, width: 261,
                     display: 'flex', alignItems: 'center',
                   }}>
                     <FlowArrow label={packLabel} arrowColor="#10b981" pillBorderColor="#a7f3d0" pillTextColor="#047857" />
@@ -736,18 +1018,26 @@ export function ProductionFlowDiagram({ orderId, hideHeader = false, hideBottomB
               {ungroupedNvls.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
                   <div style={{
-                    width: 214, flexShrink: 0,
-                    border: '1.5px dashed #e2e8f0', borderRadius: 14, padding: '11px 17px',
+                    width: nvlBoxWidth, flexShrink: 0,
+                    border: '1.5px dashed #e2e8f0', borderRadius: 14, padding: useCompactNvl ? '8px 10px' : '11px 17px',
                     opacity: 0.7,
                   }}>
-                    {ungroupedNvls.map((nvl, i) => (
-                      <div key={nvl.id}>
-                        <NvlCard node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
-                        {i < ungroupedNvls.length - 1 && (
-                          <div style={{ textAlign: 'center', padding: '6px 0', color: '#94a3b8', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>+</div>
-                        )}
+                    {useCompactNvl ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {ungroupedNvls.map((nvl) => (
+                          <NvlCompactRow key={nvl.id} node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
+                        ))}
                       </div>
-                    ))}
+                    ) : (
+                      ungroupedNvls.map((nvl, i) => (
+                        <div key={nvl.id}>
+                          <NvlCard node={nvl} selected={selectedNode?.id === nvl.id} onClick={() => handleClick(nvl)} />
+                          {i < ungroupedNvls.length - 1 && (
+                            <div style={{ textAlign: 'center', padding: '6px 0', color: '#94a3b8', fontSize: 18, fontWeight: 700, lineHeight: 1 }}>+</div>
+                          )}
+                        </div>
+                      ))
+                    )}
                   </div>
                   {btpGroups.length === 0 ? (
                     <>

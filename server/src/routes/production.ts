@@ -552,6 +552,131 @@ router.patch('/:id/complete', requireAuth, requirePermission('production:write')
   return res.json(serializeBigInt(order))
 })
 
+// ─── RETURN EXCESS NVL TO WAREHOUSE ──────────────────────────────────────────
+// POST /api/production-orders/:id/return-nvl
+// Creates import inventory transactions for excess NVL returned after production
+
+const returnNvlSchema = z.object({
+  lines: z.array(z.object({
+    productId: z.coerce.bigint(),
+    lotNo:     z.string().min(1, 'Số lô không được để trống'),
+    returnQty: z.number().positive('Số lượng hoàn nhập phải > 0'),
+  })).min(1, 'Cần ít nhất 1 dòng hoàn nhập'),
+})
+
+router.post('/:id/return-nvl', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
+  const orderId = BigInt(req.params.id)
+  const userId  = BigInt(req.auth!.sub)
+
+  const parsed = returnNvlSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.errors[0]?.message ?? 'Dữ liệu không hợp lệ.' })
+  }
+
+  const order = await prisma.productionOrder.findUnique({
+    where:  { id: orderId },
+    select: { id: true, status: true, orderRef: true },
+  })
+  if (!order) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
+  if (order.status === 'cancelled') return res.status(400).json({ message: 'Phiếu đã bị hủy.' })
+
+  // Fetch step-1 out lines for validation
+  const step1Lines = await prisma.productionOrderLine.findMany({
+    where: { orderId, step: 1, direction: 'out' },
+    select: { productId: true, lotNo: true, actualQty: true },
+  })
+
+  // Fetch already-returned qty per (productId, lotNo) for this order
+  // A "return" = import transaction linked to this productionOrderId
+  const existingReturns = await prisma.inventoryTransaction.findMany({
+    where: { productionOrderId: orderId, isCancelled: false, type: 'import' },
+    include: { batch: { select: { productId: true, lotNo: true } } },
+  })
+
+  type ReturnKey = string
+  const alreadyReturnedQty = new Map<ReturnKey, number>()
+  for (const r of existingReturns) {
+    const key: ReturnKey = `${r.batch.productId}-${r.batch.lotNo}`
+    const qty = typeof r.quantityBase === 'object'
+      ? (r.quantityBase as unknown as { toNumber(): number }).toNumber()
+      : Number(r.quantityBase)
+    alreadyReturnedQty.set(key, (alreadyReturnedQty.get(key) ?? 0) + qty)
+  }
+
+  // Validate each return line
+  for (const line of parsed.data.lines) {
+    const step1 = step1Lines.find(l => l.productId === line.productId && l.lotNo === line.lotNo)
+    const exportedQty = step1
+      ? (typeof step1.actualQty === 'object'
+          ? (step1.actualQty as unknown as { toNumber(): number }).toNumber()
+          : Number(step1.actualQty))
+      : 0
+    const alreadyReturned = alreadyReturnedQty.get(`${line.productId}-${line.lotNo}`) ?? 0
+    const remainingExport = exportedQty - alreadyReturned
+
+    if (line.returnQty > remainingExport + 0.0001) {
+      return res.status(422).json({
+        message: `Số lượng hoàn nhập (${line.returnQty}) vượt quá số lượng có thể hoàn (${remainingExport.toFixed(3)}) cho lô "${line.lotNo}".`,
+      })
+    }
+  }
+
+  const returned: Array<{ productId: string; lotNo: string; returnQty: number }> = []
+
+  await prisma.$transaction(async (tx) => {
+    const now = new Date()
+
+    for (const line of parsed.data.lines) {
+      const batch = await tx.batch.findFirst({
+        where: { productId: line.productId, lotNo: line.lotNo, deletedAt: null },
+        select: { id: true },
+      })
+      if (!batch) {
+        throw new Error(`Không tìm thấy lô hàng "${line.lotNo}" để hoàn nhập.`)
+      }
+
+      // Create import transaction (return to warehouse)
+      await tx.inventoryTransaction.create({
+        data: {
+          batchId:           batch.id,
+          userId,
+          productionOrderId: orderId,
+          type:              'import',
+          quantityBase:      line.returnQty,
+          isCancelled:       false,
+          notes:             `Hoàn nhập NVL thừa – lệnh ${order.orderRef ?? orderId.toString()}`,
+          transactionDate:   now,
+        },
+      })
+
+      // Restore batch qty
+      await tx.batch.update({
+        where: { id: batch.id },
+        data:  { currentQtyBase: { increment: line.returnQty } },
+      })
+
+      returned.push({ productId: line.productId.toString(), lotNo: line.lotNo, returnQty: line.returnQty })
+    }
+
+    // Audit log
+    await tx.productionOrder.update({
+      where: { id: orderId },
+      data: {
+        logs: {
+          create: {
+            userId,
+            userName: req.auth!.email,
+            action:   `Hoàn nhập NVL thừa – ${returned.length} dòng, tổng ${returned.reduce((s, r) => s + r.returnQty, 0).toFixed(3)} đơn vị`,
+            logType:  'process',
+          },
+        },
+      },
+    })
+  })
+
+  return res.json({ success: true, returned })
+})
+
 // ─── GET LINES (by step) ──────────────────────────────────────────────────────
 
 router.get('/:id/lines', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {

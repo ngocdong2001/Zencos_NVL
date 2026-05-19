@@ -252,3 +252,19 @@ export async function fetchProductOutputs(params?: {
   const qs = query.toString()
   return http<ProductOutput[]>(`/api/catalog/products-outputs${qs ? `?${qs}` : ''}`)
 }
+
+export type ReturnNvlLine = {
+  productId: string
+  lotNo: string
+  returnQty: number
+}
+
+export async function returnNvlToWarehouse(
+  id: string,
+  lines: ReturnNvlLine[],
+): Promise<{ success: boolean; returned: ReturnNvlLine[] }> {
+  return http<{ success: boolean; returned: ReturnNvlLine[] }>(`/api/production-orders/${id}/return-nvl`, {
+    method: 'POST',
+    body: JSON.stringify({ lines }),
+  })
+}

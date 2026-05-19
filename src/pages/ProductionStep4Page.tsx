@@ -12,6 +12,7 @@ import {
   fetchProductionOrderDetail,
   upsertProductionOrderLines,
   updateProductionOrderStatus,
+  returnNvlToWarehouse,
   type LinePayload,
   type ProductionOrderDetail,
   type ProductionOrderLine,
@@ -34,6 +35,20 @@ interface TpReceiptLine {
   unit: string
   qualityStatus: 'pass' | 'fail' | 'pending'
   notes: string
+}
+
+interface NvlReturnLine {
+  id: string
+  productId: string | null
+  productCode: string
+  productName: string
+  lotNo: string | null
+  unit: string
+  plannedQty: number
+  exportedQty: number    // step1 actualQty — đã xuất khỏi kho
+  consumedQty: number    // step2 actualQty sum — thực tế tiêu hao (user nhập ở bước 2)
+  diffQty: number        // exportedQty - consumedQty (+ = còn dư, - = thiếu)
+  returnQty: number      // editable
 }
 
 interface Step3BtpSummary {
@@ -163,6 +178,11 @@ export function ProductionStep4Page() {
   const [error, setError] = useState<string | null>(null)
   const [processedAt, setProcessedAt] = useState<Date | null>(null)
 
+  // NVL return state
+  const [nvlReturnLines, setNvlReturnLines] = useState<NvlReturnLine[]>([])
+  const [step1RawLines, setStep1RawLines] = useState<ProductionOrderLine[]>([])
+  const [returnQtyErrorIds, setReturnQtyErrorIds] = useState<Set<string>>(new Set())
+
   // Flow diagram modal
   const [showFlowModal, setShowFlowModal] = useState(false)
 
@@ -190,6 +210,53 @@ export function ProductionStep4Page() {
           setReceiptLines([])
         }
         setProcessedAt(data.step4ProcessedAt ? new Date(data.step4ProcessedAt) : null)
+
+        // Build NVL return lines from step-1 out lines
+        const step1Lines = data.lines.filter((l) => l.step === 1 && l.direction === 'out')
+        setStep1RawLines(data.lines.filter((l) => l.step === 1))
+        // Build consumption map from step-2 in lines (SL thực tiêu hao, user nhập ở bước 2)
+        const step2InLines = data.lines.filter((l) => l.step === 2 && l.direction === 'in')
+        const consumedMap = new Map<string, number>()
+        for (const l of step2InLines) {
+          const key = `${l.productCode}|${l.lotNo ?? ''}`
+          consumedMap.set(key, (consumedMap.get(key) ?? 0) + Number(l.actualQty))
+        }
+        // Group step1 lines by productCode+lotNo to handle same NVL added multiple times
+        type Step1Group = { firstId: string; line: typeof step1Lines[0]; planned: number; exported: number; savedWaste: number }
+        const groupMap = new Map<string, Step1Group>()
+        for (const l of step1Lines) {
+          const key = `${l.productCode}|${l.lotNo ?? ''}`
+          const existing = groupMap.get(key)
+          if (existing) {
+            existing.planned += Number(l.plannedQty)
+            existing.exported += Number(l.actualQty)
+            existing.savedWaste += Number(l.wasteQty)
+          } else {
+            groupMap.set(key, { firstId: String(l.id), line: l, planned: Number(l.plannedQty), exported: Number(l.actualQty), savedWaste: Number(l.wasteQty) })
+          }
+        }
+        // Restore saved returnQty from wasteQty if step 4 has been saved before
+        const hasSavedStep4 = !!data.step4ProcessedAt || data.lines.some((l) => l.step === 4)
+        const returnLines: NvlReturnLine[] = []
+        for (const [key, group] of groupMap) {
+          const consumed = consumedMap.get(key) ?? 0
+          const diff = group.exported - consumed
+          const returnQty = hasSavedStep4 ? group.savedWaste : Math.max(0, diff)
+          returnLines.push({
+            id: group.firstId,
+            productId: group.line.productId,
+            productCode: group.line.productCode,
+            productName: group.line.productName,
+            lotNo: group.line.lotNo,
+            unit: group.line.unit,
+            plannedQty: group.planned,
+            exportedQty: group.exported,
+            consumedQty: consumed,
+            diffQty: diff,
+            returnQty,
+          })
+        }
+        setNvlReturnLines(returnLines)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -197,6 +264,29 @@ export function ProductionStep4Page() {
 
   function handleLineChange<K extends keyof TpReceiptLine>(id: string, field: K, value: TpReceiptLine[K]) {
     setReceiptLines((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)))
+  }
+
+  function handleReturnQtyChange(id: string, value: number) {
+    setNvlReturnLines((prev) => {
+      const updated = prev.map((line) => (line.id === id ? { ...line, returnQty: value } : line))
+      // Real-time validation: update error set immediately as user types
+      const changedLine = updated.find((l) => l.id === id)
+      if (changedLine) {
+        const maxAllowed = changedLine.consumedQty > 0
+          ? Math.max(0, changedLine.diffQty)
+          : changedLine.exportedQty
+        setReturnQtyErrorIds((prev) => {
+          const next = new Set(prev)
+          if (value < 0 || value > maxAllowed + 0.0001) {
+            next.add(id)
+          } else {
+            next.delete(id)
+          }
+          return next
+        })
+      }
+      return updated
+    })
   }
 
   async function saveStep4Lines() {
@@ -218,10 +308,40 @@ export function ProductionStep4Page() {
       notes: line.notes || null,
     }))
 
+    // Persist returnQty into step-1 lines' wasteQty so it survives page reload
+    // For grouped NVL (same product+lot added multiple times), only the first line stores returnQty; others get 0
+    if (step1RawLines.length > 0) {
+      const seenReturnKeys = new Set<string>()
+      const step1Payload: LinePayload[] = step1RawLines.map((l) => {
+        const key = `${l.productCode}|${l.lotNo ?? ''}`
+        const returnLine = nvlReturnLines.find((r) => r.productCode === l.productCode && (r.lotNo ?? null) === (l.lotNo ?? null))
+        const isFirst = !seenReturnKeys.has(key)
+        if (isFirst) seenReturnKeys.add(key)
+        return {
+          productId: l.productId,
+          outputProductId: l.outputProductId,
+          productCode: l.productCode,
+          productName: l.productName,
+          lotNo: l.lotNo,
+          expiryDate: l.expiryDate,
+          plannedQty: Number(l.plannedQty),
+          actualQty: Number(l.actualQty),
+          wasteQty: isFirst ? (returnLine?.returnQty ?? 0) : 0,
+          unit: l.unit,
+          locationId: l.locationId,
+          qualityStatus: l.qualityStatus,
+          direction: l.direction,
+          notes: l.notes,
+        }
+      })
+      await upsertProductionOrderLines(orderId, 1, step1Payload)
+    }
+
     await upsertProductionOrderLines(orderId, 4, payload, processedAt?.toISOString() ?? null)
 
     const refreshed = await fetchProductionOrderDetail(orderId)
     setOrder(refreshed)
+    setStep1RawLines(refreshed.lines.filter((l) => l.step === 1))
     const refreshedStep4 = refreshed.lines.filter((l) => l.step === 4 && l.direction === 'in')
     if (refreshedStep4.length > 0) {
       setActualInputQty(Number(refreshedStep4[0].plannedQty))
@@ -278,7 +398,25 @@ export function ProductionStep4Page() {
       return
     }
 
-    // Show confirmation before completing
+    // Validate NVL return quantities are within allowed range
+    // Rule: returnQty must not exceed the actual surplus (max(0, diffQty) when B2 is done)
+    //       and must never exceed exportedQty
+    const invalidReturnLines = nvlReturnLines.filter((l) => {
+      if (l.returnQty < 0) return true
+      if (l.returnQty > l.exportedQty) return true
+      // When B2 data exists: can't return more than actual surplus
+      if (l.consumedQty > 0 && l.returnQty > Math.max(0, l.diffQty) + 0.0001) return true
+      return false
+    })
+    if (invalidReturnLines.length > 0) {
+      setReturnQtyErrorIds(new Set(invalidReturnLines.map((l) => l.id)))
+      const detail = invalidReturnLines.map((l) => {
+        const maxAllowed = l.consumedQty > 0 ? Math.max(0, l.diffQty) : l.exportedQty
+        return `${l.productCode}${l.lotNo ? ` (lô ${l.lotNo})` : ''}: nhập ${fmtQty(l.returnQty)} — tối đa ${fmtQty(maxAllowed)} ${l.unit}`
+      }).join('; ')
+      setError(`Số lượng hoàn nhập vượt phạm vi cho phép: ${detail}`)
+      return
+    }
     showDangerConfirm({
       header: 'Xác nhận hoàn tất phiếu',
       message: `Bạn chắc chắn muốn hoàn tất phiếu ${order?.orderRef ?? orderId}? Dữ liệu sẽ bị khóa lại và không thể chỉnh sửa.`,
@@ -288,6 +426,14 @@ export function ProductionStep4Page() {
         setCompleting(true)
         setError(null)
         try {
+          // Auto-create NVL return for lines with returnQty > 0
+          const linesToReturn = nvlReturnLines.filter((l) => l.returnQty > 0 && l.productId && l.lotNo)
+          if (linesToReturn.length > 0) {
+            await returnNvlToWarehouse(
+              orderId,
+              linesToReturn.map((l) => ({ productId: l.productId!, lotNo: l.lotNo!, returnQty: l.returnQty })),
+            )
+          }
           await saveStep4Lines()
           await completeProductionOrder(orderId)
           navigate('/production')
@@ -466,6 +612,130 @@ export function ProductionStep4Page() {
             </div>
           ))}
         </div>
+
+        {/* ── NVL Dư / Thiếu & Hoàn Nhập ── */}
+        {nvlReturnLines.length > 0 && (
+          <div className="prod-card" style={{ border: '1.5px solid #e0e7ff' }}>
+            <div className="prod-card__title-row" style={{ marginBottom: 12 }}>
+              <div className="prod-card__title-left">
+                <span className="prod-step-badge" style={{ background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe' }}>
+                  <i className="pi pi-box" /> NVL
+                </span>
+                <span className="prod-card__title">Kiểm tra NVL Thừa / Thiếu — Hoàn Nhập</span>
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                Số lượng hoàn nhập có thể chỉnh sửa. Chỉ hàng có lô hàng và SL &gt; 0 mới được xử lý.
+              </div>
+            </div>
+
+            {/* Table header */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '80px 1fr 80px 50px 80px 90px 90px 80px 110px',
+              gap: 8,
+              padding: '6px 10px',
+              background: '#f8fafc',
+              borderRadius: 8,
+              fontSize: 11,
+              fontWeight: 700,
+              color: '#64748b',
+              textTransform: 'uppercase',
+              letterSpacing: '0.8px',
+              marginBottom: 4,
+            }}>
+              <div>Mã NVL</div>
+              <div>Tên NVL</div>
+              <div>Số Lô</div>
+              <div>ĐVT</div>
+              <div style={{ textAlign: 'right' }}>KH Xuất</div>
+              <div style={{ textAlign: 'right' }}>Xuất kho (B1)</div>
+              <div style={{ textAlign: 'right', color: '#3b82f6' }}>Tiêu hao (B2)</div>
+              <div style={{ textAlign: 'right' }}>Còn dư</div>
+              <div style={{ textAlign: 'right' }}>SL Hoàn nhập</div>
+            </div>
+
+            {nvlReturnLines.map((line) => {
+              const isExcess = line.diffQty > 0.0001
+              const isShort  = line.diffQty < -0.0001
+              const hasReturnError = returnQtyErrorIds.has(line.id)
+              // Real-time: max allowed = surplus if B2 done, else exportedQty
+              const maxAllowedReturn = line.consumedQty > 0 ? Math.max(0, line.diffQty) : line.exportedQty
+              const isReturnOverLimit = line.returnQty > maxAllowedReturn + 0.0001
+              const showReturnErr = hasReturnError || isReturnOverLimit
+              return (
+                <div key={line.id} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '80px 1fr 80px 50px 80px 90px 90px 80px 110px',
+                  gap: 8,
+                  padding: '7px 10px',
+                  borderRadius: 8,
+                  marginBottom: 3,
+                  background: showReturnErr ? '#fff1f2' : isExcess ? '#f0fdf4' : isShort ? '#fff7ed' : '#fafafa',
+                  border: `1.5px solid ${showReturnErr ? '#ef4444' : isExcess ? '#bbf7d0' : isShort ? '#fed7aa' : '#e2e8f0'}`,
+                  boxShadow: showReturnErr ? '0 0 0 3px #fee2e220' : undefined,
+                  alignItems: 'center',
+                  fontSize: 13,
+                }}>
+                  <div style={{ fontWeight: 700, color: '#5269e0', fontSize: 12 }}>{line.productCode}</div>
+                  <div style={{ color: '#1e293b', fontSize: 12 }}>{line.productName}</div>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>{line.lotNo ?? <span style={{ color: '#cbd5e1' }}>—</span>}</div>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>{line.unit}</div>
+                  <div style={{ textAlign: 'right', color: '#475569' }}>{fmtQty(line.plannedQty)}</div>
+                  <div style={{ textAlign: 'right', color: '#475569' }}>{fmtQty(line.exportedQty)}</div>
+                  <div style={{ textAlign: 'right', fontWeight: 600, color: line.consumedQty > 0 ? '#1e293b' : '#94a3b8' }}>
+                    {line.consumedQty > 0 ? fmtQty(line.consumedQty) : <span style={{ fontSize: 11 }}>Chưa có B2</span>}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    {isExcess ? (
+                      <span style={{ color: '#15803d', fontWeight: 700, fontSize: 12 }}>
+                        +{fmtQty(line.diffQty)} <span style={{ background: '#dcfce7', borderRadius: 10, padding: '1px 7px', fontSize: 10 }}>THỪA</span>
+                      </span>
+                    ) : isShort ? (
+                      <span style={{ color: '#c2410c', fontWeight: 700, fontSize: 12 }}>
+                        {fmtQty(line.diffQty)} <span style={{ background: '#ffedd5', borderRadius: 10, padding: '1px 7px', fontSize: 10 }}>THIẾU</span>
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8', fontSize: 12 }}>0 <span style={{ background: '#f1f5f9', borderRadius: 10, padding: '1px 7px', fontSize: 10 }}>ĐÚNG KH</span></span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <InputNumber
+                      value={line.returnQty}
+                      onValueChange={(e) => handleReturnQtyChange(line.id, e.value ?? 0)}
+                      mode="decimal"
+                      min={0}
+                      maxFractionDigits={3}
+                      locale="vi-VN"
+                      disabled={isLocked}
+                      inputStyle={{ width: 100, textAlign: 'right', fontSize: 13, padding: '4px 8px',
+                        background: showReturnErr ? '#fff1f2' : line.returnQty > 0 ? '#eff6ff' : undefined,
+                        borderColor: showReturnErr ? '#ef4444' : undefined,
+                        outline: showReturnErr ? '2px solid #fca5a5' : undefined,
+                      }}
+                    />
+                    {showReturnErr && (
+                      <span style={{ fontSize: 9, color: '#ef4444', whiteSpace: 'nowrap' }}>
+                        Tối đa {fmtQty(maxAllowedReturn)} {line.unit}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* Footer summary */}
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b' }}>
+              {nvlReturnLines.filter((l) => l.diffQty > 0.0001).length} dòng THỪA &nbsp;·&nbsp;
+              {nvlReturnLines.filter((l) => l.diffQty < -0.0001).length} dòng THIẾU &nbsp;·&nbsp;
+              Tổng SL hoàn nhập: <strong style={{ color: '#1e293b' }}>
+                {fmtQty(nvlReturnLines.reduce((s, l) => s + l.returnQty, 0))}
+              </strong>
+              <span style={{ marginLeft: 12, color: '#94a3b8', fontStyle: 'italic' }}>
+                — Phiếu hoàn nhập sẽ được tạo tự động khi xác nhận hoàn tất.
+              </span>
+            </div>
+          </div>
+        )}
 
         <div className="prod-card prod-step4-receipt-card">
           <div className="prod-card__title-row">
