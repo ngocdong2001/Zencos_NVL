@@ -555,6 +555,83 @@
 }
 .idb-text-btn:hover { text-decoration: underline; }
 
+/* ── Transaction date-range filter bar ────────────────────────────────── */
+.idb-tx-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.idb-tx-date-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.idb-tx-date-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.875rem;
+  color: #9ca3af;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.idb-tx-date-picker .idb-tx-calendar .p-inputtext {
+  height: 36px;
+  padding: 0.4rem 1.75rem 0.4rem 2.25rem;
+  border: 1px solid #dee1e6;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: #171a1f;
+  min-width: 200px;
+  width: 200px;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.idb-tx-date-picker .idb-tx-calendar .p-inputtext::placeholder {
+  color: #adb5bd;
+}
+
+.idb-tx-date-picker .idb-tx-calendar .p-inputtext:focus {
+  outline: none;
+  border-color: #5269e0;
+  box-shadow: 0 0 0 3px rgba(82, 105, 224, 0.1);
+}
+
+.idb-tx-date-picker .idb-tx-calendar .p-datepicker-trigger {
+  display: none;
+}
+
+.idb-tx-date-clear {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.6rem;
+  transition: all 0.15s ease;
+  z-index: 2;
+}
+
+.idb-tx-date-clear:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
 .idb-lot-link--btn {
   background: none;
   border: none;

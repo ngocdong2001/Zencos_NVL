@@ -138,7 +138,11 @@ export function InventoryTable({
           <thead>
             <tr>
               <th>LOT NO</th>
+              <th>NGÀY HÓA ĐƠN NHẬP</th>
+              <th>SỐ HÓA ĐƠN</th>
+              <th>NGÀY SẢN XUẤT</th>
               <th>HẠN SỬ DỤNG</th>
+              <th>NGÀY NHẬP KHO</th>
               <th className="lot-col-right">ĐƠN GIÁ/1 KG</th>
               <th className="lot-col-right">TỒN KHO (g)</th>
               <th>TRẠNG THÁI</th>
@@ -147,7 +151,7 @@ export function InventoryTable({
           <tbody>
             {isLoadingLots && (
               <tr>
-                <td colSpan={5} className="lot-empty">
+                <td colSpan={9} className="lot-empty">
                   <i className="pi pi-spin pi-spinner" style={{ marginRight: 6 }}></i>
                   Đang tải...
                 </td>
@@ -156,7 +160,11 @@ export function InventoryTable({
             {!isLoadingLots && lots && lots.map((lot) => (
               <tr key={lot.id}>
                 <td className="lot-no">{lot.lotNo}</td>
+                <td>{lot.invoiceDate ? formatDate(lot.invoiceDate) : <span className="lot-empty-cell">—</span>}</td>
+                <td>{lot.invoiceNumber ?? <span className="lot-empty-cell">—</span>}</td>
+                <td>{lot.manufactureDate ? formatDate(lot.manufactureDate) : <span className="lot-empty-cell">—</span>}</td>
                 <td>{formatDate(lot.expiryDate)}</td>
+                <td>{lot.receivedAt ? formatDate(lot.receivedAt) : <span className="lot-empty-cell">—</span>}</td>
                 <td className="lot-col-right">{formatVND(lot.unitPricePerKg)}</td>
                 <td className="lot-col-right">
                   <strong>{formatQuantity(lot.quantityGram)}</strong>
@@ -168,7 +176,7 @@ export function InventoryTable({
             ))}
             {!isLoadingLots && lots && lots.length === 0 && (
               <tr>
-                <td colSpan={5} className="lot-empty">Chưa có lô hàng nào</td>
+                <td colSpan={9} className="lot-empty">Chưa có lô hàng nào</td>
               </tr>
             )}
           </tbody>

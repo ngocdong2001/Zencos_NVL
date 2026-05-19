@@ -245,19 +245,26 @@ router.get('/items/:id/lots', async (req: Request, res: Response) => {
     orderBy: { expiryDate: 'asc' },
     select: {
       id: true, lotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
-      inboundReceiptItemSource: { select: { inboundReceipt: { select: { id: true, receiptRef: true } } } },
+      invoiceNumber: true, invoiceDate: true, manufactureDate: true,
+      inboundReceiptItemSource: { select: { inboundReceipt: { select: { id: true, receiptRef: true, receivedAt: true } } } },
     },
   })
 
   const lots = batches.map((b) => ({
     id: String(b.id),
     lotNo: b.lotNo,
+    invoiceNumber: b.invoiceNumber ?? null,
+    invoiceDate: b.invoiceDate ? b.invoiceDate.toISOString() : null,
+    manufactureDate: b.manufactureDate ? b.manufactureDate.toISOString() : null,
     expiryDate: b.expiryDate ? b.expiryDate.toISOString() : null,
     unitPricePerKg: Number(b.unitPricePerKg),
     quantityGram: Number(b.currentQtyBase),
     status: lotStatus(b.expiryDate),
     receiptId:  b.inboundReceiptItemSource?.inboundReceipt?.id  ? String(b.inboundReceiptItemSource.inboundReceipt.id) : null,
     receiptRef: b.inboundReceiptItemSource?.inboundReceipt?.receiptRef ?? null,
+    receivedAt: b.inboundReceiptItemSource?.inboundReceipt?.receivedAt
+      ? b.inboundReceiptItemSource.inboundReceipt.receivedAt.toISOString()
+      : null,
   }))
 
   res.json(lots)

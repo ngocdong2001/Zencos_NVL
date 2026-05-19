@@ -6,12 +6,16 @@ const http = apiFetch
 export type LotDetail = {
   id: string
   lotNo: string
+  invoiceNumber: string | null
+  invoiceDate: string | null
+  manufactureDate: string | null
   expiryDate: string
   unitPricePerKg: number
   quantityGram: number
   status: 'near_expiration' | 'monitoring' | 'normal'
   receiptId: string | null
   receiptRef: string | null
+  receivedAt: string | null
   manufacturerName: string | null
 }
 

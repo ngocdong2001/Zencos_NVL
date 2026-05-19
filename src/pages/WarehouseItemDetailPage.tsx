@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
+import { Calendar } from 'primereact/calendar'
 import { Dialog } from 'primereact/dialog'
 import { InputText } from 'primereact/inputtext'
 import { RadioButton } from 'primereact/radiobutton'
@@ -117,9 +118,18 @@ function buildConsumptionData(monthlyStats: InventoryItemDetail['monthlyStats'])
 export function WarehouseItemDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [detail, setDetail] = useState<InventoryItemDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // ── Date range filter for transaction ledger ─────────────────────────
+  const [txDateRange, setTxDateRange] = useState<[Date | null, Date | null] | null>(() => {
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    if (!from && !to) return null
+    return [from ? new Date(from) : null, to ? new Date(to) : null]
+  })
 
   // ── Inbound receipt dialog ───────────────────────────────────────────
   const [receiptDialogVisible, setReceiptDialogVisible] = useState(false)
@@ -250,13 +260,44 @@ export function WarehouseItemDetailPage() {
   const totalOutQty = orderedTransactions.reduce((sum, tx) => sum + (tx.type === 'export' ? tx.quantityBase : 0), 0)
   const openingBalance = detail.stockQuantity - totalInQty + totalOutQty
 
+  // ── Date-range filtering for ledger display ──────────────────────────
+  const txFilterFrom = txDateRange?.[0]
+    ? (() => { const d = new Date(txDateRange[0]!); d.setHours(0, 0, 0, 0); return d })()
+    : null
+  const txFilterTo = txDateRange?.[1]
+    ? (() => { const d = new Date(txDateRange[1]!); d.setHours(23, 59, 59, 999); return d })()
+    : null
+
+  const txBeforeRange = txFilterFrom
+    ? orderedTransactions.filter((tx) => new Date(tx.transactionDate) < txFilterFrom)
+    : []
+
+  const txInRange = orderedTransactions.filter((tx) => {
+    const d = new Date(tx.transactionDate)
+    if (txFilterFrom && d < txFilterFrom) return false
+    if (txFilterTo && d > txFilterTo) return false
+    return true
+  })
+
+  // Opening balance at the start of the visible range
+  const openingBalanceForDisplay = openingBalance + txBeforeRange.reduce(
+    (sum, tx) => sum + (tx.type === 'export' ? -tx.quantityBase : tx.quantityBase),
+    0,
+  )
+
+  const displayTxList = txFilterFrom || txFilterTo ? txInRange : orderedTransactions
+  const displayOpeningBalance = txFilterFrom || txFilterTo ? openingBalanceForDisplay : openingBalance
+  const displayTotalIn = displayTxList.reduce((sum, tx) => sum + (tx.type === 'export' ? 0 : tx.quantityBase), 0)
+  const displayTotalOut = displayTxList.reduce((sum, tx) => sum + (tx.type === 'export' ? tx.quantityBase : 0), 0)
+  const displayFinalBalance = displayOpeningBalance + displayTotalIn - displayTotalOut
+
   const ledgerRows: LedgerRow[] = (() => {
     const rows: LedgerRow[] = [
-      { kind: 'opening', inQty: 0, outQty: 0, balance: openingBalance },
+      { kind: 'opening', inQty: 0, outQty: 0, balance: displayOpeningBalance },
     ]
 
-    let runningBalance = openingBalance
-    for (const tx of orderedTransactions) {
+    let runningBalance = displayOpeningBalance
+    for (const tx of displayTxList) {
       const inQty = tx.type === 'export' ? 0 : tx.quantityBase
       const outQty = tx.type === 'export' ? tx.quantityBase : 0
       runningBalance += inQty - outQty
@@ -271,9 +312,9 @@ export function WarehouseItemDetailPage() {
 
     rows.push({
       kind: 'total',
-      inQty: totalInQty,
-      outQty: totalOutQty,
-      balance: detail.stockQuantity,
+      inQty: displayTotalIn,
+      outQty: displayTotalOut,
+      balance: displayFinalBalance,
     })
     return rows
   })()
@@ -506,7 +547,31 @@ export function WarehouseItemDetailPage() {
                 <i className="pi pi-history idb-section-icon" />
                 <span className="idb-section-title">Lịch sử Giao dịch</span>
               </div>
-              <button className="idb-text-btn">Xem tất cả</button>
+              <div className="idb-tx-filter-bar">
+                <div className="idb-tx-date-picker">
+                  <i className="pi pi-calendar idb-tx-date-icon"></i>
+                  <Calendar
+                    value={txDateRange ?? null}
+                    onChange={(e) => setTxDateRange(e.value as [Date | null, Date | null] | null)}
+                    selectionMode="range"
+                    readOnlyInput
+                    placeholder="Từ ngày - Đến ngày"
+                    dateFormat="dd/mm/yy"
+                    showButtonBar
+                    className="idb-tx-calendar"
+                    panelClassName="date-range-panel"
+                  />
+                  {txDateRange?.[0] && (
+                    <button
+                      className="idb-tx-date-clear"
+                      onClick={() => setTxDateRange(null)}
+                      title="Xóa bộ lọc ngày"
+                    >
+                      <i className="pi pi-times"></i>
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <DataTable
               value={ledgerRows}

@@ -29,7 +29,12 @@ export function WarehousePage() {
   // Filter and pagination state
   const [searchQuery, setSearchQuery] = useState('')
   const [filterOption, setFilterOption] = useState<FilterOptions>('all')
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(null)
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(() => {
+    const now = new Date()
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    return [firstDay, lastDay]
+  })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -261,7 +266,15 @@ export function WarehousePage() {
           setPageSize(size)
           setCurrentPage(1)
         }}
-        onItemClick={(id) => navigate(`/warehouse/${id}`)}
+        onItemClick={(id) => {
+          const toLocalDateStr = (d: Date) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          const params = new URLSearchParams()
+          if (dateRange?.[0]) params.set('from', toLocalDateStr(dateRange[0]))
+          if (dateRange?.[1]) params.set('to', toLocalDateStr(dateRange[1]))
+          const qs = params.toString()
+          navigate(`/warehouse/${id}${qs ? `?${qs}` : ''}`)
+        }}
       />
 
     </div>
