@@ -42,6 +42,12 @@ export type InventorySummary = {
 
 export type FilterOptions = 'all' | 'expiring_soon' | 'low_stock'
 
+export type WarehouseLocation = {
+  id: string
+  code: string
+  name: string
+}
+
 export type ItemTransaction = {
   id: string
   type: 'import' | 'export' | 'adjustment'
@@ -86,8 +92,9 @@ export async function fetchProductLots(productId: string, signal?: AbortSignal):
   return http<LotDetail[]>(`/api/warehouse/items/${productId}/lots`, signal ? { signal } : undefined)
 }
 
-export async function fetchInventoryItemDetail(id: string): Promise<InventoryItemDetail> {
-  return http<InventoryItemDetail>(`/api/warehouse/items/${id}`)
+export async function fetchInventoryItemDetail(id: string, locationId?: string): Promise<InventoryItemDetail> {
+  const qs = locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+  return http<InventoryItemDetail>(`/api/warehouse/items/${id}${qs}`)
 }
 
 export type WarehouseData = {
@@ -103,6 +110,7 @@ export async function fetchWarehouseData(
   pageSize: number = 10,
   dateFrom?: Date | null,
   dateTo?: Date | null,
+  locationId?: string,
 ): Promise<WarehouseData> {
   const params = new URLSearchParams({
     filter,
@@ -112,7 +120,12 @@ export async function fetchWarehouseData(
   })
   if (dateFrom) params.set('dateFrom', dateFrom.toISOString().split('T')[0])
   if (dateTo) params.set('dateTo', dateTo.toISOString().split('T')[0])
+  if (locationId) params.set('locationId', locationId)
   return http<WarehouseData>(`/api/warehouse?${params.toString()}`)
+}
+
+export async function fetchWarehouseLocations(): Promise<WarehouseLocation[]> {
+  return http<WarehouseLocation[]>('/api/warehouse/locations')
 }
 
 export async function fetchInventorySummary(): Promise<InventorySummary> {

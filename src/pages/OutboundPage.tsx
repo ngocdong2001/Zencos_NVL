@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
 import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
-import { InputTextarea } from 'primereact/inputtextarea'
 import { Tag } from 'primereact/tag'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { Dialog } from 'primereact/dialog'
@@ -36,6 +36,8 @@ type AllocationRow = {
   exportQty: number
   inputValue: string
   manufacturerName: string | null
+  locationCode: string | null
+  locationName: string | null
 }
 
 type MaterialLine = {
@@ -128,6 +130,7 @@ export function OutboundPage() {
 
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
+  const linesRef = useRef<MaterialLine[]>([])
 
   const [customerRows, setCustomerRows] = useState<BasicRow[]>([])
   const [locationOptions, setLocationOptions] = useState<SelectOption[]>([])
@@ -136,6 +139,7 @@ export function OutboundPage() {
 
   const [customerId, setCustomerId] = useState('')
   const [sourceLocationId, setSourceLocationId] = useState('')
+  const [exportedAt, setExportedAt] = useState<Date>(() => new Date())
   const [dienGiai, setDienGiai] = useState('')
   const [lines, setLines] = useState<MaterialLine[]>([createEmptyLine()])
   const [activeLineIdx, setActiveLineIdx] = useState(0)
@@ -160,6 +164,36 @@ export function OutboundPage() {
   const isLockedEditMode = isEditMode && (editingStatus === 'fulfilled' || editingStatus === 'cancelled')
   const isFulfilledViewMode = isEditMode && editingStatus === 'fulfilled'
   const isCancelledViewMode = isEditMode && editingStatus === 'cancelled'
+
+  // Keep a ref so the sourceLocationId reload effect can read current lines without stale closure
+  useEffect(() => { linesRef.current = lines }, [lines])
+
+  // Reload stock when source location or exportedAt changes (new-order mode only)
+  const prevLocationIdRef = useRef<string>('')
+  const prevExportedAtRef = useRef<string>('')
+  useEffect(() => {
+    const prev = prevLocationIdRef.current
+    const prevDate = prevExportedAtRef.current
+    const nowDate = exportedAt.toISOString()
+    prevLocationIdRef.current = sourceLocationId
+    prevExportedAtRef.current = nowDate
+    if (prev === sourceLocationId && prevDate === nowDate) return // no actual change
+    if (isEditMode) return // edit mode loads its own stock
+    const currentLines = linesRef.current
+    currentLines.forEach((line, idx) => {
+      if (!line.materialId) return
+      updateLine(idx, (l) => ({ ...l, stockLoading: true }))
+      void Promise.all([
+        fetchInventoryStock(line.materialId, sourceLocationId || undefined, exportedAt.toISOString()),
+        fetchFefoSuggestions(line.materialId, 6, sourceLocationId || undefined, exportedAt.toISOString()),
+      ]).then(([stock, fefo]) => {
+        updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
+      }).catch(() => {
+        updateLine(idx, (l) => ({ ...l, stockLoading: false }))
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceLocationId, exportedAt, isEditMode])
 
   const loadHistory = async (id: string) => {
     setHistoryLoading(true)
@@ -284,6 +318,7 @@ export function OutboundPage() {
           setSourceOrderId(detail.sourceOrder?.id ?? null)
           setAdjustedByOrderId(detail.adjustedByOrder?.id ?? null)
           setSourceLocationId(detail.sourceLocation?.id ?? '')
+          setExportedAt(detail.exportedAt ? new Date(detail.exportedAt) : new Date())
           setFormSuccess(null)
           setEditingOrderRef(detail.orderRef)
           setCustomerId(detail.customer?.id ?? '')
@@ -324,6 +359,8 @@ export function OutboundPage() {
                 exportQty: toNumeric(item.quantityBase),
                 inputValue: formatQuantity(toNumeric(item.quantityBase)),
                 manufacturerName: null,
+                locationCode: null,
+                locationName: null,
               }))
 
             editLines.push({
@@ -346,8 +383,8 @@ export function OutboundPage() {
               if (!line.materialId) return { stock: [] as InventoryStockBatch[], fefo: [] as InventoryStockBatch[] }
               try {
                 const [stock, fefo] = await Promise.all([
-                  fetchInventoryStock(line.materialId),
-                  fetchFefoSuggestions(line.materialId, 6),
+                  fetchInventoryStock(line.materialId, detail.sourceLocation?.id, detail.exportedAt ?? undefined),
+                  fetchFefoSuggestions(line.materialId, 6, detail.sourceLocation?.id, detail.exportedAt ?? undefined),
                 ])
                 return { stock, fefo }
               } catch {
@@ -452,8 +489,8 @@ export function OutboundPage() {
     if (!newMaterialId) return
     try {
       const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(newMaterialId),
-        fetchFefoSuggestions(newMaterialId, 6),
+        fetchInventoryStock(newMaterialId, sourceLocationId || undefined, exportedAt.toISOString()),
+        fetchFefoSuggestions(newMaterialId, 6, sourceLocationId || undefined, exportedAt.toISOString()),
       ])
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
     } catch {
@@ -526,6 +563,8 @@ export function OutboundPage() {
         exportQty,
         inputValue: formatQuantity(exportQty),
         manufacturerName: lot.manufacturerName ?? null,
+        locationCode: lot.location?.code ?? null,
+        locationName: lot.location?.name ?? null,
       })
       remain -= exportQty
     }
@@ -553,6 +592,8 @@ export function OutboundPage() {
             exportQty: defaultQty,
             inputValue: defaultQty > 0 ? formatQuantity(defaultQty) : '',
             manufacturerName: lot.manufacturerName ?? null,
+            locationCode: lot.location?.code ?? null,
+            locationName: lot.location?.name ?? null,
           },
         ],
       }
@@ -670,7 +711,7 @@ export function OutboundPage() {
         orderRef: isEditMode ? (editingOrderRef ?? undefined) : (newOrderRef.trim() || buildOutboundRef()),
         customerId,
         sourceLocationId: sourceLocationId || undefined,
-        exportedAt: new Date().toISOString(),
+        exportedAt: exportedAt.toISOString(),
         notes: shortageNote,
         dienGiai: dienGiai.trim() || undefined,
         shortages: shortages.length > 0 ? shortages : undefined,
@@ -895,15 +936,24 @@ export function OutboundPage() {
           </label>
 
           <label className="outbound-field">
+            <span>Ngày lập phiếu xuất</span>
+            <Calendar
+              value={exportedAt}
+              onChange={(e) => { if (e.value instanceof Date) setExportedAt(e.value) }}
+              dateFormat="dd/mm/yy"
+              showIcon
+              disabled={isLockedEditMode}
+              className="outbound-dropdown outbound-customer-select"
+            />
+          </label>
+
+          <label className="outbound-field" style={{ gridColumn: 'span 2' }}>
             <span>Diễn giải</span>
-            <InputTextarea
+            <InputText
               value={dienGiai}
               onChange={(e) => setDienGiai(e.target.value)}
               placeholder="Nhập diễn giải cho phiếu xuất..."
-              rows={3}
-              autoResize
               disabled={isLockedEditMode}
-              style={{ width: '100%' }}
             />
           </label>
         </div>
@@ -1019,7 +1069,7 @@ export function OutboundPage() {
                             className="ob-drill-fefo-hint-btn"
                             onClick={() => addLotToLine(idx, lot)}
                             disabled={isLockedEditMode}
-                            title={`${lot.lotNo} \u2013 T\u1ed3n: ${formatQuantity(toNumeric(lot.currentQtyBase))} \u2013 HSD: ${formatDateVi(lot.expiryDate)}`}
+                            title={`${lot.lotNo} \u2013 T\u1ed3n: ${formatQuantity(toNumeric(lot.currentQtyBase))} \u2013 HSD: ${formatDateVi(lot.expiryDate)}${lot.location ? ` \u2013 Kho: ${lot.location.name}` : ''}`}
                           >
                             <Tag value={lot.lotNo} severity={expTag.severity === 'danger' ? 'danger' : expTag.severity === 'warning' ? 'warning' : 'success'} />
                           </button>
@@ -1096,6 +1146,7 @@ export function OutboundPage() {
                             <i className="pi pi-clock" aria-hidden /> HSD: {formatDateVi(row.expiryDate)}
                           </span>
                           {row.manufacturerName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-building" aria-hidden /> {row.manufacturerName}</span> : null}
+                          {row.locationName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-map-marker" aria-hidden /> {row.locationName}</span> : null}
                         </div>
 
                         <div className="ob-drill-branch-fields">
@@ -1176,6 +1227,7 @@ export function OutboundPage() {
                     <span className="outbound-fefo-expiry"><i className="pi pi-clock" aria-hidden />HSD: {formatDateVi(lot.expiryDate)}</span>
                     <small>Tồn: {formatQuantity(toNumeric(lot.currentQtyBase))} {activeLineMaterial?.unit ?? ''}</small>
                     {lot.manufacturerName ? <small><i className="pi pi-building" aria-hidden /> {lot.manufacturerName}</small> : null}
+                    {lot.location ? <small><i className="pi pi-map-marker" aria-hidden /> {lot.location.name}</small> : null}
                   </div>
                 </div>
                 <span className="outbound-fefo-divider" aria-hidden />

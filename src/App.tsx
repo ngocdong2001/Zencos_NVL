@@ -38,8 +38,8 @@ function AppLayout() {
   const navItems = appRoutes
     .filter((route) => route.showInNav !== false)
     .filter((route) => !route.permission || hasPermission(route.permission))
-    .map(({ path, label, icon }) => ({
-      path, label, icon,
+    .map(({ path, label, icon, divider }) => ({
+      path, label, icon, divider,
       badge:
         path === '/inbound' ? (navBadges.inbound || undefined) :
         path === '/outbound' ? (navBadges.outbound || undefined) :

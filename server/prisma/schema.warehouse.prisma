@@ -385,7 +385,7 @@ model InventoryTransaction {
   exportOrderItemId    BigInt?                  @map("export_order_item_id") @db.UnsignedBigInt
   inboundReceiptItemId BigInt?                  @map("inbound_receipt_item_id") @db.UnsignedBigInt
   productionOrderId    BigInt?                  @map("production_order_id") @db.UnsignedBigInt
-  warehouseLocationId  BigInt?                  @map("warehouse_location_id") @db.UnsignedBigInt
+  warehouseLocationId  BigInt                   @map("warehouse_location_id") @db.UnsignedBigInt
   type                 InventoryTransactionType
   quantityBase         Decimal                  @map("quantity_base") @db.Decimal(15, 4)
   notes                String?                  @db.Text
@@ -399,7 +399,7 @@ model InventoryTransaction {
   inboundReceiptItemSource InboundReceiptItem?  @relation("InboundReceiptItemSourceTransaction", fields: [inboundReceiptItemId], references: [id], onDelete: SetNull)
   postedInboundReceiptItems InboundReceiptItem[] @relation("InboundReceiptPostedTransaction")
   productionOrder      ProductionOrder?         @relation("ProductionOrderNvlTransactions", fields: [productionOrderId], references: [id], onDelete: SetNull)
-  warehouseLocation    CatalogLocation?         @relation("InventoryTransactionLocation", fields: [warehouseLocationId], references: [id], onDelete: SetNull)
+  warehouseLocation    CatalogLocation          @relation("InventoryTransactionLocation", fields: [warehouseLocationId], references: [id], onDelete: Restrict)
 
   @@index([inboundReceiptItemId])
   @@index([batchId, transactionDate, type])

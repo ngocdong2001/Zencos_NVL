@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import corpLogo from '../../assets/CorpLogo.png'
 
-type NavItem = { path: string; label: string; icon?: string; badge?: number }
+type NavItem = { path: string; label: string; icon?: string; badge?: number; divider?: boolean }
 
 type MasterSidebarProps = {
   brandName: string
@@ -23,33 +23,41 @@ export function MasterSidebar({ brandName, navItems, footerItems }: MasterSideba
 
       <nav className="sidebar-nav" aria-label="Main">
         {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }) => `sidebar-item${isActive ? ' active' : ''}`}
-          >
-            {item.icon
-              ? <i className={item.icon} />
-              : <span className="item-dot" />}
-            {item.label}
-            {!!item.badge && item.badge > 0 && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                marginLeft: 6,
-                background: '#2626d9',
-                color: '#fff',
-                borderRadius: 8,
-                fontSize: 9,
-                fontWeight: 700,
-                padding: '1px 5px',
-                lineHeight: '14px',
-                minWidth: 14,
-                verticalAlign: 'middle',
-              }}>
-                {item.badge > 99 ? '99+' : item.badge}
-              </span>
+          <div key={item.path}>
+            {item.divider && (
+              <div className="sidebar-divider" style={{
+                height: '1px',
+                background: '#e5e7eb',
+                margin: '8px 0',
+              }} />
             )}
-          </NavLink>
+            <NavLink
+              to={item.path}
+              className={({ isActive }) => `sidebar-item${isActive ? ' active' : ''}`}
+            >
+              {item.icon
+                ? <i className={item.icon} />
+                : <span className="item-dot" />}
+              {item.label}
+              {!!item.badge && item.badge > 0 && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  marginLeft: 6,
+                  background: '#2626d9',
+                  color: '#fff',
+                  borderRadius: 8,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '1px 5px',
+                  lineHeight: '14px',
+                  minWidth: 14,
+                  verticalAlign: 'middle',
+                }}>
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
+            </NavLink>
+          </div>
         ))}
       </nav>
 

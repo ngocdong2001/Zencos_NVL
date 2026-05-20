@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import { Calendar } from 'primereact/calendar'
+import { Dropdown } from 'primereact/dropdown'
 import { Dialog } from 'primereact/dialog'
 import { InputText } from 'primereact/inputtext'
 import { RadioButton } from 'primereact/radiobutton'
@@ -10,8 +11,8 @@ import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
-import { fetchInventoryItemDetail } from '../lib/warehouseApi'
-import type { InventoryItemDetail, LotDetail } from '../lib/warehouseApi'
+import { fetchInventoryItemDetail, fetchWarehouseLocations } from '../lib/warehouseApi'
+import type { InventoryItemDetail, LotDetail, WarehouseLocation } from '../lib/warehouseApi'
 import {
   fetchInboundReceiptDetail,
   fetchInboundReceiptHistory,
@@ -123,6 +124,14 @@ export function WarehouseItemDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // ── Warehouse location filter ────────────────────────────────────────
+  const [locationId, setLocationId] = useState<string>(() => searchParams.get('locationId') ?? '')
+  const [locations, setLocations] = useState<WarehouseLocation[]>([])
+
+  useEffect(() => {
+    fetchWarehouseLocations().then(setLocations).catch(() => setLocations([]))
+  }, [])
+
   // ── Date range filter for transaction ledger ─────────────────────────
   const [txDateRange, setTxDateRange] = useState<[Date | null, Date | null] | null>(() => {
     const from = searchParams.get('from')
@@ -176,11 +185,11 @@ export function WarehouseItemDetailPage() {
     if (!id) return
     setLoading(true)
     setError(null)
-    fetchInventoryItemDetail(id)
+    fetchInventoryItemDetail(id, locationId || undefined)
       .then(setDetail)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [id])
+  }, [id, locationId])
 
   const trendData = useMemo(
     () => (detail ? buildTrendData(detail.monthlyStats, detail.stockQuantity) : []),
@@ -343,6 +352,21 @@ export function WarehouseItemDetailPage() {
           </div>
         </div>
         <div className="idb-code-badge">MÃ NGUYÊN VẬT LIỆU: {detail.code}</div>
+        {locations.length > 0 && (
+          <div className="idb-location-filter">
+            <i className="pi pi-building" style={{ color: '#9ca3af', fontSize: '0.875rem', flexShrink: 0 }} />
+            <Dropdown
+              value={locationId}
+              options={locations.map(l => ({ label: `${l.code} – ${l.name}`, value: l.id }))}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(e) => { setLocationId((e.value as string) || '') }}
+              placeholder="Tất cả kho"
+              className="idb-location-dropdown"
+              showClear={locationId !== ''}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── KPI Cards ──────────────────────────────────────────────────── */}

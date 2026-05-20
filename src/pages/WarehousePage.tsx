@@ -2,21 +2,24 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { Toast } from 'primereact/toast'
 import { Calendar } from 'primereact/calendar'
+import { Dropdown } from 'primereact/dropdown'
 import ExcelJS from 'exceljs'
 import { InventorySummaryCards } from '../components/warehouse/InventorySummaryCards'
 import { InventoryTable } from '../components/warehouse/InventoryTable'
 import {
   fetchWarehouseData,
+  fetchWarehouseLocations,
   type FilterOptions,
   type InventorySummary,
   type InventoryItem,
+  type WarehouseLocation,
 } from '../lib/warehouseApi'
 import './WarehousePage.css'
 
 type OutletContext = { search: string }
 
 export function WarehousePage() {
-  useOutletContext<OutletContext>()
+  const { search } = useOutletContext<OutletContext>()
   const navigate = useNavigate()
   const toastRef = useRef<Toast>(null)
 
@@ -27,8 +30,9 @@ export function WarehousePage() {
   const [loading, setLoading] = useState(false)
 
   // Filter and pagination state
-  const [searchQuery, setSearchQuery] = useState('')
   const [filterOption, setFilterOption] = useState<FilterOptions>('all')
+  const [locationId, setLocationId] = useState<string>('')
+  const [locations, setLocations] = useState<WarehouseLocation[]>([])
   const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(() => {
     const now = new Date()
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -38,6 +42,11 @@ export function WarehousePage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
+  // Load locations once
+  useEffect(() => {
+    fetchWarehouseLocations().then(setLocations).catch(() => setLocations([]))
+  }, [])
+
   // Load summary + items in a single combined request
   useEffect(() => {
     async function loadData() {
@@ -45,7 +54,7 @@ export function WarehousePage() {
       try {
         const dateFrom = dateRange?.[0] ?? null
         const dateTo = dateRange?.[1] ?? null
-        const data = await fetchWarehouseData(filterOption, searchQuery, currentPage, pageSize, dateFrom, dateTo)
+        const data = await fetchWarehouseData(filterOption, search, currentPage, pageSize, dateFrom, dateTo, locationId || undefined)
         setSummary(data.summary)
         setItems(data.items)
         setTotalItems(data.total)
@@ -58,15 +67,18 @@ export function WarehousePage() {
       }
     }
     loadData()
-  }, [filterOption, searchQuery, currentPage, pageSize, dateRange])
+  }, [filterOption, search, currentPage, pageSize, dateRange, locationId])
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value)
-    setCurrentPage(1) // Reset to first page on search
-  }
+  // Reset to page 1 whenever search text changes
+  useEffect(() => { setCurrentPage(1) }, [search])
 
   const handleFilterChange = (filter: FilterOptions) => {
     setFilterOption(filter)
+    setCurrentPage(1)
+  }
+
+  const handleLocationChange = (locId: string) => {
+    setLocationId(locId)
     setCurrentPage(1)
   }
 
@@ -80,7 +92,7 @@ export function WarehousePage() {
       const dateFrom = dateRange?.[0] ?? null
       const dateTo   = dateRange?.[1] ?? null
       // Fetch all pages for export (limit 9999)
-      const data = await fetchWarehouseData(filterOption, searchQuery, 1, 9999, dateFrom, dateTo)
+      const data = await fetchWarehouseData(filterOption, search, 1, 9999, dateFrom, dateTo, locationId || undefined)
       const allItems: InventoryItem[] = data.items
 
       const workbook = new ExcelJS.Workbook()
@@ -189,14 +201,19 @@ export function WarehousePage() {
 
       {/* Filter and Search Section */}
       <div className="filter-section">
-        <div className="search-bar">
-          <i className="pi pi-search search-icon-left"></i>
-          <input
-            type="text"
-            placeholder="Lọc nhanh theo MÃ NVL hoặc INCI Name..."
-            value={searchQuery}
-            onChange={handleSearchChange}
-            className="search-input"
+
+
+        <div className="location-filter">
+          <i className="pi pi-building location-filter-icon"></i>
+          <Dropdown
+            value={locationId || null}
+            options={locations.map(l => ({ label: `${l.code} – ${l.name}`, value: l.id }))}
+            optionLabel="label"
+            optionValue="value"
+            onChange={(e) => handleLocationChange((e.value as string) || '')}
+            placeholder="Tất cả kho"
+            className="location-filter-dropdown"
+            showClear={locationId !== ''}
           />
         </div>
 
@@ -272,6 +289,7 @@ export function WarehousePage() {
           const params = new URLSearchParams()
           if (dateRange?.[0]) params.set('from', toLocalDateStr(dateRange[0]))
           if (dateRange?.[1]) params.set('to', toLocalDateStr(dateRange[1]))
+          if (locationId) params.set('locationId', locationId)
           const qs = params.toString()
           navigate(`/warehouse/${id}${qs ? `?${qs}` : ''}`)
         }}

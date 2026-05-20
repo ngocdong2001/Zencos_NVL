@@ -362,13 +362,6 @@ export function ProductionStep3Page() {
 
           </div>
 
-          <div className="prod-xk-ref">
-            <i className="pi pi-file-export" style={{ color: '#5269e0', fontSize: 13 }} />
-            <span className="prod-xk-ref__no">XK-BTP-20240515-001</span>
-            <span className="prod-xk-ref__sep">·</span>
-            <span className="prod-xk-ref__date">Dự kiến: 15/05/2024 16:00</span>
-          </div>
-
           <div className="prod-xk-meta">
             <div className="prod-xk-meta__item">
               <span className="prod-xk-meta__lbl">KHO XUẤT</span>

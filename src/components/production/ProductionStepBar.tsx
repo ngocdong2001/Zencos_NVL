@@ -7,9 +7,9 @@ interface ProductionStepBarProps {
 
 const STEPS = [
   { id: 1 as const, title: 'Xuất NVL' },
-  { id: 2 as const, title: 'Nhập BTP' },
-  { id: 3 as const, title: 'Xuất BTP' },
-  { id: 4 as const, title: 'Nhập TP'  },
+  { id: 2 as const, title: 'Nhập BTP (Sản xuất nền)' },
+  { id: 3 as const, title: 'Xuất BTP (ĐG cấp 1)' },
+  { id: 4 as const, title: 'Nhập TP (ĐG cấp 2)'  },
 ]
 
 export function ProductionStepBar({ activeStep, maxReachedStep, onNavigate }: ProductionStepBarProps) {

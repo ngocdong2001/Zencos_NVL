@@ -134,13 +134,46 @@
   flex-shrink: 0;
 }
 
-/* Date range picker */
-.date-range-picker {
+/* Location filter */
+.location-filter {
   position: relative;
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
+
+.location-filter-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.875rem;
+  color: #9ca3af;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.location-filter-dropdown.p-dropdown {
+  height: 39px;
+  min-width: 190px;
+  border: 1px solid #dee1e6;
+  border-radius: 6px;
+}
+
+.location-filter-dropdown.p-dropdown .p-dropdown-label {
+  padding: 0.5rem 2.25rem 0.5rem 2.25rem;
+  font-size: 0.875rem;
+  color: #171a1f;
+  line-height: 1.25rem;
+}
+
+.location-filter-dropdown.p-dropdown.p-focus {
+  border-color: #5269e0;
+  box-shadow: 0 0 0 3px rgba(82, 105, 224, 0.1);
+}
+
+/* Date range picker */
+.date-range-picker {
 
 .date-range-icon {
   position: absolute;

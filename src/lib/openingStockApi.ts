@@ -25,6 +25,9 @@ export type OpeningStockRow = {
   expiryDate: string
   manufactureDate: string
   hasCertificate: boolean
+  locationId: string | null
+  locationCode: string
+  locationName: string
 }
 
 export type OpeningStockPriceUnit = {
@@ -58,6 +61,7 @@ export async function createOpeningStockRow(payload: {
   invoiceNo?: string
   invoiceDate?: string
   supplierId?: string | null
+  locationId?: string | null
   quantityBase: number
   unitPriceValue: number
   unitPriceUnitId?: string

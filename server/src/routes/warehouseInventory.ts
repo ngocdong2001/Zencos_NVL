@@ -86,6 +86,7 @@ async function queryItems(p: ItemsParams) {
   const take = Math.min(Number(p.limit), 100)
   const cutoff60 = new Date(Date.now() + NEAR_EXPIRY_DAYS * 24 * 60 * 60 * 1000)
 
+  const locationIdBigInt = p.locationId ? BigInt(p.locationId) : null
   const dateFromDate = p.dateFrom ? new Date(p.dateFrom + 'T00:00:00.000Z') : null
   const dateToDate   = p.dateTo   ? new Date(p.dateTo   + 'T23:59:59.999Z') : null
 
@@ -106,6 +107,19 @@ async function queryItems(p: ItemsParams) {
     }
   } else if (p.filter === 'low_stock') {
     productWhere.minStockLevel = { gt: 0 }
+  }
+
+  // When filtering by location: restrict to products that have transactions at that location
+  if (locationIdBigInt) {
+    const locProductRows = await prisma.$queryRaw<{ productId: bigint }[]>`
+      SELECT DISTINCT b.product_id AS productId
+      FROM inventory_transactions it
+      JOIN batches b ON b.id = it.batch_id
+      WHERE it.warehouse_location_id = ${locationIdBigInt}
+        AND b.deleted_at IS NULL
+    `
+    const locProductIds = locProductRows.map(r => r.productId)
+    productWhere.id = locProductIds.length > 0 ? { in: locProductIds } : { in: [-1n] }
   }
 
   // Round 1: products page + count in parallel
@@ -131,6 +145,9 @@ async function queryItems(p: ItemsParams) {
   // Round 2: tx aggregation (needs productIds)
   type TxAgg = { productId: bigint; openingQty: Prisma.Decimal | null; importQty: Prisma.Decimal | null; exportQty: Prisma.Decimal | null }
   const txAggMap = new Map<string, { openingQty: number; importQty: number; exportQty: number }>()
+  // Location-specific stock (sum of all transactions at that location, ever)
+  type LocStockRow = { productId: bigint; netQty: Prisma.Decimal | null; totalValue: Prisma.Decimal | null }
+  const locStockMap = new Map<string, { stockQty: number; value: number }>()
 
   if (products.length > 0) {
     const productIds = products.map(prod => prod.id)
@@ -144,41 +161,91 @@ async function queryItems(p: ItemsParams) {
     const inPeriodToCond = dateToDate
       ? Prisma.sql`it.transaction_date <= ${dateToDate}`
       : Prisma.sql`TRUE`
+    const locationCond = locationIdBigInt
+      ? Prisma.sql`it.warehouse_location_id = ${locationIdBigInt}`
+      : Prisma.sql`TRUE`
 
-    const rows = await prisma.$queryRaw<TxAgg[]>`
-      SELECT
-        b.product_id AS productId,
-        SUM(CASE WHEN (${beforeFromCond}) AND it.type = 'import'  THEN  ABS(it.quantity_base)
-                 WHEN (${beforeFromCond}) AND it.type = 'export'  THEN -ABS(it.quantity_base)
-                 WHEN (${beforeFromCond}) AND it.type = 'adjustment' THEN it.quantity_base
-                 ELSE 0 END) AS openingQty,
-        GREATEST(0,
-          SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'import'     THEN  ABS(it.quantity_base)
-                   WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'adjustment' THEN  it.quantity_base
-                   ELSE 0 END)
-        ) AS importQty,
-        SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'export' THEN ABS(it.quantity_base)
-                 ELSE 0 END) AS exportQty
-      FROM inventory_transactions it
-      JOIN batches b ON b.id = it.batch_id
-      WHERE b.product_id IN (${Prisma.join(productIds)})
-        AND b.deleted_at IS NULL
-      GROUP BY b.product_id
-    `
+    const txQueries: Promise<void>[] = []
 
-    for (const row of rows) {
-      txAggMap.set(String(row.productId), {
-        openingQty: Number(row.openingQty ?? 0),
-        importQty:  Number(row.importQty  ?? 0),
-        exportQty:  Number(row.exportQty  ?? 0),
+    txQueries.push(
+      prisma.$queryRaw<TxAgg[]>`
+        SELECT
+          b.product_id AS productId,
+          SUM(CASE WHEN (${beforeFromCond}) AND it.type = 'import'  THEN  ABS(it.quantity_base)
+                   WHEN (${beforeFromCond}) AND it.type = 'export'  THEN -ABS(it.quantity_base)
+                   WHEN (${beforeFromCond}) AND it.type = 'adjustment' THEN it.quantity_base
+                   ELSE 0 END) AS openingQty,
+          GREATEST(0,
+            SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'import'     THEN  ABS(it.quantity_base)
+                     WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'adjustment' THEN  it.quantity_base
+                     ELSE 0 END)
+          ) AS importQty,
+          SUM(CASE WHEN (${inPeriodFromCond}) AND (${inPeriodToCond}) AND it.type = 'export' THEN ABS(it.quantity_base)
+                   ELSE 0 END) AS exportQty
+        FROM inventory_transactions it
+        JOIN batches b ON b.id = it.batch_id
+        WHERE b.product_id IN (${Prisma.join(productIds)})
+          AND b.deleted_at IS NULL
+          AND (${locationCond})
+        GROUP BY b.product_id
+      `.then(rows => {
+        for (const row of rows) {
+          txAggMap.set(String(row.productId), {
+            openingQty: Number(row.openingQty ?? 0),
+            importQty:  Number(row.importQty  ?? 0),
+            exportQty:  Number(row.exportQty  ?? 0),
+          })
+        }
       })
+    )
+
+    if (locationIdBigInt) {
+      txQueries.push(
+        prisma.$queryRaw<LocStockRow[]>`
+          SELECT
+            b.product_id AS productId,
+            SUM(CASE
+              WHEN it.type = 'import'     THEN  ABS(it.quantity_base)
+              WHEN it.type = 'export'     THEN -ABS(it.quantity_base)
+              WHEN it.type = 'adjustment' THEN  it.quantity_base
+              ELSE 0
+            END) AS netQty,
+            SUM(CASE
+              WHEN it.type = 'import'     THEN  ABS(it.quantity_base) / COALESCE(pu.conversion_to_base, 1) * b.unit_price_per_kg
+              WHEN it.type = 'export'     THEN -ABS(it.quantity_base) / COALESCE(pu.conversion_to_base, 1) * b.unit_price_per_kg
+              WHEN it.type = 'adjustment' THEN  it.quantity_base     / COALESCE(pu.conversion_to_base, 1) * b.unit_price_per_kg
+              ELSE 0
+            END) AS totalValue
+          FROM inventory_transactions it
+          JOIN batches b ON b.id = it.batch_id
+          LEFT JOIN products p2 ON p2.id = b.product_id
+          LEFT JOIN product_units pu ON pu.id = p2.order_unit
+          WHERE it.warehouse_location_id = ${locationIdBigInt}
+            AND b.product_id IN (${Prisma.join(productIds)})
+            AND b.deleted_at IS NULL
+          GROUP BY b.product_id
+        `.then(rows => {
+          for (const row of rows) {
+            locStockMap.set(String(row.productId), {
+              stockQty: Math.max(0, Number(row.netQty ?? 0)),
+              value: Math.max(0, Number(row.totalValue ?? 0)),
+            })
+          }
+        })
+      )
     }
+
+    await Promise.all(txQueries)
   }
 
   const items = products.map((product) => {
     const agg = txAggMap.get(String(product.id)) ?? { openingQty: 0, importQty: 0, exportQty: 0 }
-    const stockQty = product.batches.reduce((sum, b) => sum + Number(b.currentQtyBase), 0)
     const priceConv = Number(product.orderUnitRef?.conversionToBase ?? 1) || 1
+    const globalStockQty = product.batches.reduce((sum, b) => sum + Number(b.currentQtyBase), 0)
+    const globalValue = product.batches.reduce((acc, b) => acc + (Number(b.currentQtyBase) / priceConv) * Number(b.unitPricePerKg), 0)
+    const locStock = locStockMap.get(String(product.id))
+    const stockQty = locStock ? locStock.stockQty : globalStockQty
+    const value    = locStock ? locStock.value    : globalValue
     return {
       id: String(product.id),
       code: product.code,
@@ -189,8 +256,8 @@ async function queryItems(p: ItemsParams) {
       importQuantity:  agg.importQty,
       exportQuantity:  agg.exportQty,
       stockQuantity: stockQty,
-      totalStockQuantity: stockQty,
-      value: product.batches.reduce((acc, b) => acc + (Number(b.currentQtyBase) / priceConv) * Number(b.unitPricePerKg), 0),
+      totalStockQuantity: globalStockQty,
+      value,
     }
   })
 
@@ -205,12 +272,12 @@ async function queryItems(p: ItemsParams) {
 // GET /api/warehouse  â€” combined: summary + items in parallel
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/', async (req: Request, res: Response) => {
-  const { filter = 'all', q, page = '1', limit = '10', dateFrom, dateTo } =
+  const { filter = 'all', q, page = '1', limit = '10', dateFrom, dateTo, locationId } =
     req.query as Record<string, string>
 
   const [summary, itemsResult] = await Promise.all([
     querySummary(),
-    queryItems({ filter, q, page, limit, dateFrom, dateTo }),
+    queryItems({ filter, q, page, limit, dateFrom, dateTo, locationId }),
   ])
 
   res.json({ summary, items: itemsResult.items, total: itemsResult.total })
@@ -228,9 +295,9 @@ router.get('/summary', async (_req: Request, res: Response) => {
 // GET /api/warehouse/items  (kept for backward compat)
 // ──────────────────────────────────────────────────────────────────────
 router.get('/items', async (req: Request, res: Response) => {
-  const { filter = 'all', q, page = '1', limit = '10', dateFrom, dateTo } =
+  const { filter = 'all', q, page = '1', limit = '10', dateFrom, dateTo, locationId } =
     req.query as Record<string, string>
-  res.json(await queryItems({ filter, q, page, limit, dateFrom, dateTo }))
+  res.json(await queryItems({ filter, q, page, limit, dateFrom, dateTo, locationId }))
 })
 
 
@@ -276,8 +343,16 @@ router.get('/items/:id/lots', async (req: Request, res: Response) => {
 // ──────────────────────────────────────────────────────────────────────
 router.get('/items/:id', async (req: Request, res: Response) => {
   const id = BigInt(req.params.id)
+  const locationId = req.query.locationId ? BigInt(req.query.locationId as string) : null
 
   type MonthlyRow = { month: string; importGram: number; exportGram: number }
+
+  const monthlyLocationCond = locationId
+    ? Prisma.sql`AND it.warehouse_location_id = ${locationId}`
+    : Prisma.sql``
+  const txLocationWhere = locationId
+    ? { batch: { productId: id, deletedAt: null }, warehouseLocationId: locationId }
+    : { batch: { productId: id, deletedAt: null } }
 
   const [product, monthlyRows, recentTx] = await Promise.all([
     prisma.product.findUnique({
@@ -316,13 +391,14 @@ router.get('/items/:id', async (req: Request, res: Response) => {
       WHERE b.product_id = ${id}
         AND b.deleted_at IS NULL
         AND it.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        ${monthlyLocationCond}
       GROUP BY month
       ORDER BY month ASC
     `,
     prisma.inventoryTransaction.findMany({
-      where: { batch: { productId: id, deletedAt: null } },
+      where: txLocationWhere,
       orderBy: { transactionDate: 'desc' },
-      take: 15,
+      take: 200,
       include: {
         user:  { select: { fullName: true } },
         batch: { select: { lotNo: true } },
@@ -336,8 +412,41 @@ router.get('/items/:id', async (req: Request, res: Response) => {
   }
 
   const priceConv = Number(product.orderUnitRef?.conversionToBase ?? 1) || 1
-  const stockQty  = product.batches.reduce((s, b) => s + Number(b.currentQtyBase), 0)
-  const value     = product.batches.reduce((s, b) => s + (Number(b.currentQtyBase) / priceConv) * Number(b.unitPricePerKg), 0)
+
+  // When a location filter is active, compute stock from transaction sums at that location
+  // instead of from batches.current_qty_base (which is global, not location-specific).
+  // Use the same sign convention as the frontend: type='export' → negative, all others → positive
+  // (using ABS), so that openingBalance = stockQty - totalInQty + totalOutQty = 0 when all
+  // location transactions are loaded.
+  let stockQty: number
+  let value: number
+  if (locationId) {
+    type LocStockRow = { netQty: bigint; totalValue: number }
+    const locRows = await prisma.$queryRaw<LocStockRow[]>`
+      SELECT
+        CAST(SUM(CASE
+          WHEN it.type = 'export' THEN -ABS(it.quantity_base)
+          ELSE                          ABS(it.quantity_base)
+        END) AS SIGNED) AS netQty,
+        SUM(CASE
+          WHEN it.type = 'export' THEN -ABS(it.quantity_base) / COALESCE(pu.conversion_to_base, 1) * b.unit_price_per_kg
+          ELSE                          ABS(it.quantity_base) / COALESCE(pu.conversion_to_base, 1) * b.unit_price_per_kg
+        END) AS totalValue
+      FROM inventory_transactions it
+      JOIN batches b ON b.id = it.batch_id
+      LEFT JOIN product_units pu ON pu.id = (
+        SELECT p2.order_unit FROM products p2 WHERE p2.id = b.product_id LIMIT 1
+      )
+      WHERE b.product_id = ${id}
+        AND b.deleted_at IS NULL
+        AND it.warehouse_location_id = ${locationId}
+    `
+    stockQty = Math.max(0, Number(locRows[0]?.netQty ?? 0))
+    value    = Math.max(0, Number(locRows[0]?.totalValue ?? 0))
+  } else {
+    stockQty = product.batches.reduce((s, b) => s + Number(b.currentQtyBase), 0)
+    value    = product.batches.reduce((s, b) => s + (Number(b.currentQtyBase) / priceConv) * Number(b.unitPricePerKg), 0)
+  }
 
   const lots = product.batches.map((b) => ({
     id:             String(b.id),
@@ -386,6 +495,20 @@ router.get('/items/:id', async (req: Request, res: Response) => {
       createdAt:    d.createdAt.toISOString(),
     })),
   })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// GET /api/warehouse/locations — list locations that have any transactions
+// ──────────────────────────────────────────────────────────────────────
+router.get('/locations', async (_req: Request, res: Response) => {
+  const rows = await prisma.$queryRaw<{ id: bigint; code: string; name: string }[]>`
+    SELECT DISTINCT il.id, il.code, il.name
+    FROM inventory_locations il
+    JOIN inventory_transactions it ON it.warehouse_location_id = il.id
+    WHERE il.deleted_at IS NULL
+    ORDER BY il.code ASC
+  `
+  res.json(rows.map(r => ({ id: String(r.id), code: r.code, name: r.name })))
 })
 
 export default router

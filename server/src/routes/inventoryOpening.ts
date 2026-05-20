@@ -79,6 +79,9 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     manufactureDate: formatDateOnly(row.manufacture_date),
     expiryDate: formatDateOnly(row.expiry_date),
     hasCertificate: Boolean(row.has_document),
+    locationId: row.location_id == null ? null : String(row.location_id),
+    locationCode: String(row.location_code ?? ''),
+    locationName: String(row.location_name ?? ''),
   }
 }
 
@@ -186,6 +189,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
       unit_price_per_kg: Prisma.Decimal
       posting_status: string | null
       posted_batch_id: bigint | null
+      location_id: bigint | null
     }>>(Prisma.sql`
       SELECT
         id,
@@ -202,7 +206,8 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
         quantity_display,
         unit_price_per_kg,
         posting_status,
-        posted_batch_id
+        posted_batch_id,
+        location_id
       FROM opening_stock_items
       WHERE id = ${itemId}
       LIMIT 1
@@ -246,6 +251,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
         quantityBase: Number(item.quantity_base),
         notes: `Opening stock auto-post from item #${item.id.toString()}`,
         transactionDate: item.opening_date ?? new Date(),
+        ...(item.location_id != null && { warehouseLocationId: item.location_id }),
       },
     })
 
@@ -281,6 +287,7 @@ const addRowSchema = z.object({
   unitPricePerKg: z.coerce.number().nonnegative().optional(),
   manufactureDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
+  locationId: z.union([z.coerce.bigint().positive(), z.null()]).optional(),
 })
 
 const updateRowSchema = z.object({
@@ -377,11 +384,15 @@ router.get('/rows', async (_req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
         WHERE osd.status = 'draft'
         ORDER BY osi.created_at DESC
@@ -403,10 +414,14 @@ router.get('/rows', async (_req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
         WHERE osd.status = 'draft'
         ORDER BY osi.created_at DESC
@@ -530,6 +545,7 @@ router.post('/rows', async (req, res) => {
   const invoiceNo = data.invoiceNo?.trim() || null
   const invoiceDate = data.invoiceDate?.trim() || null
   const supplierId = typeof data.supplierId === 'bigint' ? data.supplierId : null
+  const locationId = typeof data.locationId === 'bigint' ? data.locationId : null
   const supplier = await ensureSupplierExists(supplierId)
 
   if (supplierId !== null && !supplier) {
@@ -566,7 +582,7 @@ router.post('/rows', async (req, res) => {
          invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg,
          unit_price_value, unit_price_unit_id, unit_price_conversion_to_base, line_amount,
-         has_document,
+         has_document, location_id,
          created_at, updated_at)
       VALUES
         (${declarationId}, ${productId}, ${lotNo},
@@ -577,7 +593,7 @@ router.post('/rows', async (req, res) => {
          ${quantityBase}, ${unitUsed}, ${quantityDisplay},
          ${unitPriceValue},
          ${unitPriceValue}, ${unitPriceUnitId}, ${unitPriceConversionToBase}, ${lineAmount},
-         0,
+         0, ${locationId},
          NOW(3), NOW(3))
     `)
   } else {
@@ -585,7 +601,7 @@ router.post('/rows', async (req, res) => {
       INSERT INTO opening_stock_items
         (declaration_id, product_id, lot_no, opening_date, manufacture_date, expiry_date,
          invoice_no, invoice_date, supplier_id,
-         quantity_base, unit_used, quantity_display, unit_price_per_kg, has_document,
+         quantity_base, unit_used, quantity_display, unit_price_per_kg, has_document, location_id,
          created_at, updated_at)
       VALUES
         (${declarationId}, ${productId}, ${lotNo},
@@ -593,7 +609,7 @@ router.post('/rows', async (req, res) => {
          ${manufactureDate ? new Date(manufactureDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
          ${invoiceNo}, ${invoiceDate ? new Date(invoiceDate) : null}, ${supplierId},
-         ${quantityBase}, ${unitUsed}, ${quantityDisplay}, ${unitPriceValue}, 0,
+         ${quantityBase}, ${unitUsed}, ${quantityDisplay}, ${unitPriceValue}, 0, ${locationId},
          NOW(3), NOW(3))
     `)
   }
@@ -621,11 +637,15 @@ router.post('/rows', async (req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         WHERE osi.id = LAST_INSERT_ID()
       `)
     : await prisma.$queryRaw<Array<OpeningStockRowRecord>>(Prisma.sql`
@@ -645,10 +665,14 @@ router.post('/rows', async (req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         WHERE osi.id = LAST_INSERT_ID()
       `)
 
@@ -708,7 +732,8 @@ router.put('/rows/:id', async (req, res) => {
       osi.manufacture_date,
       osi.expiry_date,
       osi.posting_status,
-      osi.posted_batch_id
+      osi.posted_batch_id,
+      osi.location_id
     FROM opening_stock_items osi
     JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
     WHERE osi.id = ${id} AND osd.status = 'draft'
@@ -828,6 +853,7 @@ router.put('/rows/:id', async (req, res) => {
 
       if (deltaQty !== 0) {
         const userId = await getFirstActiveUserId(db)
+        const itemLocationId = toBigInt(current.location_id)
         await db.inventoryTransaction.create({
           data: {
             batchId: postedBatchId,
@@ -836,6 +862,7 @@ router.put('/rows/:id', async (req, res) => {
             quantityBase: deltaQty,
             notes: `Opening stock item #${id} edited: quantity ${previousQtyBase} -> ${quantityBase}`,
             transactionDate: new Date(),
+            ...(itemLocationId != null && { warehouseLocationId: itemLocationId }),
           },
         })
 
@@ -880,11 +907,15 @@ router.put('/rows/:id', async (req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
         LEFT JOIN product_units pu_price ON pu_price.id = osi.unit_price_unit_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         WHERE osi.id = ${id}
         LIMIT 1
       `)
@@ -905,10 +936,14 @@ router.put('/rows/:id', async (req, res) => {
           osi.unit_price_per_kg,
           osi.manufacture_date,
           osi.expiry_date,
-          osi.has_document
+          osi.has_document,
+          osi.location_id,
+          il.code AS location_code,
+          il.name AS location_name
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
+        LEFT JOIN inventory_locations il ON il.id = osi.location_id
         WHERE osi.id = ${id}
         LIMIT 1
       `)
@@ -951,8 +986,9 @@ router.delete('/rows/:id', async (req, res) => {
     posted_batch_id: bigint | null
     quantity_base: Prisma.Decimal
     opening_date: Date | null
+    location_id: bigint | null
   }>>(Prisma.sql`
-    SELECT posting_status, posted_batch_id, quantity_base, opening_date
+    SELECT posting_status, posted_batch_id, quantity_base, opening_date, location_id
     FROM opening_stock_items
     WHERE id = ${id}
     LIMIT 1
@@ -992,6 +1028,7 @@ router.delete('/rows/:id', async (req, res) => {
               quantityBase: reversalQty,
               notes: `Reversal delete opening stock item #${id}`,
               transactionDate: new Date(),
+              ...(posted?.location_id != null && { warehouseLocationId: posted.location_id }),
             },
           })
 

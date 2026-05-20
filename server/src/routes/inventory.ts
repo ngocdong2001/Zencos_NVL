@@ -7,10 +7,96 @@ import { requireAuth, requirePermission, type AuthenticatedRequest } from '../mi
 const router = Router()
 
 // ──────────────────────────────────────────────────────────────────────
+// HELPER — resolve warehouse location for a list of batch IDs
+// Tries 3 sources in priority order:
+//   1. inbound_receipt_items → inbound_receipts.receiving_location_id
+//   2. opening_stock_items.posted_batch_id = batch.id → location_id
+//   3. opening_stock_items matching (product_id, lot_no) → location_id
+// ──────────────────────────────────────────────────────────────────────
+type BatchLocationRow = { batchId: bigint; locationId: bigint | null; locationCode: string | null; locationName: string | null }
+
+async function getBatchLocations(batchIds: bigint[]): Promise<Map<string, { id: string; code: string; name: string } | null>> {
+  if (batchIds.length === 0) return new Map()
+
+  const placeholders = batchIds.map(() => '?').join(',')
+  const rows = await prisma.$queryRawUnsafe<BatchLocationRow[]>(
+    `SELECT
+       b.id AS batchId,
+       COALESCE(ir.receiving_location_id, osi_b.location_id, osi_l.location_id) AS locationId,
+       COALESCE(ir_loc.code, osi_b_loc.code, osi_l_loc.code) AS locationCode,
+       COALESCE(ir_loc.name, osi_b_loc.name, osi_l_loc.name) AS locationName
+     FROM batches b
+     LEFT JOIN inbound_receipt_items iri ON iri.id = b.inbound_receipt_item_id
+     LEFT JOIN inbound_receipts ir ON ir.id = iri.inbound_receipt_id AND ir.receiving_location_id IS NOT NULL
+     LEFT JOIN inventory_locations ir_loc ON ir_loc.id = ir.receiving_location_id
+     LEFT JOIN (
+       SELECT osi.posted_batch_id, MIN(osi.location_id) AS location_id
+       FROM opening_stock_items osi
+       WHERE osi.location_id IS NOT NULL AND osi.posted_batch_id IS NOT NULL
+       GROUP BY osi.posted_batch_id
+     ) osi_b ON osi_b.posted_batch_id = b.id
+     LEFT JOIN inventory_locations osi_b_loc ON osi_b_loc.id = osi_b.location_id
+     LEFT JOIN (
+       SELECT osi.product_id, osi.lot_no, MIN(osi.location_id) AS location_id
+       FROM opening_stock_items osi
+       WHERE osi.location_id IS NOT NULL
+       GROUP BY osi.product_id, osi.lot_no
+     ) osi_l ON osi_l.product_id = b.product_id AND osi_l.lot_no = b.lot_no
+     LEFT JOIN inventory_locations osi_l_loc ON osi_l_loc.id = osi_l.location_id
+     WHERE b.id IN (${placeholders})`,
+    ...batchIds,
+  )
+
+  const map = new Map<string, { id: string; code: string; name: string } | null>()
+  for (const row of rows) {
+    const key = String(row.batchId)
+    map.set(key, row.locationId != null ? { id: String(row.locationId), code: row.locationCode ?? '', name: row.locationName ?? '' } : null)
+  }
+  return map
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// HELPER — reverse-compute quantity adjustments from transactions AFTER
+// a given date; used to report stock as-of a historical processing date.
+// Returns Map<batchId string, netDelta> where netDelta should be
+// subtracted from currentQtyBase to get qty at that date.
+// ──────────────────────────────────────────────────────────────────────
+async function getQtyAdjustmentsSince(batchIds: bigint[], afterDate: Date): Promise<Map<string, number>> {
+  if (batchIds.length === 0) return new Map()
+  const txs = await prisma.inventoryTransaction.findMany({
+    where: {
+      batchId: { in: batchIds },
+      isCancelled: false,
+      transactionDate: { gt: afterDate },
+    },
+    select: { batchId: true, type: true, quantityBase: true },
+  })
+  const map = new Map<string, number>()
+  for (const tx of txs) {
+    const key = String(tx.batchId)
+    const prev = map.get(key) ?? 0
+    // Mirror the delta logic used when creating transactions:
+    // import → +qty, export → -qty, adjustment → +qty (may be negative)
+    const delta = tx.type === InventoryTransactionType.export
+      ? -Number(tx.quantityBase)
+      : Number(tx.quantityBase)
+    map.set(key, prev + delta)
+  }
+  return map
+}
+
+function parseAsOfDate(raw: string): Date | null {
+  // Accept 'YYYY-MM-DD' (treat as end-of-day) or full ISO datetime
+  const padded = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T23:59:59.999` : raw
+  const d = new Date(padded)
+  return isNaN(d.getTime()) ? null : d
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // BATCH STOCK — available quantities per product/lot
 // ──────────────────────────────────────────────────────────────────────
 router.get('/stock', requireAuth, requirePermission('inventory.read'), async (req: Request, res: Response) => {
-  const { productId, status } = req.query as Record<string, string>
+  const { productId, status, locationId, asOfDate } = req.query as Record<string, string>
   const where: Prisma.BatchWhereInput = { deletedAt: null }
   if (productId) where.productId = BigInt(productId)
   if (status) where.status = status as BatchStatus
@@ -29,6 +115,7 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
     },
     orderBy: [{ productId: 'asc' }, { expiryDate: 'asc' }],
   })
+  const locationMap = await getBatchLocations(batches.map((b) => b.id))
   const mapped = batches.map((b) => ({
     ...b,
     product: {
@@ -39,13 +126,29 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
     },
     manufacturerName: b.manufacturer?.name ?? null,
     supplierName: b.supplier?.name ?? null,
+    location: locationMap.get(String(b.id)) ?? null,
   }))
-  res.json(mapped)
+  let result = locationId ? mapped.filter((b) => String(b.location?.id ?? '') === locationId) : mapped
+
+  if (asOfDate) {
+    const afterDate = parseAsOfDate(asOfDate)
+    if (afterDate) {
+      const adjustments = await getQtyAdjustmentsSince(batches.map((b) => b.id), afterDate)
+      result = result.map((b) => ({
+        ...b,
+        currentQtyBase: Number(b.currentQtyBase) - (adjustments.get(String(b.id)) ?? 0),
+      }))
+    }
+  }
+
+  res.json(result)
 })
 
 const fefoQuerySchema = z.object({
   productId: z.string().min(1),
   limit: z.string().optional(),
+  locationId: z.string().optional(),
+  asOfDate: z.string().optional(),
 })
 
 router.get('/fefo-suggestions', requireAuth, requirePermission('inventory.read'), async (req: Request, res: Response) => {
@@ -56,33 +159,69 @@ router.get('/fefo-suggestions', requireAuth, requirePermission('inventory.read')
   }
 
   const productId = BigInt(parsed.data.productId)
+  const locationId = parsed.data.locationId
+  const asOfDate = parsed.data.asOfDate
   const limitRaw = Number(parsed.data.limit ?? 5)
   const take = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 50) : 5
 
+  // When asOfDate is provided, fetch ALL batches (including qty=0) so we can
+  // include batches that were depleted AFTER that date.
+  // Without asOfDate, limit to batches with current stock > 0.
   const suggestions = await prisma.batch.findMany({
     where: {
       deletedAt: null,
       productId,
-      currentQtyBase: { gt: 0 },
+      ...(asOfDate ? {} : { currentQtyBase: { gt: 0 } }),
     },
-    select: {
-      id: true,
-      lotNo: true,
-      expiryDate: true,
-      currentQtyBase: true,
+    include: {
       product: {
         select: {
           id: true,
           code: true,
           name: true,
+          inciNames: { where: { isPrimary: true }, select: { inciName: true }, take: 1 },
         },
       },
+      supplier: { select: { id: true, code: true, name: true } },
+      manufacturer: { select: { id: true, name: true } },
     },
     orderBy: [{ expiryDate: 'asc' }, { lotNo: 'asc' }],
-    take,
   })
 
-  res.json(suggestions)
+  const locationMap = await getBatchLocations(suggestions.map((s) => s.id))
+
+  // Apply historical qty adjustment if asOfDate given
+  let qtyAdjustments = new Map<string, number>()
+  if (asOfDate) {
+    const afterDate = parseAsOfDate(asOfDate)
+    if (afterDate) {
+      qtyAdjustments = await getQtyAdjustmentsSince(suggestions.map((s) => s.id), afterDate)
+    }
+  }
+
+  const enriched = suggestions.map((s) => {
+    const adjustedQty = Number(s.currentQtyBase) - (qtyAdjustments.get(String(s.id)) ?? 0)
+    return {
+      id: s.id,
+      lotNo: s.lotNo,
+      invoiceNumber: s.invoiceNumber ?? null,
+      expiryDate: s.expiryDate,
+      currentQtyBase: adjustedQty,
+      manufacturerName: s.manufacturer?.name ?? null,
+      supplierName: s.supplier?.name ?? null,
+      product: {
+        id: s.product.id,
+        code: s.product.code,
+        name: s.product.name,
+        inciName: s.product.inciNames?.[0]?.inciName ?? null,
+      },
+      location: locationMap.get(String(s.id)) ?? null,
+    }
+  })
+
+  // Filter by location then by qty > 0 (especially important when asOfDate adjusts down)
+  const filtered = locationId ? enriched.filter((s) => String(s.location?.id ?? '') === locationId) : enriched
+  res.json(filtered.filter((s) => s.currentQtyBase > 0).slice(0, take))
 })
 
 // ──────────────────────────────────────────────────────────────────────

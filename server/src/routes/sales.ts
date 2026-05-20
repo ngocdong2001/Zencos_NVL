@@ -550,6 +550,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('sales.write'), async
               orderRef: true,
               status: true,
               adjustedByOrderId: true,
+              sourceLocationId: true,
               items: {
                 select: {
                   id: true,
@@ -611,6 +612,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('sales.write'), async
               quantityBase: sourceQty,
               notes: `Void phiếu gốc ${orderAny.sourceOrder.orderRef ?? `#${orderAny.sourceOrder.id}`} do điều chỉnh ${order.orderRef ?? `#${order.id}`}`,
               transactionDate: order.exportedAt ?? new Date(),
+              ...(orderAny.sourceOrder.sourceLocationId ? { warehouseLocationId: orderAny.sourceOrder.sourceLocationId } : {}),
             },
           })
 
@@ -678,6 +680,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('sales.write'), async
             quantityBase: qty,
             notes: order.orderRef ? `Xuất kho khi hoàn thành phiếu ${order.orderRef}` : undefined,
             transactionDate: order.exportedAt ?? new Date(),
+            ...(order.sourceLocationId ? { warehouseLocationId: order.sourceLocationId } : {}),
           },
         })
 

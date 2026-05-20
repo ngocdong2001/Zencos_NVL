@@ -16,6 +16,7 @@ export type InventoryStockBatch = {
     name: string
     inciName: string | null
   }
+  location: { id: string; code: string; name: string } | null
 }
 
 export type CreateExportOrderPayload = {
@@ -160,14 +161,20 @@ export type ExportOrderDetail = {
   }>
 }
 
-export async function fetchInventoryStock(productId?: string): Promise<InventoryStockBatch[]> {
-  const query = productId ? `?productId=${encodeURIComponent(productId)}` : ''
+export async function fetchInventoryStock(productId?: string, locationId?: string, asOfDate?: string): Promise<InventoryStockBatch[]> {
+  const params = new URLSearchParams()
+  if (productId) params.set('productId', productId)
+  if (locationId) params.set('locationId', locationId)
+  if (asOfDate) params.set('asOfDate', asOfDate)
+  const query = params.toString() ? `?${params.toString()}` : ''
   return http<InventoryStockBatch[]>(`/api/inventory/stock${query}`)
 }
 
-export async function fetchFefoSuggestions(productId: string, limit = 5): Promise<InventoryStockBatch[]> {
-  const query = `?productId=${encodeURIComponent(productId)}&limit=${encodeURIComponent(String(limit))}`
-  return http<InventoryStockBatch[]>(`/api/inventory/fefo-suggestions${query}`)
+export async function fetchFefoSuggestions(productId: string, limit = 5, locationId?: string, asOfDate?: string): Promise<InventoryStockBatch[]> {
+  const params = new URLSearchParams({ productId, limit: String(limit) })
+  if (locationId) params.set('locationId', locationId)
+  if (asOfDate) params.set('asOfDate', asOfDate)
+  return http<InventoryStockBatch[]>(`/api/inventory/fefo-suggestions?${params.toString()}`)
 }
 
 export async function createExportOrder(payload: CreateExportOrderPayload): Promise<CreateExportOrderResponse> {

@@ -7,6 +7,7 @@ import { ConfirmPopup, confirmPopup } from 'primereact/confirmpopup'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import type { ColumnEvent } from 'primereact/column'
+import { Dropdown } from 'primereact/dropdown'
 import { Toast } from 'primereact/toast'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { ProductCreateForm } from '../components/catalog/ProductCreateForm'
@@ -32,6 +33,7 @@ import type { BasicRow, MaterialRow } from '../components/catalog/types'
 type OutletContext = { search: string }
 
 type SupplierOption = Pick<BasicRow, 'id' | 'code' | 'name'>
+type LocationOption = Pick<BasicRow, 'id' | 'code' | 'name'>
 
 export type CatalogSyncProduct = {
   code: string
@@ -261,6 +263,8 @@ export function OpeningStockPage() {
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([])
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
+  const [locationOptions, setLocationOptions] = useState<LocationOption[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [loadingPriceUnits, setLoadingPriceUnits] = useState(false)
   const [importingExcel, setImportingExcel] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
@@ -287,6 +291,7 @@ export function OpeningStockPage() {
   const filteredRows = useMemo(() => {
     const q = search.trim()
     return rows.filter((row) => {
+      if (selectedLocationId && row.locationId !== selectedLocationId) return false
       if (!q) return true
       const searchable = [
         row.code,
@@ -307,7 +312,7 @@ export function OpeningStockPage() {
       ].join(' ')
       return containsInsensitive(searchable, q)
     })
-  }, [rows, search])
+  }, [rows, search, selectedLocationId])
 
   const draftQuantityBase = useMemo(() => Number.parseFloat(draft.quantityGram || '0'), [draft.quantityGram])
   const draftUnitPriceValue = useMemo(() => Number.parseFloat(draft.unitPriceValue || '0'), [draft.unitPriceValue])
@@ -386,6 +391,9 @@ export function OpeningStockPage() {
       expiryDate: '',
       manufactureDate: '',
       hasCertificate: false,
+      locationId: null,
+      locationCode: '',
+      locationName: '',
     } as OpeningStockRow,
   ]), [pagedRows])
 
@@ -533,9 +541,20 @@ export function OpeningStockPage() {
   }, [])
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const locs = await fetchBasics('locations')
+        setLocationOptions(locs.map((l) => ({ id: l.id, code: l.code, name: l.name })))
+      } catch {
+        // silent — location filter is optional
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
     setPage(1)
     setSelectedIds([])
-  }, [search, pageSize])
+  }, [search, pageSize, selectedLocationId])
 
   const showNotice = (message: string, tone: 'success' | 'error') => {
     setNotice(message)
@@ -1238,6 +1257,11 @@ export function OpeningStockPage() {
       return
     }
 
+    if (!selectedLocationId) {
+      setImportParseError('Vui lòng chọn kho nhận hàng trước khi import.')
+      return
+    }
+
     const validRows = parsedImportResult.rows.filter((row) => row.warnings.length === 0)
     if (validRows.length === 0) {
       setImportParseError('Không có dòng hợp lệ để import.')
@@ -1263,6 +1287,7 @@ export function OpeningStockPage() {
             invoiceNo: row.invoiceNo || undefined,
             invoiceDate: row.invoiceDate || undefined,
             supplierId: resolveSupplierIdByImportValue(row.supplierText),
+            locationId: selectedLocationId || null,
             quantityBase: row.convertedQuantityBase ?? row.quantityBase,
             unitPriceValue: row.unitPriceValue,
             unitPriceUnitId: row.lookupUnitPriceUnitId,
@@ -1375,6 +1400,11 @@ export function OpeningStockPage() {
       return
     }
 
+    if (!selectedLocationId) {
+      showNotice('Vui lòng chọn kho nhận hàng trước khi thêm dòng.', 'error')
+      return
+    }
+
     try {
       const newRow = await createOpeningStockRow({
         code,
@@ -1383,6 +1413,7 @@ export function OpeningStockPage() {
         invoiceNo: draft.invoiceNo || undefined,
         invoiceDate: draft.invoiceDate || undefined,
         supplierId: draft.supplierId || null,
+        locationId: selectedLocationId || null,
         quantityBase,
         unitPriceValue,
         unitPriceUnitId: draft.unitPriceUnitId,
@@ -1430,6 +1461,10 @@ export function OpeningStockPage() {
 
     if (!draft.unitPriceUnitId || !Number.isFinite(draftConversionToBase) || draftConversionToBase <= 0) {
       issues.push('Chưa xác định được đơn vị đơn giá/quy đổi của Mã NVL.')
+    }
+
+    if (!selectedLocationId) {
+      issues.push('Chưa chọn kho nhận hàng.')
     }
 
     return issues
@@ -1522,6 +1557,30 @@ export function OpeningStockPage() {
           <button type="button" className="btn btn-ghost compact" onClick={handleDownloadTemplate}>
             <i className="pi pi-download" /> Tải mẫu Excel
           </button>
+        </section>
+
+        <section className="opening-stock-location-bar">
+          <label className="opening-stock-location-label" htmlFor="opening-stock-location-select">
+            <i className="pi pi-building" />
+            <span>Kho nhận hàng:</span>
+          </label>
+          <Dropdown
+            inputId="opening-stock-location-select"
+            value={selectedLocationId}
+            options={locationOptions}
+            optionLabel="name"
+            optionValue="id"
+            onChange={(e) => setSelectedLocationId(e.value as string | null)}
+            placeholder="-- Tất cả kho --"
+            showClear
+            className="opening-stock-location-dropdown"
+            emptyMessage="Chưa có kho nào trong danh mục."
+          />
+          {selectedLocationId && (
+            <span className="opening-stock-location-badge">
+              Đang lọc &amp; nhập tồn cho: <strong>{locationOptions.find((l) => l.id === selectedLocationId)?.name ?? selectedLocationId}</strong>
+            </span>
+          )}
         </section>
 
         {notice && (

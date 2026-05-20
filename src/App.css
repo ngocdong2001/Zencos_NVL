@@ -1641,6 +1641,67 @@ input {
   font-size: 90%;
 }
 
+.opening-stock-location-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.opening-stock-location-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  font-size: var(--font-size-caption, 12px);
+  color: #4a5568;
+  white-space: nowrap;
+}
+
+.opening-stock-location-label .pi {
+  font-size: 13px;
+  color: var(--primary);
+}
+
+.opening-stock-location-dropdown {
+  min-width: 220px;
+  max-width: 320px;
+  height: 32px;
+  min-height: 32px;
+}
+
+.opening-stock-location-dropdown.p-dropdown {
+  height: 32px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.opening-stock-location-dropdown .p-dropdown-label {
+  font-size: var(--font-size-body);
+  padding: 0 8px;
+  line-height: 30px;
+}
+
+.opening-stock-location-dropdown .p-dropdown-trigger {
+  width: 28px;
+}
+
+.opening-stock-location-dropdown .p-dropdown-clear-icon {
+  right: 28px;
+}
+
+.opening-stock-location-badge {
+  font-size: var(--font-size-caption, 12px);
+  color: #2d6a4f;
+  background: #d8f3dc;
+  border-radius: 4px;
+  padding: 2px 8px;
+  line-height: 28px;
+}
+
 .opening-stock-mapping-card {
   min-height: 74px;
   padding-top: 10px;
@@ -3169,6 +3230,22 @@ input {
 .outbound-customer-select .p-dropdown .p-dropdown-clear-icon,
 .outbound-customer-select.p-dropdown .p-dropdown-clear-icon {
   margin-top: -0.5rem;
+}
+
+/* Calendar inside outbound form — match Dropdown height/font */
+.outbound-customer-select.p-calendar .p-inputtext,
+.outbound-customer-select .p-calendar .p-inputtext {
+  height: 32px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: var(--font-size-body);
+  line-height: 1.4;
+}
+.outbound-customer-select.p-calendar .p-datepicker-trigger,
+.outbound-customer-select .p-calendar .p-datepicker-trigger {
+  width: 2rem;
+  height: 32px;
+  padding: 0;
 }
 
 .outbound-customer-select-column {

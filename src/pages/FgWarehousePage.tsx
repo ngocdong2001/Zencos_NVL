@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useOutletContext } from 'react-router-dom'
 import { Toast } from 'primereact/toast'
 import { Calendar } from 'primereact/calendar'
 import ExcelJS from 'exceljs'
@@ -13,7 +13,10 @@ import './WarehousePage.css'
 import '../components/warehouse/InventorySummaryCards.css'
 import './FgWarehousePage.css'
 
+type OutletContext = { search: string }
+
 export function FgWarehousePage() {
+  const { search } = useOutletContext<OutletContext>()
   const navigate = useNavigate()
   const toastRef = useRef<Toast>(null)
 
@@ -22,7 +25,6 @@ export function FgWarehousePage() {
   const [totalItems, setTotalItems] = useState(0)
   const [loading, setLoading] = useState(false)
 
-  const [searchQuery, setSearchQuery] = useState('')
   const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(() => {
     const now = new Date()
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -38,7 +40,7 @@ export function FgWarehousePage() {
       try {
         const dateFrom = dateRange?.[0] ?? null
         const dateTo = dateRange?.[1] ?? null
-        const data = await fetchFgWarehouseData(searchQuery, currentPage, pageSize, dateFrom, dateTo)
+        const data = await fetchFgWarehouseData(search, currentPage, pageSize, dateFrom, dateTo)
         setSummary(data.summary)
         setItems(data.items)
         setTotalItems(data.total)
@@ -51,12 +53,10 @@ export function FgWarehousePage() {
       }
     }
     loadData()
-  }, [searchQuery, currentPage, pageSize, dateRange])
+  }, [search, currentPage, pageSize, dateRange])
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value)
-    setCurrentPage(1)
-  }
+  // Reset to page 1 whenever search text changes
+  useEffect(() => { setCurrentPage(1) }, [search])
 
   const handleDateRangeChange = (value: [Date | null, Date | null] | null) => {
     setDateRange(value)
@@ -67,7 +67,7 @@ export function FgWarehousePage() {
     try {
       const dateFrom = dateRange?.[0] ?? null
       const dateTo   = dateRange?.[1] ?? null
-      const data = await fetchFgWarehouseData(searchQuery, 1, 9999, dateFrom, dateTo)
+      const data = await fetchFgWarehouseData(search, 1, 9999, dateFrom, dateTo)
       const allItems = data.items
 
       const workbook = new ExcelJS.Workbook()
@@ -198,18 +198,6 @@ export function FgWarehousePage() {
 
       {/* Filter Section */}
       <div className="filter-section">
-        <div className="search-bar">
-          <i className="pi pi-search search-icon-left"></i>
-          <input
-            type="text"
-            placeholder="Lọc nhanh theo Mã TP hoặc Tên thành phẩm..."
-            value={searchQuery}
-            onChange={handleSearchChange}
-            className="search-input"
-          />
-        </div>
-
-        <div className="filter-divider"></div>
 
         <div className="date-range-picker">
           <i className="pi pi-calendar date-range-icon"></i>

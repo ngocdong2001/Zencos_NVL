@@ -130,6 +130,8 @@ export function ProductionStep1Page() {
               exportQty: l.actualQty,
               inputValue: formatQuantity(l.actualQty),
               manufacturerName: null,
+              locationCode: null,
+              locationName: null,
             }))
             restored.push({
               key: crypto.randomUUID(),
@@ -164,6 +166,10 @@ export function ProductionStep1Page() {
   }, [orderId])
 
   async function handleCreate() {
+    if (!outputProductId) {
+      setError('Vui lòng chọn Sản phẩm đầu ra trước khi tạo phiếu.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -447,6 +453,8 @@ export function ProductionStep1Page() {
               onLinesChange={(lines) => { currentLinesRef.current = lines }}
               disabled={isLocked}
               lockExistingLines={nvlExported && !isLocked}
+              locationId={sourceLocationId ?? undefined}
+              asOfDate={processedAt ? processedAt.toISOString() : undefined}
             />
           </div>
         )}

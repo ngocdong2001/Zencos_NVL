@@ -575,15 +575,7 @@ export function DashboardPage() {
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#191a1f', letterSpacing: '-0.5px', lineHeight: '28px' }}>
               Phát sinh gần đây
             </h2>
-            <button
-              onClick={() => navigate('/inbound')}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 14, fontWeight: 500, color: '#2626d9', padding: 0,
-              }}
-            >
-              Xem tất cả lịch sử
-            </button>
+            
           </div>
 
           <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 2px 4px rgba(0,0,0,0.07)', overflow: 'hidden' }}>

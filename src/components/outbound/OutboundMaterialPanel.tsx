@@ -30,6 +30,8 @@ export type AllocationRow = {
   exportQty: number
   inputValue: string
   manufacturerName: string | null
+  locationCode: string | null
+  locationName: string | null
 }
 
 export type MaterialLine = {
@@ -122,13 +124,18 @@ type Props = {
   onLinesChange?: (lines: MaterialLine[]) => void
   /** Pre-populate lines (e.g. from saved data) – applied once on mount */
   initialLines?: MaterialLine[]
+  /** Filter stock/FEFO by warehouse location */
+  locationId?: string
+  /** Report stock as-of this date (ISO string); used in production to match processedAt */
+  asOfDate?: string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines }: Props) {
+export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines, locationId, asOfDate }: Props) {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
+  const linesRef = useRef<MaterialLine[]>([])
 
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
@@ -154,8 +161,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         if (!line.materialId || line.stockRows.length > 0) return
         setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
         Promise.all([
-          fetchInventoryStock(line.materialId),
-          fetchFefoSuggestions(line.materialId, 6),
+          fetchInventoryStock(line.materialId, locationId, asOfDate),
+          fetchFefoSuggestions(line.materialId, 6, locationId, asOfDate),
         ])
           .then(([stock, fefo]) => {
             setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
@@ -166,6 +173,36 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       })
     }
   }, [initialLines])
+
+  // Keep ref in sync with latest lines (used by location/date-change reload effect)
+  useEffect(() => { linesRef.current = lines }, [lines])
+
+  // Reload stock when locationId or asOfDate changes
+  const prevLocationIdRef = useRef<string | undefined>(undefined)
+  const prevAsOfDateRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const prevLoc = prevLocationIdRef.current
+    const prevDate = prevAsOfDateRef.current
+    prevLocationIdRef.current = locationId
+    prevAsOfDateRef.current = asOfDate
+    // Skip initial mount (both undefined → same as initial)
+    if (prevLoc === undefined && prevDate === undefined) return
+    if (prevLoc === locationId && prevDate === asOfDate) return
+    const currentLines = linesRef.current
+    currentLines.forEach((line, idx) => {
+      if (!line.materialId) return
+      setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: true } : l))
+      void Promise.all([
+        fetchInventoryStock(line.materialId, locationId, asOfDate),
+        fetchFefoSuggestions(line.materialId, 6, locationId, asOfDate),
+      ]).then(([stock, fefo]) => {
+        setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
+      }).catch(() => {
+        setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: false } : l))
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId, asOfDate])
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -266,8 +303,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     if (!newMaterialId) return
     try {
       const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(newMaterialId),
-        fetchFefoSuggestions(newMaterialId, 6),
+        fetchInventoryStock(newMaterialId, locationId, asOfDate),
+        fetchFefoSuggestions(newMaterialId, 6, locationId, asOfDate),
       ])
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
     } catch {
@@ -338,6 +375,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         exportQty,
         inputValue: formatQuantity(exportQty),
         manufacturerName: lot.manufacturerName ?? null,
+        locationCode: lot.location?.code ?? null,
+        locationName: lot.location?.name ?? null,
       })
       remain -= exportQty
     }
@@ -365,6 +404,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
             exportQty: defaultQty,
             inputValue: defaultQty > 0 ? formatQuantity(defaultQty) : '',
             manufacturerName: lot.manufacturerName ?? null,
+            locationCode: lot.location?.code ?? null,
+            locationName: lot.location?.name ?? null,
           },
         ],
       }
@@ -510,7 +551,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                               className="ob-drill-fefo-hint-btn"
                               onClick={() => addLotToLine(idx, lot)}
                               disabled={isLineDisabled(line.key)}
-                              title={`${lot.lotNo} – Tồn: ${formatQuantity(toNumeric(lot.currentQtyBase))} – HSD: ${formatDateVi(lot.expiryDate)}`}
+                              title={`${lot.lotNo} – Tồn: ${formatQuantity(toNumeric(lot.currentQtyBase))} – HSD: ${formatDateVi(lot.expiryDate)}${lot.location ? ` – Kho: ${lot.location.name}` : ''}`}
                             >
                               <Tag value={lot.lotNo} severity={expTag.severity === 'danger' ? 'danger' : expTag.severity === 'warning' ? 'warning' : 'success'} />
                             </button>
@@ -584,6 +625,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                               <i className="pi pi-clock" aria-hidden /> HSD: {formatDateVi(row.expiryDate)}
                             </span>
                             {row.manufacturerName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-building" aria-hidden /> {row.manufacturerName}</span> : null}
+                            {row.locationName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-map-marker" aria-hidden /> {row.locationName}</span> : null}
                           </div>
 
                           <div className="ob-drill-branch-fields">
@@ -662,6 +704,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                         <span className="outbound-fefo-expiry"><i className="pi pi-clock" aria-hidden />HSD: {formatDateVi(lot.expiryDate)}</span>
                         <small>Tồn: {formatQuantity(toNumeric(lot.currentQtyBase))} {activeLineMaterial?.unit ?? ''}</small>
                         {lot.manufacturerName ? <small><i className="pi pi-building" aria-hidden /> {lot.manufacturerName}</small> : null}
+                        {lot.location ? <small><i className="pi pi-map-marker" aria-hidden /> {lot.location.name}</small> : null}
                       </div>
                     </div>
                     <span className="outbound-fefo-divider" aria-hidden />
