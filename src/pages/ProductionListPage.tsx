@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
+import ExcelJS from 'exceljs'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
 import { Dropdown } from 'primereact/dropdown'
 import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 import { fetchProductionOrders,
+  fetchProductionOrdersForExport,
   type ProductionOrderStatus,
   type ProductionOrderListItem,
   type ProductOutputType,
@@ -110,10 +113,17 @@ export function ProductionListPage() {
 
   const [rows, setRows] = useState<ProductionOrderRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [exportLoading, setExportLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<ProductionStatus | 'all'>('all')
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(() => {
+    const now = new Date()
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    return [firstDay, lastDay]
+  })
   const [highlightId, setHighlightId] = useState<string | null>(highlightedId)
   const [showFlowModal, setShowFlowModal] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
@@ -139,19 +149,107 @@ export function ProductionListPage() {
 
   useEffect(() => { void refresh() }, [location.key])
 
-  useEffect(() => { setPage(1) }, [pageSize, statusFilter, search])
+  const handleExport = async () => {
+    setExportLoading(true)
+    try {
+      const dateFrom = dateRange?.[0] ? dateRange[0].toISOString().split('T')[0] : undefined
+      const dateTo   = dateRange?.[1] ? dateRange[1].toISOString().split('T')[0] : undefined
+
+      // Fetch data from server
+      const data = await fetchProductionOrdersForExport({
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        dateFrom,
+        dateTo,
+      })
+
+      // Load template from public folder
+      const templateRes = await fetch('/templates/theo-doi-ngay-qtsx.xlsx')
+      if (!templateRes.ok) throw new Error('Không thể tải template Excel.')
+      const templateBuffer = await templateRes.arrayBuffer()
+
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(templateBuffer)
+      const ws = wb.worksheets[0]
+
+      // Remove existing sample data rows (row 3 onwards)
+      const lastRowNum = ws.lastRow?.number ?? 2
+      for (let r = lastRowNum; r >= 3; r--) {
+        ws.spliceRows(r, 1)
+      }
+
+      // Fill data rows
+      const TOTAL_COLS = 12
+      const thinBlack: ExcelJS.BorderStyle = 'thin'
+      const border: Partial<ExcelJS.Borders> = {
+        top:    { style: thinBlack, color: { argb: 'FF000000' } },
+        bottom: { style: thinBlack, color: { argb: 'FF000000' } },
+        left:   { style: thinBlack, color: { argb: 'FF000000' } },
+        right:  { style: thinBlack, color: { argb: 'FF000000' } },
+      }
+
+      const fmtDate = (iso: string | null) => iso ? new Date(iso) : null
+      data.forEach((item) => {
+        const row = ws.addRow([
+          item.stt,
+          item.customerName,
+          item.productName,
+          item.plannedQty,
+          item.actualQty,
+          item.lotNo,
+          fmtDate(item.issuedAt),
+          fmtDate(item.step1ProcessedAt),
+          fmtDate(item.step2ProcessedAt),
+          fmtDate(item.step3ProcessedAt),
+          fmtDate(item.step4ProcessedAt),
+          fmtDate(item.deliveredAt),
+        ])
+        for (let c = 1; c <= TOTAL_COLS; c++) {
+          const cell = row.getCell(c)
+          cell.border = border
+          if (c >= 7 && c <= 12 && cell.value) cell.numFmt = 'dd/mm/yyyy'
+        }
+      })
+
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const dateStr = new Date().toISOString().split('T')[0]
+      a.href = url
+      a.download = `theo-doi-ngay-qtsx-${dateStr}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Xuất Excel thất bại.')
+    } finally {
+      setExportLoading(false)
+    }
+  }
+
+  useEffect(() => { setPage(1) }, [pageSize, statusFilter, search, dateRange])
 
   const filteredRows = useMemo(() => {
     const q = normalizeLookup(search)
+    const dateFrom = dateRange?.[0] ? new Date(dateRange[0]).setHours(0, 0, 0, 0) : null
+    const dateTo = dateRange?.[1] ? new Date(dateRange[1]).setHours(23, 59, 59, 999) : null
+    
     return rows.filter((row) => {
       if (statusFilter !== 'all' && row.status !== statusFilter) return false
+      
+      // Date range filter
+      if (dateFrom || dateTo) {
+        const rowDate = new Date(row.issuedDate).getTime()
+        if (dateFrom && rowDate < dateFrom) return false
+        if (dateTo && rowDate > dateTo) return false
+      }
+      
       if (!q) return true
       const searchable = normalizeLookup(
         [row.orderRef, row.skuCode, row.skuName, row.productType, STATUS_LABELS[row.status]].join(' '),
       )
       return searchable.includes(q)
     })
-  }, [rows, search, statusFilter])
+  }, [rows, search, statusFilter, dateRange])
 
   const stats = useMemo(() => ({
     total: rows.length,
@@ -176,7 +274,7 @@ export function ProductionListPage() {
           <p>Quản lý và tra cứu các phiếu sản xuất theo từng lệnh.</p>
         </div>
         <div className="title-actions">
-          <Button type="button" className="btn btn-ghost" icon="pi pi-download" label="Xuất Excel" />
+          <Button type="button" className="btn btn-ghost" icon="pi pi-download" label="Xuất bảng hệ thống TGSX (Excel)" loading={exportLoading} onClick={() => { void handleExport() }} />
           <Button
             type="button"
             className="btn btn-primary"
@@ -231,6 +329,30 @@ export function ProductionListPage() {
               onChange={(e) => setStatusFilter((e.value ?? 'all') as ProductionStatus | 'all')}
             />
             <i className="pi pi-angle-down" aria-hidden />
+          </label>
+
+          <label className="app-filter-control">
+            <i className="pi pi-calendar" aria-hidden />
+            <Calendar
+              value={dateRange ?? null}
+              onChange={(e) => setDateRange(e.value as [Date | null, Date | null] | null)}
+              selectionMode="range"
+              readOnlyInput
+              placeholder="Từ ngày - Đến ngày"
+              dateFormat="dd/mm/yy"
+              showButtonBar
+            />
+            {dateRange?.[0] && (
+              <button
+                type="button"
+                className="app-filter-clear-btn"
+                onClick={() => setDateRange(null)}
+                title="Xóa bộ lọc ngày"
+                aria-label="Xóa bộ lọc ngày"
+              >
+                <i className="pi pi-times" />
+              </button>
+            )}
           </label>
         </div>
 

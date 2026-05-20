@@ -60,6 +60,84 @@ const orderInclude = {
 
 // ─── LIST ─────────────────────────────────────────────────────────────────────
 
+// ─── EXPORT EXCEL DATA (/export-excel must come before /:id) ─────────────────
+
+router.get('/export-excel', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {
+  const { dateFrom, dateTo, status } = req.query as Record<string, string>
+
+  // Build WHERE conditions for raw query
+  const conditions: string[] = []
+  const params: (string | Date)[] = []
+
+  if (status && status !== 'all') {
+    conditions.push('po.status = ?')
+    params.push(status)
+  }
+  if (dateFrom) {
+    conditions.push('po.issued_at >= ?')
+    params.push(new Date(dateFrom))
+  }
+  if (dateTo) {
+    conditions.push('po.issued_at <= ?')
+    params.push(new Date(new Date(dateTo).setHours(23, 59, 59, 999)))
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
+  // Customer and delivery come from: production_order_lines (step4) ─► tp_export_order_items (lotNo+outputProductId) ─► tp_export_orders ─► customers
+  const sql = `
+    SELECT
+      po.id                   AS po_id,
+      po.issued_at            AS issued_at,
+      po.step1_processed_at   AS step1_processed_at,
+      po.step2_processed_at   AS step2_processed_at,
+      po.step3_processed_at   AS step3_processed_at,
+      po.step4_processed_at   AS step4_processed_at,
+      op.name                 AS output_product_name,
+      pol.planned_qty         AS planned_qty,
+      pol.actual_qty          AS actual_qty,
+      pol.lot_no              AS lot_no,
+      c.name                  AS customer_name,
+      te.exported_at          AS delivered_at
+    FROM production_orders po
+    LEFT JOIN products_outputs op
+      ON op.id = po.output_product_id
+    LEFT JOIN production_order_lines pol
+      ON pol.order_id = po.id
+      AND pol.step = 4
+      AND pol.direction = 'in'
+      AND pol.output_product_id IS NOT NULL
+    LEFT JOIN tp_export_order_items tei
+      ON tei.lot_no = pol.lot_no
+      AND tei.output_product_id = pol.output_product_id
+    LEFT JOIN tp_export_orders te
+      ON te.id = tei.export_order_id
+    LEFT JOIN customers c
+      ON c.id = te.customer_id
+    ${whereClause}
+    ORDER BY po.issued_at ASC
+  `
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = await prisma.$queryRawUnsafe<any[]>(sql, ...params)
+
+  const rows = raw.map((r, idx) => ({
+    stt:              idx + 1,
+    customerName:     r.customer_name ?? null,
+    productName:      r.output_product_name ?? null,
+    plannedQty:       r.planned_qty  != null ? Number(r.planned_qty)  : null,
+    actualQty:        r.actual_qty   != null ? Number(r.actual_qty)   : null,
+    lotNo:            r.lot_no ?? null,
+    issuedAt:         r.issued_at ?? null,
+    step1ProcessedAt: r.step1_processed_at ?? null,
+    step2ProcessedAt: r.step2_processed_at ?? null,
+    step3ProcessedAt: r.step3_processed_at ?? null,
+    step4ProcessedAt: r.step4_processed_at ?? null,
+    deliveredAt:      r.delivered_at ?? null,
+  }))
+
+  return res.json(rows)
+})
+
 router.get('/', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {
   const {
     status,

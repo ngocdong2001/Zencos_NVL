@@ -6066,12 +6066,29 @@ input {
 
 .app-filter-control .p-calendar,
 .po-filter-control .p-calendar {
-  width: 118px;
+  width: 200px;
 }
 
 .app-filter-control .p-calendar .p-datepicker-trigger,
 .po-filter-control .p-calendar .p-datepicker-trigger {
   display: none;
+}
+
+.app-filter-clear-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  transition: color 0.2s ease;
+}
+
+.app-filter-clear-btn:hover {
+  color: #475569;
 }
 
 .app-filter-control select,

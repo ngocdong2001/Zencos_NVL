@@ -268,3 +268,33 @@ export async function returnNvlToWarehouse(
     body: JSON.stringify({ lines }),
   })
 }
+
+// ─── Export Excel ─────────────────────────────────────────────────────────────
+
+export type ProductionExportRow = {
+  stt: number
+  customerName: string | null
+  productName: string | null
+  plannedQty: number | null
+  actualQty: number | null
+  lotNo: string | null
+  issuedAt: string | null
+  step1ProcessedAt: string | null
+  step2ProcessedAt: string | null
+  step3ProcessedAt: string | null
+  step4ProcessedAt: string | null
+  deliveredAt: string | null
+}
+
+export async function fetchProductionOrdersForExport(params?: {
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+}): Promise<ProductionExportRow[]> {
+  const query = new URLSearchParams()
+  if (params?.status && params.status !== 'all') query.set('status', params.status)
+  if (params?.dateFrom) query.set('dateFrom', params.dateFrom)
+  if (params?.dateTo) query.set('dateTo', params.dateTo)
+  const qs = query.toString()
+  return http<ProductionExportRow[]>(`/api/production-orders/export-excel${qs ? `?${qs}` : ''}`)
+}
