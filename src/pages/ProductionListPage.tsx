@@ -10,10 +10,12 @@ import { PagedTableFooter } from '../components/layout/PagedTableFooter'
 import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 import { fetchProductionOrders,
   fetchProductionOrdersForExport,
+  updateProductionOrderStatus,
   type ProductionOrderStatus,
   type ProductionOrderListItem,
   type ProductOutputType,
 } from '../lib/productionApi'
+import { showDangerConfirm } from '../lib/confirm'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +129,7 @@ export function ProductionListPage() {
   const [highlightId, setHighlightId] = useState<string | null>(highlightedId)
   const [showFlowModal, setShowFlowModal] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -148,6 +151,26 @@ export function ProductionListPage() {
   }, [highlightId])
 
   useEffect(() => { void refresh() }, [location.key])
+
+  const handleCancelOrder = (row: ProductionOrderRow) => {
+    showDangerConfirm({
+      header: 'Hủy phiếu sản xuất',
+      message: `Bạn có chắc muốn hủy phiếu ${row.orderRef}?${row.status === 'completed' ? ' Phiếu đã hoàn thành — NVL xuất kho sẽ được hoàn trả tồn kho tự động.' : ''} Hành động này không thể hoàn tác.`,
+      acceptLabel: 'Xác nhận hủy',
+      rejectLabel: 'Quay lại',
+      onAccept: async () => {
+        setCancellingId(row.id)
+        try {
+          await updateProductionOrderStatus(row.id, 'cancelled')
+          await refresh()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Không thể hủy phiếu.')
+        } finally {
+          setCancellingId(null)
+        }
+      },
+    })
+  }
 
   const handleExport = async () => {
     setExportLoading(true)
@@ -188,7 +211,23 @@ export function ProductionListPage() {
       }
 
       const fmtDate = (iso: string | null) => iso ? new Date(iso) : null
+
+      // Parse nvlExportDates string: "matName||date;;matName2||date2" → "nhận matName: date\nnhận matName2: date2"
+      const fmtNvlDates = (raw: string | null): string => {
+        if (!raw) return ''
+        return raw.split(';;')
+          .map(part => {
+            const sep = part.indexOf('||')
+            if (sep === -1) return `nhận ${part}`
+            const name = part.slice(0, sep).trim()
+            const date = part.slice(sep + 2).trim()
+            return date ? `nhận ${name}: ${date}` : `nhận ${name}`
+          })
+          .join('\n')
+      }
+
       data.forEach((item) => {
+        const nvlText = fmtNvlDates(item.nvlExportDates)
         const row = ws.addRow([
           item.stt,
           item.customerName,
@@ -197,7 +236,7 @@ export function ProductionListPage() {
           item.actualQty,
           item.lotNo,
           fmtDate(item.issuedAt),
-          fmtDate(item.step1ProcessedAt),
+          nvlText || null,          // col 8: Thời gian NKNVL – chi tiết từng NVL
           fmtDate(item.step2ProcessedAt),
           fmtDate(item.step3ProcessedAt),
           fmtDate(item.step4ProcessedAt),
@@ -206,8 +245,11 @@ export function ProductionListPage() {
         for (let c = 1; c <= TOTAL_COLS; c++) {
           const cell = row.getCell(c)
           cell.border = border
-          if (c >= 7 && c <= 12 && cell.value) cell.numFmt = 'dd/mm/yyyy'
+          if (c >= 9 && c <= 12 && cell.value) cell.numFmt = 'dd/mm/yyyy'
         }
+        // Col 8: wrap text, align top-left for multi-line NVL list
+        const nvlCell = row.getCell(8)
+        nvlCell.alignment = { wrapText: true, vertical: 'top' }
       })
 
       const buffer = await wb.xlsx.writeBuffer()
@@ -529,6 +571,20 @@ export function ProductionListPage() {
                     tooltipOptions={{ position: 'top' }}
                     onClick={() => { setSelectedOrderId(row.id); setShowFlowModal(true) }}
                   />
+                  {row.status !== 'cancelled' && (
+                    <Button
+                      type="button"
+                      icon="pi pi-ban"
+                      text
+                      className="icon-btn"
+                      aria-label="Vô hiệu"
+                      tooltip="Vô hiệu"
+                      tooltipOptions={{ position: 'top' }}
+                      loading={cancellingId === row.id}
+                      onClick={() => handleCancelOrder(row)}
+                      style={{ color: '#ef4444' }}
+                    />
+                  )}
                 </span>
               )}
             />

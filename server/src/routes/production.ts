@@ -97,7 +97,16 @@ router.get('/export-excel', requireAuth, requirePermission('production:view'), a
       pol.actual_qty          AS actual_qty,
       pol.lot_no              AS lot_no,
       c.name                  AS customer_name,
-      te.exported_at          AS delivered_at
+      te.exported_at          AS delivered_at,
+      (
+        SELECT GROUP_CONCAT(
+          CONCAT(pol2.product_name, '||', IFNULL(DATE_FORMAT(pol2.export_date, '%d/%m/%y'), ''))
+          ORDER BY pol2.id ASC
+          SEPARATOR ';;'
+        )
+        FROM production_order_lines pol2
+        WHERE pol2.order_id = po.id AND pol2.step = 1 AND pol2.direction = 'out'
+      )                       AS nvl_export_dates
     FROM production_orders po
     LEFT JOIN products_outputs op
       ON op.id = po.output_product_id
@@ -133,6 +142,7 @@ router.get('/export-excel', requireAuth, requirePermission('production:view'), a
     step3ProcessedAt: r.step3_processed_at ?? null,
     step4ProcessedAt: r.step4_processed_at ?? null,
     deliveredAt:      r.delivered_at ?? null,
+    nvlExportDates:   r.nvl_export_dates ?? null,
   }))
 
   return res.json(rows)
@@ -326,7 +336,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
     return res.status(400).json({ message: 'Chưa có dữ liệu NVL xuất kho. Vui lòng lưu bước 1 trước.' })
 
   // Build list of (batch, qty) to process
-  type BatchDeduct = { batchId: bigint; qty: number; lineNotes: string; locationId: bigint | null }
+  type BatchDeduct = { batchId: bigint; qty: number; lineNotes: string; locationId: bigint | null; exportDate: Date | null }
   const deducts: BatchDeduct[] = []
 
   for (const line of step1Lines) {
@@ -352,6 +362,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
       qty,
       lineNotes: `Xuất NVL cho lệnh ${existing.orderRef ?? orderId.toString()}`,
       locationId: line.locationId ?? null,
+      exportDate: line.exportDate ?? null,
     })
   }
 
@@ -379,7 +390,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
           quantityBase:        d.qty,
           isCancelled:         false,
           notes:               d.lineNotes,
-          transactionDate:     now,
+          transactionDate:     d.exportDate ?? now,
         },
       })
     }
@@ -430,17 +441,28 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
   })
   if (!existingOrder) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
 
-  // When cancelling an order that already had NVL exported → create reversal transactions
-  if (parsed.data.status === 'cancelled' && existingOrder.nvlExportedAt) {
-    const activeTxns = await prisma.inventoryTransaction.findMany({
-      where: { productionOrderId: existingOrder.id, isCancelled: false, type: 'export' },
-      select: { id: true, batchId: true, quantityBase: true, warehouseLocationId: true },
+  // When cancelling → reverse NVL and TP output transactions
+  if (parsed.data.status === 'cancelled') {
+    // NVL: find active export inventory transactions
+    const nvlTxns = existingOrder.nvlExportedAt
+      ? await prisma.inventoryTransaction.findMany({
+          where: { productionOrderId: existingOrder.id, isCancelled: false, type: 'export' },
+          select: { id: true, batchId: true, quantityBase: true, warehouseLocationId: true },
+        })
+      : []
+
+    // TP: find production output import transactions not yet linked to a TP export order
+    const tpTxns = await prisma.productionOutputTransaction.findMany({
+      where: { productionOrderId: existingOrder.id, type: 'import_from_production', tpExportOrderId: null },
+      select: { id: true },
     })
 
-    if (activeTxns.length > 0) {
+    if (nvlTxns.length > 0 || tpTxns.length > 0) {
       await prisma.$transaction(async (tx) => {
         const now = new Date()
-        for (const txn of activeTxns) {
+
+        // Reverse NVL: restore batch qty + create reversal txn + mark original cancelled
+        for (const txn of nvlTxns) {
           const qty = typeof txn.quantityBase === 'object'
             ? (txn.quantityBase as unknown as { toNumber(): number }).toNumber()
             : Number(txn.quantityBase)
@@ -471,6 +493,17 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
           })
         }
 
+        // Reverse TP: delete import_from_production records not yet used in exports
+        if (tpTxns.length > 0) {
+          await tx.productionOutputTransaction.deleteMany({
+            where: { id: { in: tpTxns.map((t) => t.id) } },
+          })
+        }
+
+        const logParts: string[] = []
+        if (nvlTxns.length > 0) logParts.push(`hoàn trả ${nvlTxns.length} giao dịch xuất NVL vào kho`)
+        if (tpTxns.length > 0) logParts.push(`hủy ${tpTxns.length} giao dịch nhập TP`)
+
         // Update status + log
         await tx.productionOrder.update({
           where: { id: existingOrder.id },
@@ -480,7 +513,7 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
               create: {
                 userId,
                 userName: req.auth!.email,
-                action:   `Hủy phiếu – đã hoàn trả ${activeTxns.length} giao dịch xuất NVL vào kho`,
+                action:   `Hủy phiếu – ${logParts.join(', ') || 'chuyển trạng thái'}`,
                 logType:  'process',
                 step:     1,
               },
@@ -806,6 +839,7 @@ const linePayloadSchema = z.object({
   qualityStatus:   z.enum(['pass', 'fail', 'pending']).optional().nullable(),
   direction:       z.enum(['in', 'out']),
   notes:           z.string().optional().nullable(),
+  exportDate:      z.string().optional().nullable(),
 })
 
 const upsertLinesSchema = z.object({
@@ -849,6 +883,7 @@ router.put('/:id/lines/:step', requireAuth, requirePermission('production:write'
           productName:     line.productName,
           lotNo:           line.lotNo ?? null,
           expiryDate:      line.expiryDate ? new Date(line.expiryDate) : null,
+          exportDate:      line.exportDate ? new Date(line.exportDate) : null,
           plannedQty:      line.plannedQty,
           actualQty:       line.actualQty,
           wasteQty:        line.wasteQty,

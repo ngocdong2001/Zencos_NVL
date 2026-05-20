@@ -27,6 +27,7 @@ export function ProductionStep1Page() {
   const [saving, setSaving] = useState(false)
   const [savingLines, setSavingLines] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [voiding, setVoiding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [nvlExported, setNvlExported] = useState(false)
@@ -132,6 +133,7 @@ export function ProductionStep1Page() {
               manufacturerName: null,
               locationCode: null,
               locationName: null,
+              exportDate: l.exportDate ? new Date(l.exportDate) : null,
             }))
             restored.push({
               key: crypto.randomUUID(),
@@ -211,6 +213,16 @@ export function ProductionStep1Page() {
 
   async function handleSaveLines() {
     if (!orderId) return
+
+    if (!processedAt) {
+      setError('Vui lòng chọn Ngày xử lý (Bước 1) trước khi lưu.')
+      return
+    }
+    if (!sourceLocationId) {
+      setError('Vui lòng chọn Kho xuất NVL trước khi lưu.')
+      return
+    }
+
     const lines = currentLinesRef.current
     const payloads = lines.flatMap((line) =>
       line.allocationRows
@@ -221,6 +233,7 @@ export function ProductionStep1Page() {
           productName: line.materialName || line.materialId,
           lotNo: r.lotNo || null,
           expiryDate: r.expiryDate || null,
+          exportDate: r.exportDate ? r.exportDate.toISOString() : null,
           plannedQty: line.requestedQtyValue,
           actualQty: r.exportQty,
           wasteQty: 0,
@@ -231,6 +244,11 @@ export function ProductionStep1Page() {
     )
     if (payloads.length === 0) {
       setError('Chưa có dữ liệu lot NVL để lưu. Vui lòng chọn NVL và nhập số lượng.')
+      return
+    }
+    const missingDate = payloads.filter((p) => !p.exportDate)
+    if (missingDate.length > 0) {
+      setError(`${missingDate.length} dòng NVL chưa có ngày xuất kho. Vui lòng chọn ngày xuất cho tất cả các dòng.`)
       return
     }
     setSavingLines(true)
@@ -491,8 +509,36 @@ export function ProductionStep1Page() {
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
           <Button label="Quay lại" icon="pi pi-arrow-left" className="p-button-text p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} onClick={() => navigate('/production')} />
-          {orderId && !isLocked && (
+              {orderId && !isLocked && (
             <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
+          )}
+          {orderId && order?.status === 'completed' && (
+            <Button
+              label="VÔ HIỆU"
+              icon="pi pi-ban"
+              loading={voiding}
+              className="p-button-text p-button-danger"
+              style={{ fontSize: 12, fontWeight: 700 }}
+              onClick={() => {
+                showDangerConfirm({
+                  header: 'Vô hiệu phiếu sản xuất',
+                  message: `Vô hiệu phiếu ${order?.orderRef ?? orderId}? NVL xuất kho sẽ được hoàn trả tồn kho và TP nhập kho sẽ bị hủy. Hành động này không thể hoàn tác.`,
+                  acceptLabel: 'Xác nhận vô hiệu',
+                  rejectLabel: 'Quay lại',
+                  onAccept: async () => {
+                    setVoiding(true)
+                    try {
+                      await updateProductionOrderStatus(orderId, 'cancelled')
+                      navigate('/production')
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Không thể vô hiệu phiếu.')
+                    } finally {
+                      setVoiding(false)
+                    }
+                  },
+                })
+              }}
+            />
           )}
         </div>
         <div className="prod-footer-bar__right">

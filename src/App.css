@@ -3741,7 +3741,7 @@ input {
 
 .ob-drill-branch-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr 140px auto;
   gap: 10px;
   align-items: end;
 }
@@ -3812,13 +3812,15 @@ input {
 }
 
 .ob-drill-branch-qty-col,
-.ob-drill-branch-export-col {
+.ob-drill-branch-export-col,
+.ob-drill-branch-date-col {
   display: grid;
   gap: 3px;
 }
 
 .ob-drill-branch-qty-col span,
-.ob-drill-branch-export-col span {
+.ob-drill-branch-export-col span,
+.ob-drill-branch-date-col span {
   font-size: 0.68rem;
   text-transform: uppercase;
   color: #6b7280;
@@ -3832,7 +3834,24 @@ input {
 
 .ob-drill-branch-input {
   width: 100%;
-  font-size: 0.92rem;
+  font-size: 0.82rem;
+  padding: 4px 6px;
+  height: 32px;
+}
+
+.ob-drill-branch-date-input.p-calendar {
+  width: 100%;
+}
+
+.ob-drill-branch-date-input .p-inputtext {
+  font-size: 0.82rem;
+  padding: 4px 6px;
+  height: 32px;
+}
+
+.ob-drill-branch-date-input .p-datepicker-trigger.p-button {
+  width: 28px;
+  padding: 0;
 }
 
 .ob-drill-branch-action-col {

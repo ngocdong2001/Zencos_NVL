@@ -5,6 +5,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'primereact/button'
+import { Calendar } from 'primereact/calendar'
 import { Checkbox, type CheckboxChangeEvent } from 'primereact/checkbox'
 import { Dropdown } from 'primereact/dropdown'
 import { InputText } from 'primereact/inputtext'
@@ -32,6 +33,7 @@ export type AllocationRow = {
   manufacturerName: string | null
   locationCode: string | null
   locationName: string | null
+  exportDate: Date | null
 }
 
 export type MaterialLine = {
@@ -377,6 +379,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         manufacturerName: lot.manufacturerName ?? null,
         locationCode: lot.location?.code ?? null,
         locationName: lot.location?.name ?? null,
+        exportDate: null,
       })
       remain -= exportQty
     }
@@ -406,6 +409,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
             manufacturerName: lot.manufacturerName ?? null,
             locationCode: lot.location?.code ?? null,
             locationName: lot.location?.name ?? null,
+            exportDate: null,
           },
         ],
       }
@@ -440,6 +444,14 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         const normalized = Math.min(parsed, r.availableQty)
         return { ...r, exportQty: normalized, inputValue: normalized > 0 ? formatQuantity(normalized) : '' }
       }),
+    }))
+  }
+
+  const updateAllocationDate = (lineIdx: number, batchId: string, date: Date | null) => {
+    if (disabled) return
+    updateLine(lineIdx, (l) => ({
+      ...l,
+      allocationRows: l.allocationRows.map((r) => (r.batchId === batchId ? { ...r, exportDate: date } : r)),
     }))
   }
 
@@ -646,6 +658,18 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                                 placeholder="0"
                                 className="ob-drill-branch-input"
                                 disabled={isLineDisabled(line.key)}
+                              />
+                            </div>
+                            <div className="ob-drill-branch-date-col">
+                              <span>NGÀY XUẤT KHO</span>
+                              <Calendar
+                                value={row.exportDate}
+                                onChange={(e) => updateAllocationDate(idx, row.batchId, e.value as Date | null)}
+                                dateFormat="dd/mm/yy"
+                                placeholder="Chọn ngày"
+                                showIcon
+                                disabled={isLineDisabled(line.key)}
+                                className="ob-drill-branch-date-input"
                               />
                             </div>
                             <div className="ob-drill-branch-action-col">

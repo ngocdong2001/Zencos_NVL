@@ -898,6 +898,7 @@ model ProductionOrderLine {
   productName     String   @map("product_name") @db.VarChar(255)
   lotNo       String?  @map("lot_no") @db.VarChar(100)
   expiryDate  DateTime? @map("expiry_date") @db.Date
+  exportDate  DateTime? @map("export_date")
   plannedQty  Decimal  @default(0) @map("planned_qty") @db.Decimal(15, 4)
   actualQty   Decimal  @default(0) @map("actual_qty") @db.Decimal(15, 4)
   wasteQty    Decimal  @default(0) @map("waste_qty") @db.Decimal(15, 4)

@@ -66,6 +66,7 @@ export type ProductionOrderLine = {
   productName: string
   lotNo: string | null
   expiryDate: string | null
+  exportDate: string | null
   plannedQty: number
   actualQty: number
   wasteQty: number
@@ -108,6 +109,7 @@ export type LinePayload = {
   productName: string
   lotNo?: string | null
   expiryDate?: string | null
+  exportDate?: string | null
   plannedQty: number
   actualQty: number
   wasteQty: number
@@ -284,6 +286,7 @@ export type ProductionExportRow = {
   step3ProcessedAt: string | null
   step4ProcessedAt: string | null
   deliveredAt: string | null
+  nvlExportDates: string | null
 }
 
 export async function fetchProductionOrdersForExport(params?: {

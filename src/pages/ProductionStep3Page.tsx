@@ -141,6 +141,7 @@ export function ProductionStep3Page() {
   const [saving, setSaving] = useState(false)
   const [savingAndNext, setSavingAndNext] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [voiding, setVoiding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [processedAt, setProcessedAt] = useState<Date | null>(null)
 
@@ -477,6 +478,34 @@ export function ProductionStep3Page() {
               },
             })
           }} />
+          {orderId && order?.status === 'completed' && (
+            <Button
+              label="VÔ HIỆU"
+              icon="pi pi-ban"
+              loading={voiding}
+              className="p-button-text p-button-danger"
+              style={{ fontSize: 12, fontWeight: 700 }}
+              onClick={() => {
+                showDangerConfirm({
+                  header: 'Vô hiệu phiếu sản xuất',
+                  message: `Vô hiệu phiếu ${order?.orderRef ?? orderId}? NVL xuất kho sẽ được hoàn trả tồn kho và TP nhập kho sẽ bị hủy. Hành động này không thể hoàn tác.`,
+                  acceptLabel: 'Xác nhận vô hiệu',
+                  rejectLabel: 'Quay lại',
+                  onAccept: async () => {
+                    setVoiding(true)
+                    try {
+                      await updateProductionOrderStatus(orderId, 'cancelled')
+                      navigate('/production')
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Không thể vô hiệu phiếu.')
+                    } finally {
+                      setVoiding(false)
+                    }
+                  },
+                })
+              }}
+            />
+          )}
         </div>
         <div className="prod-footer-bar__right">
           <Button
