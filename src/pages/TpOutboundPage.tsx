@@ -109,13 +109,11 @@ export function TpOutboundPage() {
 
   /* ── catalog data ── */
   const [customerRows, setCustomerRows] = useState<BasicRow[]>([])
-  const [locationOptions, setLocationOptions] = useState<SelectOption[]>([])
   const [products, setProducts] = useState<ProductOutputRow[]>([])
   const [productOptions, setProductOptions] = useState<SelectOption[]>([])
 
   /* ── form state ── */
   const [customerId, setCustomerId] = useState('')
-  const [sourceLocationId, setSourceLocationId] = useState('')
   const [dienGiai, setDienGiai] = useState('')
   const [exportedAt, setExportedAt] = useState<Date>(new Date())
   const [personInCharge, setPersonInCharge] = useState('')
@@ -221,19 +219,13 @@ export function TpOutboundPage() {
       setLoading(true)
       setFormError(null)
       try {
-        const [customers, catalogProducts, locationRows] = await Promise.all([
+        const [customers, catalogProducts] = await Promise.all([
           fetchBasics('customers'),
           fetchProductOutputsCatalog(),
-          fetchBasics('locations'),
         ])
         if (cancelled) return
 
         setCustomerRows(customers.filter((r: BasicRow) => r.id && r.name))
-        setLocationOptions(
-          locationRows
-            .filter((r: BasicRow) => r.id && r.status !== 'inactive')
-            .map((r: BasicRow) => ({ value: r.id, label: r.name + (r.code ? ` (${r.code})` : '') })),
-        )
         setProducts(catalogProducts)
         setProductOptions(catalogProducts.map((r) => ({ value: r.id, label: `${r.name} (${r.code})` })))
 
@@ -244,7 +236,6 @@ export function TpOutboundPage() {
           setEditingStatus(detail.status)
           setSourceOrderId(detail.sourceOrder?.id ?? null)
           setAdjustedByOrderId(detail.adjustedByOrder?.id ?? null)
-          setSourceLocationId(detail.sourceLocation?.id ?? '')
           setEditingOrderRef(detail.orderRef)
           setCustomerId(detail.customer?.id ?? '')
           setDienGiai(detail.dienGiai ?? '')
@@ -465,8 +456,12 @@ export function TpOutboundPage() {
       const prod = products.find((p) => p.id === row.outputProductId)
       if (!row.outputProductId) { setFormError('Một dòng chưa chọn sản phẩm.'); return false }
       if (row.quantityBase <= 0) { setFormError(`${prod?.name ?? 'Sản phẩm'}: Số lượng phải lớn hơn 0.`); return false }
-      if (row.lotNo && row.quantityBase > row.availableQty + 0.0001) {
-        setFormError(`${prod?.name ?? 'Sản phẩm'}: Số lượng vượt tồn lô ${row.lotNo ?? ''}.`)
+      if (row.lotNo && row.quantityBase > row.availableQty + 0.001) {
+        setFormError(
+          `${prod?.name ?? 'Sản phẩm'} – Lô ${row.lotNo}: ` +
+          `cần ${formatQuantity(row.quantityBase)} ${prod?.unit ?? ''}, ` +
+          `tồn khả dụng ${formatQuantity(row.availableQty)} ${prod?.unit ?? ''}.`
+        )
         return false
       }
     }
@@ -494,7 +489,6 @@ export function TpOutboundPage() {
     return {
       orderRef: isEditMode ? (editingOrderRef ?? undefined) : (newOrderRef.trim() || buildTpRef()),
       customerId: customerId || undefined,
-      sourceLocationId: sourceLocationId || undefined,
       exportedAt: exportedAt.toISOString(),
       dienGiai: dienGiai.trim() || undefined,
       items,
@@ -992,21 +986,6 @@ export function TpOutboundPage() {
                       disabled={isLockedEditMode}
                       className="tp-inv-field-calendar"
                       showIcon
-                    />
-                  </label>
-                  <label className="tp-inv-field" style={{ flex: 2 }}>
-                    <span className="tp-inv-field-label">Kho xuất</span>
-                    <Dropdown
-                      value={sourceLocationId}
-                      options={locationOptions}
-                      optionLabel="label"
-                      optionValue="value"
-                      onChange={(e) => setSourceLocationId(String(e.value ?? ''))}
-                      placeholder="Chọn kho xuất hàng..."
-                      filter
-                      showClear
-                      disabled={loading || isLockedEditMode}
-                      className="tp-inv-field-dropdown"
                     />
                   </label>
                 </div>

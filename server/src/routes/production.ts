@@ -248,7 +248,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
     return res.status(400).json({ message: 'Chưa có dữ liệu NVL xuất kho. Vui lòng lưu bước 1 trước.' })
 
   // Build list of (batch, qty) to process
-  type BatchDeduct = { batchId: bigint; qty: number; lineNotes: string }
+  type BatchDeduct = { batchId: bigint; qty: number; lineNotes: string; locationId: bigint | null }
   const deducts: BatchDeduct[] = []
 
   for (const line of step1Lines) {
@@ -273,6 +273,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
       batchId: batch.id,
       qty,
       lineNotes: `Xuất NVL cho lệnh ${existing.orderRef ?? orderId.toString()}`,
+      locationId: line.locationId ?? null,
     })
   }
 
@@ -292,14 +293,15 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
       // Create inventory transaction
       await tx.inventoryTransaction.create({
         data: {
-          batchId:          d.batchId,
+          batchId:             d.batchId,
           userId,
-          productionOrderId: orderId,
-          type:             'export',
-          quantityBase:     d.qty,
-          isCancelled:      false,
-          notes:            d.lineNotes,
-          transactionDate:  now,
+          productionOrderId:   orderId,
+          warehouseLocationId: d.locationId,
+          type:                'export',
+          quantityBase:        d.qty,
+          isCancelled:         false,
+          notes:               d.lineNotes,
+          transactionDate:     now,
         },
       })
     }
@@ -354,7 +356,7 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
   if (parsed.data.status === 'cancelled' && existingOrder.nvlExportedAt) {
     const activeTxns = await prisma.inventoryTransaction.findMany({
       where: { productionOrderId: existingOrder.id, isCancelled: false, type: 'export' },
-      select: { id: true, batchId: true, quantityBase: true },
+      select: { id: true, batchId: true, quantityBase: true, warehouseLocationId: true },
     })
 
     if (activeTxns.length > 0) {
@@ -373,14 +375,15 @@ router.patch('/:id/status', requireAuth, requirePermission('production:write'), 
           // Create reversal transaction (audit trail)
           await tx.inventoryTransaction.create({
             data: {
-              batchId:           txn.batchId,
+              batchId:             txn.batchId,
               userId,
-              productionOrderId: existingOrder.id,
-              type:              'import',
-              quantityBase:      qty,
-              isCancelled:       false,
-              notes:             `Hoàn kho NVL – hủy lệnh ${existingOrder.orderRef ?? existingOrder.id.toString()}`,
-              transactionDate:   now,
+              productionOrderId:   existingOrder.id,
+              warehouseLocationId: txn.warehouseLocationId,
+              type:                'import',
+              quantityBase:        qty,
+              isCancelled:         false,
+              notes:               `Hoàn kho NVL – hủy lệnh ${existingOrder.orderRef ?? existingOrder.id.toString()}`,
+              transactionDate:     now,
             },
           })
           // Mark original transaction as cancelled (keep for audit trail)
@@ -516,6 +519,8 @@ router.patch('/:id/complete', requireAuth, requirePermission('production:write')
       type: 'import_from_production' as const,
       quantityBase: line.actualQty!,
       warehouseLocationId: line.locationId,
+      batchLotNo: line.lotNo ?? '',
+      batchExpiryDate: line.expiryDate ?? null,
       userId,
       transactionDate: new Date(),
     }))
@@ -583,8 +588,15 @@ router.post('/:id/return-nvl', requireAuth, requirePermission('production:write'
   // Fetch step-1 out lines for validation
   const step1Lines = await prisma.productionOrderLine.findMany({
     where: { orderId, step: 1, direction: 'out' },
-    select: { productId: true, lotNo: true, actualQty: true },
+    select: { productId: true, lotNo: true, actualQty: true, locationId: true },
   })
+
+  // Build location lookup map: (productId-lotNo) → locationId
+  const step1LocationMap = new Map<string, bigint | null>()
+  for (const l of step1Lines) {
+    const key = `${l.productId}-${l.lotNo}`
+    if (!step1LocationMap.has(key)) step1LocationMap.set(key, l.locationId ?? null)
+  }
 
   // Fetch already-returned qty per (productId, lotNo) for this order
   // A "return" = import transaction linked to this productionOrderId
@@ -638,14 +650,15 @@ router.post('/:id/return-nvl', requireAuth, requirePermission('production:write'
       // Create import transaction (return to warehouse)
       await tx.inventoryTransaction.create({
         data: {
-          batchId:           batch.id,
+          batchId:             batch.id,
           userId,
-          productionOrderId: orderId,
-          type:              'import',
-          quantityBase:      line.returnQty,
-          isCancelled:       false,
-          notes:             `Hoàn nhập NVL thừa – lệnh ${order.orderRef ?? orderId.toString()}`,
-          transactionDate:   now,
+          productionOrderId:   orderId,
+          warehouseLocationId: step1LocationMap.get(`${line.productId}-${line.lotNo}`) ?? null,
+          type:                'import',
+          quantityBase:        line.returnQty,
+          isCancelled:         false,
+          notes:               `Hoàn nhập NVL thừa – lệnh ${order.orderRef ?? orderId.toString()}`,
+          transactionDate:     now,
         },
       })
 

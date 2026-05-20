@@ -1,0 +1,57 @@
+/* FgWarehouseItemDetailPage reuses .idb-* class names defined in WarehouseItemDetailPage.css.
+   This file provides the same base rules plus FG-specific overrides. */
+
+@import './WarehouseItemDetailPage.css';
+
+/* FG brand colour overrides */
+.fg-idb-page .idb-code-badge,
+.fg-idb-page .fg-code-badge {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.25);
+  color: #0f766e;
+}
+
+/* Sidebar info grid */
+.fg-info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.fg-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.fg-info-row:last-child {
+  border-bottom: none;
+}
+
+.fg-info-row--highlight {
+  background: rgba(15, 118, 110, 0.05);
+  border-radius: 6px;
+  margin: 4px 8px;
+}
+
+.fg-info-label {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.fg-info-value {
+  font-size: 0.875rem;
+  color: #111827;
+  font-weight: 500;
+  text-align: right;
+}
+
+.fg-info-value--big {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f766e;
+}

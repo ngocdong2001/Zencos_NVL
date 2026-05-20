@@ -22,6 +22,7 @@ import inboundDraftsRouter from './routes/inboundDrafts.js'
 import inboundRouter from './routes/inbound.js'
 import dashboardRouter from './routes/dashboard.js'
 import warehouseInventoryRouter from './routes/warehouseInventory.js'
+import fgWarehouseInventoryRouter from './routes/fgWarehouseInventory.js'
 import productionRouter from './routes/production.js'
 import tpSalesRouter from './routes/tpSales.js'
 
@@ -61,6 +62,7 @@ app.use('/api/inbound-drafts', inboundDraftsRouter)
 app.use('/api/inbound', inboundRouter)
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/warehouse', warehouseInventoryRouter)
+app.use('/api/fg-warehouse', fgWarehouseInventoryRouter)
 app.use('/api/production-orders', productionRouter)
 app.use('/api/tp-sales', tpSalesRouter)
 

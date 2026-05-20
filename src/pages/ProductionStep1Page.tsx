@@ -42,6 +42,10 @@ export function ProductionStep1Page() {
   const currentLinesRef = useRef<MaterialLine[]>([])
   const [initialPanelLines, setInitialPanelLines] = useState<MaterialLine[] | undefined>(undefined)
 
+  // Warehouse location for step-1 NVL export
+  const [locations, setLocations] = useState<BasicRow[]>([])
+  const [sourceLocationId, setSourceLocationId] = useState<string | null>(null)
+
   // History
   const [historyEvents, setHistoryEvents] = useState<HistoryTimelineEvent[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -83,6 +87,13 @@ export function ProductionStep1Page() {
   // Load product outputs for dropdown
   useEffect(() => {
     fetchProductOutputs().then(setProductOutputs).catch(() => {/* silent */})
+  }, [])
+
+  // Load warehouse locations for NVL source dropdown
+  useEffect(() => {
+    fetchBasics('locations')
+      .then(rows => setLocations(rows.filter(r => r.status !== 'inactive')))
+      .catch(() => {})
   }, [])
 
   // Load order from API if orderId present
@@ -139,6 +150,9 @@ export function ProductionStep1Page() {
           setInitialPanelLines(restored)
           currentLinesRef.current = restored
         }
+        // Restore source warehouse from first step-1 out line
+        const savedLocationId = step1Lines[0]?.locationId ?? null
+        if (savedLocationId) setSourceLocationId(savedLocationId)
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -206,6 +220,7 @@ export function ProductionStep1Page() {
           wasteQty: 0,
           unit: line.materialUnit || 'g',
           direction: 'out' as const,
+          locationId: sourceLocationId || null,
         }))
     )
     if (payloads.length === 0) {
@@ -340,6 +355,19 @@ export function ProductionStep1Page() {
                 placeholder="Chọn ngày xử lý"
                 showIcon
                 disabled={!orderId || isLocked}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="prod-form-field">
+              <label>KHO XUẤT NVL</label>
+              <Dropdown
+                value={sourceLocationId}
+                options={locations.map(l => ({ label: `[${l.code}] ${l.name}`, value: l.id }))}
+                onChange={(e) => setSourceLocationId(e.value as string | null)}
+                placeholder="Chọn kho xuất NVL..."
+                filter
+                showClear
+                disabled={isLocked}
                 style={{ width: '100%' }}
               />
             </div>
@@ -626,7 +654,7 @@ export function ProductionStep1Page() {
       {/* Flow diagram modal */}
       <ProductionFlowModal
         visible={showFlowModal}
-        orderId={orderId}
+        orderId={orderId ?? null}
         onHide={() => setShowFlowModal(false)}
       />
     </div>

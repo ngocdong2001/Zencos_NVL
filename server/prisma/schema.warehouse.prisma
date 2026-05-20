@@ -385,6 +385,7 @@ model InventoryTransaction {
   exportOrderItemId    BigInt?                  @map("export_order_item_id") @db.UnsignedBigInt
   inboundReceiptItemId BigInt?                  @map("inbound_receipt_item_id") @db.UnsignedBigInt
   productionOrderId    BigInt?                  @map("production_order_id") @db.UnsignedBigInt
+  warehouseLocationId  BigInt?                  @map("warehouse_location_id") @db.UnsignedBigInt
   type                 InventoryTransactionType
   quantityBase         Decimal                  @map("quantity_base") @db.Decimal(15, 4)
   notes                String?                  @db.Text
@@ -398,10 +399,12 @@ model InventoryTransaction {
   inboundReceiptItemSource InboundReceiptItem?  @relation("InboundReceiptItemSourceTransaction", fields: [inboundReceiptItemId], references: [id], onDelete: SetNull)
   postedInboundReceiptItems InboundReceiptItem[] @relation("InboundReceiptPostedTransaction")
   productionOrder      ProductionOrder?         @relation("ProductionOrderNvlTransactions", fields: [productionOrderId], references: [id], onDelete: SetNull)
+  warehouseLocation    CatalogLocation?         @relation("InventoryTransactionLocation", fields: [warehouseLocationId], references: [id], onDelete: SetNull)
 
   @@index([inboundReceiptItemId])
   @@index([batchId, transactionDate, type])
   @@index([productionOrderId])
+  @@index([warehouseLocationId])
   @@map("inventory_transactions")
 }
 
@@ -498,6 +501,7 @@ model CatalogLocation {
   tpExportOrders TpExportOrder[] @relation("TpExportOrderSourceLocation")
   productionOrderLines ProductionOrderLine[]
   outputTransactions ProductionOutputTransaction[]
+  inventoryTransactions InventoryTransaction[] @relation("InventoryTransactionLocation")
 
   @@map("inventory_locations")
 }
@@ -797,6 +801,7 @@ model TpExportOrder {
   adjustedOrders    TpExportOrder[]   @relation("TpExportAdjTarget")
   items             TpExportOrderItem[]
   historyEntries    TpExportOrderHistory[]
+  outputTransactions ProductionOutputTransaction[] @relation("TpExportOutputTransactions")
 
   @@index([sourceOrderId])
   @@index([adjustedByOrderId])
@@ -929,12 +934,13 @@ model ProductionOrderLog {
 
 model ProductionOutputTransaction {
   id                   BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  productionOrderId    BigInt   @map("production_order_id") @db.UnsignedBigInt
+  productionOrderId    BigInt?  @map("production_order_id") @db.UnsignedBigInt
+  tpExportOrderId      BigInt?  @map("tp_export_order_id") @db.UnsignedBigInt
   outputProductId      BigInt   @map("output_product_id") @db.UnsignedBigInt
   type                 ProductionOutputTransactionType
   quantityBase         Decimal  @map("quantity_base") @db.Decimal(15, 4)
   warehouseLocationId  BigInt?  @map("warehouse_location_id") @db.UnsignedBigInt
-  batchLotNo           String?  @map("batch_lot_no") @db.VarChar(100)
+  batchLotNo           String   @map("batch_lot_no") @db.VarChar(100) @default("")
   batchExpiryDate      DateTime? @map("batch_expiry_date") @db.Date
   userId               BigInt?  @map("user_id") @db.UnsignedBigInt
   notes                String?  @db.Text
@@ -942,12 +948,14 @@ model ProductionOutputTransaction {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
-  order                ProductionOrder     @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  order                ProductionOrder?    @relation(fields: [productionOrderId], references: [id], onDelete: SetNull)
+  tpExportOrder        TpExportOrder?      @relation("TpExportOutputTransactions", fields: [tpExportOrderId], references: [id], onDelete: SetNull)
   outputProduct        ProductOutput       @relation(fields: [outputProductId], references: [id], onDelete: Restrict)
   warehouseLocation    CatalogLocation?    @relation(fields: [warehouseLocationId], references: [id], onDelete: SetNull)
   user                 User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([productionOrderId])
+  @@index([tpExportOrderId])
   @@index([outputProductId, transactionDate, type])
   @@map("production_output_transactions")
 }

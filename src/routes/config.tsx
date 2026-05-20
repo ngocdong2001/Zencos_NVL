@@ -15,6 +15,8 @@ import { ProductCreatePage } from '../pages/ProductCreatePage'
 import { PurchaseOrderPage } from '../pages/PurchaseOrderPage'
 import { WarehousePage } from '../pages/WarehousePage'
 import { WarehouseItemDetailPage } from '../pages/WarehouseItemDetailPage'
+import { FgWarehousePage } from '../pages/FgWarehousePage'
+import { FgWarehouseItemDetailPage } from '../pages/FgWarehouseItemDetailPage'
 import { ProductionListPage } from '../pages/ProductionListPage'
 import { ProductionStep1Page } from '../pages/ProductionStep1Page'
 import { ProductionStep2Page } from '../pages/ProductionStep2Page'
@@ -36,8 +38,10 @@ export type RouteConfig = {
 
 export const appRoutes: RouteConfig[] = [
   { path: '/overview',                  label: 'Tổng quan',                    icon: 'pi pi-home',         component: DashboardPage,           permission: 'reports:view' },
-  { path: '/warehouse',                 label: 'Quản lý kho',                  icon: 'pi pi-building',     component: WarehousePage,            permission: 'warehouse:view' },
+  { path: '/warehouse',                 label: 'Quản lý kho NVL',             icon: 'pi pi-building',     component: WarehousePage,            permission: 'warehouse:view' },
   { path: '/warehouse/:id',             label: 'Chi tiết Vật tư',              icon: 'pi pi-box',          component: WarehouseItemDetailPage,  permission: 'warehouse:detail',  showInNav: false },
+  { path: '/fg-warehouse',              label: 'Quản lý kho Thành phẩm',      icon: 'pi pi-box',          component: FgWarehousePage,          permission: 'warehouse:view' },
+  { path: '/fg-warehouse/:id',          label: 'Chi tiết Thành phẩm',         icon: 'pi pi-box',          component: FgWarehouseItemDetailPage, permission: 'warehouse:detail', showInNav: false },
   { path: '/inbound',                   label: 'Nhập kho',                     icon: 'pi pi-download',     component: InboundPage,              permission: 'inbound:view' },
   { path: '/inbound/new',               label: 'Tạo phiếu nhập mới',           icon: 'pi pi-plus',         component: InboundStep1Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step2',         label: 'Chi tiết Lô hàng',             icon: 'pi pi-list',         component: InboundStep2Page,         permission: 'inbound:write',     showInNav: false },

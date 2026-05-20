@@ -42,12 +42,13 @@ type TpStockRow = {
   availableQty: number
 }
 
-async function queryTpStock(outputProductId?: bigint): Promise<TpStockRow[]> {
+async function queryTpStock(outputProductId?: bigint, client?: Prisma.TransactionClient | typeof prisma): Promise<TpStockRow[]> {
+  const db = client ?? prisma
   const where = outputProductId
     ? Prisma.sql`WHERE t.output_product_id = ${outputProductId}`
     : Prisma.sql`WHERE 1=1`
 
-  const rows = await prisma.$queryRaw<Array<{
+  const rows = await db.$queryRaw<Array<{
     outputProductId: bigint
     batchLotNo: string | null
     batchExpiryDate: Date | null
@@ -482,7 +483,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('outbound:write'), as
           if (qty <= 0) continue
           await tx.productionOutputTransaction.create({
             data: {
-              productionOrderId:    BigInt(0), // sentinel: manual reversal
+              tpExportOrderId:      order.sourceOrder.id, // reversal linked to source TP export order
               outputProductId:      srcItem.outputProductId,
               type:                 'import_from_production', // positive = restore stock
               quantityBase:         qty,
@@ -513,7 +514,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('outbound:write'), as
         const qty = Number(item.quantityBase)
         if (qty <= 0) continue
 
-        const stockRows = await queryTpStock(item.outputProductId)
+        const stockRows = await queryTpStock(item.outputProductId, tx)
         const match = stockRows.find(r =>
           r.batchLotNo === item.lotNo &&
           r.warehouseLocationId?.toString() === item.warehouseLocationId?.toString() &&
@@ -531,7 +532,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('outbound:write'), as
         if (qty <= 0) continue
         await tx.productionOutputTransaction.create({
           data: {
-            productionOrderId:   BigInt(0), // sentinel: standalone TP export
+            tpExportOrderId:     orderId, // linked to this TP export order
             outputProductId:     item.outputProductId,
             type:                'export_to_sale',
             quantityBase:        qty,

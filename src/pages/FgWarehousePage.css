@@ -1,0 +1,6 @@
+/* FgWarehousePage shares WarehousePage.css styles via class names.
+   Additional overrides specific to the FG warehouse page go here. */
+
+.fg-warehouse-page .page-header h1 {
+  color: #0f766e;
+}
