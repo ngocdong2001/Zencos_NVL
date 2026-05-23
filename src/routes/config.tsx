@@ -23,6 +23,8 @@ import { ProductionStep2Page } from '../pages/ProductionStep2Page'
 import { ProductionStep3Page } from '../pages/ProductionStep3Page'
 import { ProductionStep4Page } from '../pages/ProductionStep4Page'
 import { ProductionFlowDiagramPage } from '../pages/ProductionFlowDiagramPage'
+import { StockTransferListPage } from '../pages/StockTransferListPage'
+import { StockTransferPage } from '../pages/StockTransferPage'
 import { UserManagementPage } from '../pages/UserManagementPage'
 import { RolePermissionsPage } from '../pages/RolePermissionsPage'
 
@@ -45,6 +47,9 @@ export const appRoutes: RouteConfig[] = [
   { path: '/warehouse/:id',             label: 'Chi tiết Vật tư',              icon: 'pi pi-box',          component: WarehouseItemDetailPage,  permission: 'warehouse:detail',  showInNav: false },
   { path: '/fg-warehouse',              label: 'Quản lý kho Thành phẩm',      icon: 'pi pi-box',          component: FgWarehousePage,          permission: 'warehouse:view' },
   { path: '/fg-warehouse/:id',          label: 'Chi tiết Thành phẩm',         icon: 'pi pi-box',          component: FgWarehouseItemDetailPage, permission: 'warehouse:detail', showInNav: false },
+  { path: '/stock-transfer',            label: 'Chuyển kho nội bộ',            icon: 'pi pi-arrow-right-left', component: StockTransferListPage,   permission: 'warehouse:view' },
+  { path: '/stock-transfer/new',        label: 'Tạo phiếu chuyển mới',         icon: 'pi pi-plus',         component: StockTransferPage,         permission: 'warehouse:write',   showInNav: false },
+  { path: '/stock-transfer/:id',        label: 'Chi tiết phiếu chuyển',        icon: 'pi pi-pencil',       component: StockTransferPage,         permission: 'warehouse:write',   showInNav: false },
 
   // Group 2: Logistics & Production (divider before this group)
   { path: '/purchase',                  label: 'Yêu cầu mua hàng',             icon: 'pi pi-shopping-cart',component: PurchaseOrderPage,        permission: 'purchase:view',     divider: true },

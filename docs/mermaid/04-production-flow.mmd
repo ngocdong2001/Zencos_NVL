@@ -1,0 +1,15 @@
+flowchart TB
+  A["Tao phieu san xuat: draft"] --> B["Buoc 1: Xuat NVL tu kho NVL"]
+  B --> C["Buoc 2: Nhap BTP"]
+  C --> D["Buoc 3: Xuat BTP"]
+  D --> E["Buoc 4: Nhap TP vao kho thanh pham"]
+
+  E --> F{"Hoan tat lenh?"}
+  F -- "Co" --> G["status=completed"]
+  F -- "Khong" --> H["status=in_progress"]
+  H --> B
+
+  B --> I["Sinh giao dich xuat kho NVL"]
+  E --> J["Sinh giao dich nhap kho TP"]
+  I --> K["Trace log theo tung step"]
+  J --> K

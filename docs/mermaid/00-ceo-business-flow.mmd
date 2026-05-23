@@ -1,0 +1,15 @@
+flowchart LR
+  DEMAND["Nhu cầu thị trường / Đơn hàng"] --> PLAN["Lập kế hoạch cung ứng"]
+  PLAN --> BUY["Mua hàng và quản trị NCC"]
+  BUY --> INBOUND["Nhập kho + QC đầu vào"]
+  INBOUND --> RM["Tồn kho NVL (FEFO)"]
+  RM --> PROD["Sản xuất"]
+  PROD --> FG["Tồn kho Thành phẩm"]
+  FG --> SALES["Xuất bán / Giao hàng"]
+  SALES --> REV["Doanh thu và dòng tiền"]
+
+  REV --> KPI["Báo cáo KPI điều hành"]
+  KPI --> PLAN
+
+  RISK["Cảnh báo rủi ro\n(Thiếu tồn, Cận hạn, Chậm giao)"] --> KPI
+  MASTER["Dữ liệu nền\n(Sản phẩm, Đơn vị, Khách hàng, NCC)"] --> PLAN

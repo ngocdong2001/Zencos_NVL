@@ -1,0 +1,15 @@
+flowchart LR
+  A["Tao lenh xuat: status=pending"] --> B{"Du ton FEFO?"}
+  B -- "Khong" --> C["Bao thieu ton / chua fulfill"]
+  B -- "Co" --> D["Fulfil lenh xuat"]
+
+  D --> E["status=fulfilled"]
+  E --> F["Tru ton theo lo duoc chon"]
+
+  A --> G{"Huy lenh?"}
+  G -- "Co" --> H["status=cancelled"]
+
+  E --> I{"Can dao nghiep vu?"}
+  I -- "Co" --> J["Void & re-release (tao lenh bu)"]
+  J --> A
+  I -- "Khong" --> K["Dong giao dich"]

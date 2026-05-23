@@ -1,0 +1,21 @@
+flowchart LR
+  A["Phat hien thieu hut ton kho"] --> B["Tao PO: status=draft"]
+  B --> C{"Gui PO?"}
+  C -- "Co" --> D["status=submitted"]
+  C -- "Khong" --> B
+
+  D --> E{"Thu hoi de sua?"}
+  E -- "Co" --> B
+  E -- "Khong" --> F{"Phe duyet?"}
+
+  F -- "Co" --> G["status=approved"]
+  F -- "Khong" --> H["status=cancelled"]
+
+  G --> I["Dat hang NCC: status=ordered"]
+  I --> J{"Nhan du hay mot phan?"}
+  J -- "Mot phan" --> K["status=partially_received"]
+  J -- "Du" --> L["status=received"]
+
+  K --> M["Tao/In tiep Inbound Receipt"]
+  L --> M
+  M --> N["Dong bo received qty vao PO"]

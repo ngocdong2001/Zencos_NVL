@@ -1,0 +1,44 @@
+flowchart LR
+  U["Người dùng theo vai trò"] --> AUTH["Đăng nhập và phân quyền"]
+  AUTH --> DASH["Tổng quan KPI và cảnh báo"]
+
+  subgraph STAGE1["Nền tảng dữ liệu"]
+    USERS["Quản lý người dùng và phân quyền"]
+    CATALOG["Catalog NVL / TP / Đơn vị / NCC"]
+    OPENING["Khai báo tồn đầu kỳ"]
+  end
+
+  subgraph STAGE2["Mua hàng và nhập kho NVL"]
+    PO["Yêu cầu mua hàng (PO)"]
+    INBOUND["Nhập kho NVL (4 bước + QC + Post)"]
+  end
+
+  subgraph STAGE3["Tồn kho và sản xuất"]
+    RAWWH["Kho NVL và FEFO"]
+    PROD["Phiếu sản xuất 4 bước"]
+    FGWH["Kho thành phẩm"]
+  end
+
+  subgraph STAGE4["Xuất kho và điều phối"]
+    OUTRAW["Xuất kho NVL"]
+    OUTFG["Xuất kho TP"]
+    TRANSFER["Chuyển kho nội bộ"]
+  end
+
+  CATALOG --> PO
+  CATALOG --> INBOUND
+  OPENING --> RAWWH
+  PO --> INBOUND
+  INBOUND --> RAWWH
+  RAWWH --> PROD
+  PROD --> FGWH
+  RAWWH --> OUTRAW
+  FGWH --> OUTFG
+  RAWWH <--> TRANSFER
+  FGWH <--> TRANSFER
+
+  DASH --> PO
+  DASH --> INBOUND
+  DASH --> RAWWH
+  DASH --> PROD
+  DASH --> OUTRAW

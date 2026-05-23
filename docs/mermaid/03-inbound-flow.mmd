@@ -1,0 +1,18 @@
+flowchart LR
+  A["Step 1: Tao phieu nhap draft"] --> B["Step 2: Khai bao lo, nha san xuat, so luong"]
+  B --> C["Step 3: Chung tu, QC tung dong"]
+  C --> D["Step 4: Xac nhan"]
+
+  D --> E{"Submit QC"}
+  E -- "Dat" --> F["status=pending_qc -> cho post"]
+  E -- "Khong dat" --> G["Sua thong tin/chung tu"]
+  G --> B
+
+  F --> H["Post phieu: status=posted"]
+  H --> I["Tao/Cap nhat Batch + giao dich nhap kho"]
+  I --> J["Cap nhat ton kho NVL va dashboard"]
+
+  H --> K{"Can dinh chinh?"}
+  K -- "Co" --> L["Void & re-receive (tao phieu dieu chinh)"]
+  L --> A
+  K -- "Khong" --> M["Hoan tat"]

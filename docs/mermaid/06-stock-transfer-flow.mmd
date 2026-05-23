@@ -1,0 +1,12 @@
+flowchart LR
+  A["Tao phieu chuyen: draft"] --> B["Xac nhan phieu: confirmed"]
+  B --> C["Dang van chuyen: in_transit"]
+  C --> D{"Kho dich da nhan?"}
+  D -- "Co" --> E["received"]
+  D -- "Khong" --> C
+
+  B --> F{"Huy phieu?"}
+  F -- "Co" --> G["cancelled"]
+
+  E --> H["Giam ton kho nguon"]
+  E --> I["Tang ton kho dich"]
