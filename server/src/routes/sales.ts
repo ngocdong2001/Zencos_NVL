@@ -603,16 +603,17 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('sales.write'), async
           const sourceQty = Number(sourceItem.quantityBase)
           if (sourceQty <= 0) continue
 
+          if (!orderAny.sourceOrder.sourceLocationId) throw new Error('Phiếu gốc thiếu kho xuất hàng, không thể void.')
           await tx.inventoryTransaction.create({
             data: {
               batchId: sourceItem.batchId,
               userId: actorId,
               exportOrderItemId: sourceItem.id,
+              warehouseLocationId: orderAny.sourceOrder.sourceLocationId,
               type: 'adjustment',
               quantityBase: sourceQty,
               notes: `Void phiếu gốc ${orderAny.sourceOrder.orderRef ?? `#${orderAny.sourceOrder.id}`} do điều chỉnh ${order.orderRef ?? `#${order.id}`}`,
               transactionDate: order.exportedAt ?? new Date(),
-              ...(orderAny.sourceOrder.sourceLocationId ? { warehouseLocationId: orderAny.sourceOrder.sourceLocationId } : {}),
             },
           })
 
@@ -671,16 +672,17 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('sales.write'), async
           throw new Error(`Insufficient stock in batch ${item.batchId}`)
         }
 
+        if (!order.sourceLocationId) throw new Error('Phiếu xuất kho thiếu kho xuất hàng, không thể hoàn thành.')
         await tx.inventoryTransaction.create({
           data: {
             batchId: item.batchId,
             userId: actorId,
             exportOrderItemId: item.id,
+            warehouseLocationId: order.sourceLocationId,
             type: 'export',
             quantityBase: qty,
             notes: order.orderRef ? `Xuất kho khi hoàn thành phiếu ${order.orderRef}` : undefined,
             transactionDate: order.exportedAt ?? new Date(),
-            ...(order.sourceLocationId ? { warehouseLocationId: order.sourceLocationId } : {}),
           },
         })
 

@@ -385,7 +385,7 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
           batchId:             d.batchId,
           userId,
           productionOrderId:   orderId,
-          warehouseLocationId: d.locationId,
+          warehouseLocationId: d.locationId ?? (() => { throw new Error(`NVL line for batch ${d.batchId} has no warehouse location`) })(),
           type:                'export',
           quantityBase:        d.qty,
           isCancelled:         false,
@@ -759,12 +759,14 @@ router.post('/:id/return-nvl', requireAuth, requirePermission('production:write'
       }
 
       // Create import transaction (return to warehouse)
+      const returnLocationId = step1LocationMap.get(`${line.productId}-${line.lotNo}`)
+      if (!returnLocationId) throw new Error(`Không tìm thấy kho xuất của lô "${line.lotNo}" để hoàn nhập.`)
       await tx.inventoryTransaction.create({
         data: {
           batchId:             batch.id,
           userId,
           productionOrderId:   orderId,
-          warehouseLocationId: step1LocationMap.get(`${line.productId}-${line.lotNo}`) ?? null,
+          warehouseLocationId: returnLocationId,
           type:                'import',
           quantityBase:        line.returnQty,
           isCancelled:         false,

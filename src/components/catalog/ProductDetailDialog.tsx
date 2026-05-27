@@ -6,11 +6,10 @@ import { TabPanel, TabView } from 'primereact/tabview'
 import { DataTable } from 'primereact/datatable'
 import { Column } from 'primereact/column'
 import type { MaterialRow } from './types'
-
-const API_BASE = 'http://localhost:4000'
+import { buildApiUrl } from '../../lib/api'
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(buildApiUrl(path), {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
   })

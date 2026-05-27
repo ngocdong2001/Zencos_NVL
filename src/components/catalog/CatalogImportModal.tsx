@@ -18,6 +18,7 @@ type CatalogImportModalProps = {
 
 const TAB_LABELS: Record<TabId, string> = {
   materials: 'Nguyên liệu',
+  product_outputs: 'Thành phẩm / Bán thành phẩm',
   classifications: 'Phân loại',
   suppliers: 'Nhà cung cấp',
   customers: 'Khách hàng',

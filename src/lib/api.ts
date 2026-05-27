@@ -1,4 +1,16 @@
-export const API_BASE_URL = 'http://localhost:4000'
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:4000'
+
+export function buildApiUrl(path: string): string {
+  const base = API_BASE_URL.replace(/\/+$/, '')
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+
+  // Avoid duplicated "/api/api/..." when base is "/api" and callers already pass "/api/...".
+  if (base.endsWith('/api') && normalizedPath.startsWith('/api/')) {
+    return `${base}${normalizedPath.slice(4)}`
+  }
+
+  return `${base}${normalizedPath}`
+}
 
 const TOKEN_KEY = 'auth_token'
 
@@ -23,7 +35,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   const token = getToken()
   const isFormData = init?.body instanceof FormData
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     headers: {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

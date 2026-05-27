@@ -134,7 +134,6 @@ export function ProductionStep3Page() {
   const { orderId } = useParams<{ orderId: string }>()
 
   const [order, setOrder] = useState<ProductionOrderDetail | null>(null)
-  const [step3ApiLines, setStep3ApiLines] = useState<ProductionOrderLine[]>([])
   const [exportLines, setExportLines] = useState<BtpExportLine[]>([])
   const [step2Summaries, setStep2Summaries] = useState<Step2BtpSummary[]>([])
   const [loading, setLoading] = useState(false)
@@ -156,10 +155,8 @@ export function ProductionStep3Page() {
         setOrder(data)
         // BTP output lines from step 2 (quantities entered in group-header inputs)
         const step2Lines = data.lines.filter(l => l.step === 2 && l.direction === 'out')
-        const step3Lines = data.lines.filter(l => l.step === 3 && l.direction === 'out')
         const step2PlannedMap = buildStep2PlannedMap(step2Lines)
         setStep2Summaries(buildStep2BtpSummaries(step2Lines))
-        setStep3ApiLines(step3Lines)
         // Always build export lines from step-2 BTP output lines (ignore stale step-3 DB entries
         // which may contain NVL codes from an older version of the save logic)
         setExportLines(
@@ -546,7 +543,7 @@ export function ProductionStep3Page() {
       {/* Flow diagram modal */}
       <ProductionFlowModal
         visible={showFlowModal}
-        orderId={orderId}
+        orderId={orderId ?? null}
         onHide={() => setShowFlowModal(false)}
       />
     </div>

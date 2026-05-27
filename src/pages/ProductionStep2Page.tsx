@@ -113,81 +113,6 @@ function SourceCardItem({ card }: { card: SourceCard }) {
   )
 }
 
-// ─── Reconciliation Panel ─────────────────────────────────────────────────────
-
-function ReconciliationPanel({ lines }: { lines: BomLine[] }) {
-  const totalPlanned  = lines.reduce((s, l) => s + (l.plannedQty ?? 0), 0)
-  const totalActual   = lines.reduce((s, l) => s + (l.actualQty  ?? 0), 0)
-  const totalWaste    = lines.reduce((s, l) => s + l.wasteQty, 0)
-  const yieldRate     = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
-  const wasteRate     = totalPlanned > 0 ? (totalWaste  / totalPlanned) * 100 : 0
-
-  return (
-    <div className="prod-recon-panel">
-      <div className="prod-recon-panel__header">
-        <i className="pi pi-chart-bar" style={{ color: '#f59e0b' }} />
-        <span>ĐỐI SOÁT SẢN LƯỢNG</span>
-      </div>
-
-      <div className="prod-recon-panel__metric">
-        <div className="prod-recon-panel__metric-header">
-          <span className="prod-recon-panel__lbl">TỔNG KẾ HOẠCH</span>
-          <span className="prod-recon-panel__rate-lbl">TỶ LỆ HQ:</span>
-        </div>
-        <div className="prod-recon-panel__metric-values">
-          <span className="prod-recon-panel__big-val">{fmtQty(totalPlanned)}<small>g</small></span>
-          <span className="prod-recon-panel__pct">{yieldRate > 0 ? yieldRate.toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '—'}%</span>
-        </div>
-      </div>
-
-      <div className="prod-recon-panel__metric">
-        <span className="prod-recon-panel__lbl">TỔNG THỰC NHẬP BTP</span>
-        <div className="prod-recon-panel__metric-values">
-          <span className="prod-recon-panel__big-val prod-recon-panel__big-val--blue">{fmtQty(totalActual)}<small>g</small></span>
-        </div>
-      </div>
-
-      <div className="prod-recon-panel__divider" />
-
-      <div className="prod-recon-panel__metric prod-recon-panel__metric--waste">
-        <div className="prod-recon-panel__metric-header">
-          <span className="prod-recon-panel__lbl prod-recon-panel__lbl--waste">TỔNG HAO HỤT</span>
-          <span className="prod-recon-panel__rate-lbl">TỶ LỆ:</span>
-        </div>
-        <div className="prod-recon-panel__metric-values">
-          <span className="prod-recon-panel__big-val prod-recon-panel__big-val--red">{fmtQty(totalWaste)}<small>g</small></span>
-          <span className="prod-recon-panel__pct prod-recon-panel__pct--red">{wasteRate.toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%</span>
-        </div>
-      </div>
-
-      {wasteRate > 0.5 && (
-        <div className="prod-recon-panel__warning">
-          <i className="pi pi-exclamation-triangle" />
-          <span>Cảnh báo ngưỡng: Hao hụt đang tiếp cận mức trần 1.0%, cần kiểm tra lại công thức phối trộn.</span>
-        </div>
-      )}
-
-      <Button label="KIỂM TRA DỮ LIỆU" className="p-button-primary"
-        style={{ background: '#5269e0', border: 'none', fontSize: 12, fontWeight: 700, width: '100%', marginTop: 12 }} />
-
-      <div className="prod-recon-panel__divider" style={{ marginTop: 16 }} />
-      <div className="prod-recon-panel__support-header">THÔNG TIN HỖ TRỢ</div>
-      <div className="prod-recon-panel__support-row">
-        <span>Tồn kho chi tiết dùng:</span>
-        <strong>45.000 g</strong>
-      </div>
-      <div className="prod-recon-panel__support-row">
-        <span>Hạn sử dụng lô đích:</span>
-        <strong>15/05/2026</strong>
-      </div>
-
-      <div className="prod-recon-panel__divider" />
-      <div className="prod-recon-panel__support-header">GHI CHÚ VẬN HÀNH</div>
-      <p className="prod-recon-panel__note-text">Thêm hướng dẫn cho nhân viên đóng gói...</p>
-    </div>
-  )
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 function mapApiLineToBom(line: ProductionOrderLine, idx: number): BomLine {
@@ -685,8 +610,6 @@ export function ProductionStep2Page() {
 
   function groupHeaderTemplate(row: BomLine) {
     const grp = bomLines.filter(l => l.btpCode === row.btpCode && l.outputProductId === row.outputProductId)
-    const totalPlanned = grp.reduce((s, l) => s + (l.plannedQty ?? 0), 0)
-    const totalActual  = grp.reduce((s, l) => s + (l.actualQty  ?? 0), 0)
     const totalWaste   = grp.reduce((s, l) => s + l.wasteQty, 0)
     const usedCodes = new Set(grp.map(l => l.inputCode).filter(Boolean))
     const usedInOtherGroups = new Set(
@@ -1177,7 +1100,7 @@ export function ProductionStep2Page() {
       {/* Flow diagram modal */}
       <ProductionFlowModal
         visible={showFlowModal}
-        orderId={orderId}
+        orderId={orderId ?? null}
         onHide={() => setShowFlowModal(false)}
       />
     </div>

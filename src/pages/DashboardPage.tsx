@@ -32,11 +32,6 @@ function fmtVnd(n: number): string {
   return n.toLocaleString('vi-VN') + ' ₫'
 }
 
-function alertStyle(severity: string): { lineColor: string; bg: string } {
-  if (severity === 'critical') return { lineColor: '#e83030', bg: 'rgba(232,48,48,0.05)' }
-  return { lineColor: '#e0e1e5', bg: 'transparent' }
-}
-
 function normalizeSearchValue(value: string): string {
   return value
     .normalize('NFD')
@@ -47,18 +42,10 @@ function normalizeSearchValue(value: string): string {
 
 type TxRecord = { dbId: string; id: string; type: string; material: string; quantity: string; time: string; status: string }
 
-type TxDetailType = 'Nhập' | 'Xuất' | 'Mua hàng'
-
 function fmtDateVi(value: string | null | undefined): string {
   if (!value) return '---'
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('vi-VN')
-}
-
-function fmtDateTimeVi(value: string | null | undefined): string {
-  if (!value) return '---'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('vi-VN')
 }
 
 function toPoStatus(s: string): PoStatus {
@@ -388,10 +375,11 @@ export function DashboardPage() {
                   />
                   <Tooltip
                     contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e0e1e5', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                    formatter={(value: number, name: string, props: { payload?: { unit?: string } }) => {
+                    formatter={(value, name, props: { payload?: { unit?: string } }) => {
                       const unit = props.payload?.unit ?? ''
+                      const displayValue = typeof value === 'number' ? value : Number(value ?? 0)
                       const label = name === 'nhap' ? 'Nhập kho' : 'Xuất kho'
-                      return [`${value.toLocaleString('vi-VN')} ${unit}`, label]
+                      return [`${displayValue.toLocaleString('vi-VN')} ${unit}`, label]
                     }}
                   />
                   <Legend

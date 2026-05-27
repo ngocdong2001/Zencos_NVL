@@ -6,11 +6,10 @@ import { Button } from 'primereact/button'
 import { AutoComplete } from 'primereact/autocomplete'
 import type { AutoCompleteCompleteEvent } from 'primereact/autocomplete'
 import type { BasicRow } from './types'
-
-const API_BASE = 'http://localhost:4000'
+import { buildApiUrl } from '../../lib/api'
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(buildApiUrl(path), {
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     ...init,
   })
@@ -45,7 +44,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
   const [newInci, setNewInci] = useState('')
   const [newMfgName, setNewMfgName] = useState('')
   const [newMfgCountry, setNewMfgCountry] = useState('')
-  const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | null>(null)
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierOption | undefined>(undefined)
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierOption[]>([])
   const supplierAcRef = useRef<AutoComplete>(null)
 
@@ -151,7 +150,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
         isPrimary: Boolean(raw.is_primary),
         notes: raw.notes != null ? String(raw.notes) : null,
       }])
-      setSelectedSupplier(null)
+      setSelectedSupplier(undefined)
     } catch (err) { setError(err instanceof Error ? err.message : 'Lỗi thêm nhà cung cấp.') }
     finally { setSaving(false) }
   }
@@ -284,7 +283,7 @@ export function MaterialRowExpansion({ productId, suppliers }: Props) {
               )}
               placeholder="Tìm nhà cung cấp..."
               className="mat-exp-input mat-exp-ac"
-              onChange={(e) => setSelectedSupplier(e.value as SupplierOption | null)}
+              onChange={(e) => setSelectedSupplier((e.value as SupplierOption | undefined) ?? undefined)}
               onSelect={(e) => { void addSupplier(e.value as SupplierOption) }}
               disabled={saving}
               forceSelection

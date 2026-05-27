@@ -951,6 +951,11 @@ router.post('/receipts/:id/post', async (req, res) => {
     return
   }
 
+  if (!receipt.receivingLocationId) {
+    res.status(400).json({ error: 'Phiếu nhập kho chưa có kho nhận hàng. Vui lòng bổ sung trước khi posted.' })
+    return
+  }
+
   // Chỉ bắt buộc QC + chứng từ cho phiếu thường, hoặc phiếu điều chỉnh còn dòng hàng
   if (receipt.items.length > 0) {
     const failedItems = receipt.items.filter((item) => item.qcStatus !== 'passed')
@@ -968,6 +973,7 @@ router.post('/receipts/:id/post', async (req, res) => {
 
   const actorId = await getFirstActiveUserId()
   const postedAt = new Date()
+  const receivingLocationId = receipt.receivingLocationId
 
   await prisma.$transaction(async (tx) => {
     const touchedPurchaseRequestIds = new Set<string>()
@@ -976,7 +982,12 @@ router.post('/receipts/:id/post', async (req, res) => {
     if (receipt.sourceReceiptId) {
       const sourceReceipt = await tx.inboundReceipt.findUnique({
         where: { id: receipt.sourceReceiptId },
-        include: {
+        select: {
+          id: true,
+          status: true,
+          purchaseRequestId: true,
+          adjustedByReceiptId: true,
+          receivingLocationId: true,
           items: {
             orderBy: { id: 'asc' },
             select: {
@@ -1033,6 +1044,7 @@ router.post('/receipts/:id/post', async (req, res) => {
             batchId: sourceBatch.id,
             userId: actorId,
             inboundReceiptItemId: sourceItem.id,
+            warehouseLocationId: sourceReceipt.receivingLocationId ?? (() => { throw new Error('Phiếu gốc không có kho nhập.') })(),
             type: 'adjustment',
             quantityBase: -originalQtyBase,
             notes: `Void & re-receive từ phiếu ${receipt.receiptRef}`,
@@ -1108,6 +1120,7 @@ router.post('/receipts/:id/post', async (req, res) => {
           batchId: batch.id,
           userId: actorId,
           inboundReceiptItemId: item.id,
+          warehouseLocationId: receivingLocationId ?? (() => { throw new Error('Phiếu nhập kho không có kho nhập.') })(),
           type: 'import',
           quantityBase,
           notes: `Nhập kho từ phiếu ${receipt.receiptRef}`,

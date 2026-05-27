@@ -1,0 +1,59 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: zencos-db
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: ZencosNVL
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./server/prisma/migrations_warehouse:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot123 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: zencos-api
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      JWT_SECRET: change-me-in-production
+      DATABASE_URL: mysql://root:root123@db:3306/ZencosNVL
+      TZ: Asia/Ho_Chi_Minh
+    command:
+      - sh
+      - -c
+      - (echo "ALTER TABLE users ADD COLUMN deleted_at DATETIME(3) NULL;" | npx prisma db execute --schema prisma/schema.warehouse.prisma --stdin || true) && node seed-admin.mjs && npx tsx src/index.ts
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4001:4000"
+    volumes:
+      - api_uploads:/app/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: zencos-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  db_data:
+  api_uploads:

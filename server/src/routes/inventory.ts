@@ -86,9 +86,15 @@ async function getQtyAdjustmentsSince(batchIds: bigint[], afterDate: Date): Prom
 }
 
 function parseAsOfDate(raw: string): Date | null {
-  // Accept 'YYYY-MM-DD' (treat as end-of-day) or full ISO datetime
-  const padded = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T23:59:59.999` : raw
-  const d = new Date(padded)
+  // Always treat as end-of-day UTC for the given date so that transactions
+  // imported on the same day as the selected export date are still visible.
+  // Accepts 'YYYY-MM-DD' or full ISO datetime (e.g. '2026-05-24T00:00:00.000Z').
+  const datePart = raw.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    const d = new Date(raw)
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(`${datePart}T23:59:59.999Z`)
   return isNaN(d.getTime()) ? null : d
 }
 
@@ -249,6 +255,7 @@ router.get('/transactions', requireAuth, requirePermission('inventory.read'), as
 
 const transactionSchema = z.object({
   batchId: z.string(),
+  warehouseLocationId: z.string(),
   type: z.nativeEnum(InventoryTransactionType),
   quantityBase: z.number().refine((n) => n !== 0, { message: 'quantityBase must be non-zero' }),
   notes: z.string().optional(),
@@ -286,6 +293,7 @@ router.post('/transactions', requireAuth, requirePermission('inventory.write'), 
       data: {
         batchId,
         userId: BigInt(req.auth!.sub),
+        warehouseLocationId: BigInt(parsed.data.warehouseLocationId),
         type: parsed.data.type,
         quantityBase: parsed.data.quantityBase,
         notes: parsed.data.notes,

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { BasicRow } from './types'
-import { createMaterial, fetchBasics, fetchNextMaterialCode } from '../../lib/catalogApi'
+import { createMaterial, fetchBasics, fetchMaterials } from '../../lib/catalogApi'
+import { getNextMaterialCode, normalizeCatalogCode } from './utils'
 
 type ProductCreateFormProps = {
   returnToPath?: string
@@ -32,10 +33,6 @@ type ProductCreateDraft = {
   notes: string
 }
 
-function normalizeCatalogCode(value: string): string {
-  return value.trim().toUpperCase().replace(/\s+/g, '-')
-}
-
 function parseApiError(error: unknown, fallbackMessage = 'Tạo product thất bại'): ParsedApiError {
   if (!(error instanceof Error)) {
     return { message: fallbackMessage }
@@ -60,6 +57,7 @@ function parseApiError(error: unknown, fallbackMessage = 'Tạo product thất b
 export function ProductCreateForm({ returnToPath, onCreated, onCancel }: ProductCreateFormProps) {
   const [classifications, setClassifications] = useState<BasicRow[]>([])
   const [units, setUnits] = useState<BasicRow[]>([])
+  const [materialCodes, setMaterialCodes] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
@@ -75,6 +73,7 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
     useFefo: true,
     notes: '',
   })
+  const lastAutoCodeRef = useRef('')
 
   const canSubmit = useMemo(() => {
     return Boolean(
@@ -96,30 +95,53 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
     return [baseUnit, ...childUnits]
   }, [draft.baseUnitId, units])
 
+  const nextSuggestedCode = useMemo(
+    () => getNextMaterialCode(materialCodes, draft.classificationId, classifications),
+    [classifications, draft.classificationId, materialCodes],
+  )
+
+  useEffect(() => {
+    if (!draft.classificationId) return
+
+    setDraft((prev) => {
+      const currentCode = normalizeCatalogCode(prev.code)
+      if (currentCode && currentCode !== lastAutoCodeRef.current) {
+        return prev
+      }
+
+      lastAutoCodeRef.current = nextSuggestedCode
+      return prev.code === nextSuggestedCode ? prev : { ...prev, code: nextSuggestedCode }
+    })
+  }, [draft.classificationId, nextSuggestedCode])
+
   useEffect(() => {
     let cancelled = false
 
     const loadFormData = async () => {
       try {
         setLoading(true)
-        const [nextCode, classificationRows, unitRows] = await Promise.all([
-          fetchNextMaterialCode(),
+        const [materialRows, classificationRows, unitRows] = await Promise.all([
+          fetchMaterials(),
           fetchBasics('classifications'),
           fetchBasics('units'),
         ])
 
         if (cancelled) return
 
+        setMaterialCodes(materialRows.map((item) => item.code))
         setClassifications(classificationRows)
         setUnits(unitRows)
 
         const firstClassification = classificationRows[0]?.id ?? ''
         const firstUnit = unitRows[0]?.id ?? ''
+        const initialClassificationId = firstClassification
+        const initialCode = getNextMaterialCode(materialRows.map((item) => item.code), initialClassificationId, classificationRows)
+        lastAutoCodeRef.current = initialCode
 
         setDraft((prev) => ({
           ...prev,
-          code: nextCode,
-          classificationId: prev.classificationId || firstClassification,
+          code: initialCode,
+          classificationId: prev.classificationId || initialClassificationId,
           baseUnitId: prev.baseUnitId || firstUnit,
           orderUnitId: prev.orderUnitId || firstUnit,
         }))
@@ -182,7 +204,10 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
         notes: draft.notes.trim(),
       })
 
-      const suggestedCode = await fetchNextMaterialCode()
+      const nextCodes = [...materialCodes, normalizedCode]
+      const suggestedCode = getNextMaterialCode(nextCodes, draft.classificationId, classifications)
+      setMaterialCodes(nextCodes)
+      lastAutoCodeRef.current = suggestedCode
       setDraft((prev) => ({
         ...prev,
         code: suggestedCode,
@@ -196,6 +221,7 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
     } catch (error) {
       const parsed = parseApiError(error, 'Tạo product thất bại')
       if (parsed.suggestedCode) {
+        lastAutoCodeRef.current = parsed.suggestedCode
         setDraft((prev) => ({ ...prev, code: parsed.suggestedCode ?? prev.code }))
       }
       const hint = parsed.suggestedCode ? ` Mã gợi ý: ${parsed.suggestedCode}` : ''
@@ -233,8 +259,11 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
             <span>Mã product *</span>
             <input
               value={draft.code}
-              onChange={(event) => setDraft((prev) => ({ ...prev, code: event.target.value }))}
-              placeholder="NVL-001"
+              onChange={(event) => {
+                lastAutoCodeRef.current = ''
+                setDraft((prev) => ({ ...prev, code: event.target.value }))
+              }}
+              placeholder="BB-0001"
               disabled={loading || submitting}
               required
             />
@@ -265,7 +294,9 @@ export function ProductCreateForm({ returnToPath, onCreated, onCancel }: Product
             <span>Phân loại *</span>
             <select
               value={draft.classificationId}
-              onChange={(event) => setDraft((prev) => ({ ...prev, classificationId: event.target.value }))}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, classificationId: event.target.value }))
+              }}
               disabled={loading || submitting}
               required
             >

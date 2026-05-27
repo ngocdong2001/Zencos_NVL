@@ -77,6 +77,19 @@ function toDateOnlyString(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+function formatYmd(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${String(year).slice(-2)}${month}${day}`
+}
+
+function buildStep4LotNo(tpCode: string): string {
+  const date = new Date()
+  const skuCode = tpCode.trim().toUpperCase() || 'SKU-0001'
+  return `ZL-${formatYmd(date)}-${skuCode}`
+}
+
 function mapLineToReceiptLine(line: ProductionOrderLine): TpReceiptLine {
   return {
     id: String(line.id),
@@ -178,6 +191,7 @@ export function ProductionStep4Page() {
   const [exportingStockCard, setExportingStockCard] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [processedAt, setProcessedAt] = useState<Date | null>(null)
+  const [lotNoTouched, setLotNoTouched] = useState(false)
 
   // NVL return state
   const [nvlReturnLines, setNvlReturnLines] = useState<NvlReturnLine[]>([])
@@ -201,14 +215,17 @@ export function ProductionStep4Page() {
           setActualInputQty(Number(step4Lines[0].plannedQty))
           setInputQtyTouched(true)
           setReceiptLines(step4Lines.map((line) => normalizeStep4LineWithOrderOutput(mapLineToReceiptLine(line), data)))
+          setLotNoTouched(true)
         } else if (data.outputProductId && data.outputProduct) {
           setActualInputQty(defaultQtyByOutputUnit)
           setInputQtyTouched(false)
           setReceiptLines([mapOrderOutputToStep4Draft(data, defaultQtyByOutputUnit)])
+          setLotNoTouched(false)
         } else {
           setActualInputQty(0)
           setInputQtyTouched(false)
           setReceiptLines([])
+          setLotNoTouched(false)
         }
         setProcessedAt(data.step4ProcessedAt ? new Date(data.step4ProcessedAt) : null)
 
@@ -263,7 +280,21 @@ export function ProductionStep4Page() {
       .finally(() => setLoading(false))
   }, [orderId])
 
+  useEffect(() => {
+    if (lotNoTouched) return
+    const primary = receiptLines[0]
+    if (!primary) return
+
+    const nextLotNo = buildStep4LotNo(primary.tpCode)
+    if (primary.lotNo === nextLotNo) return
+
+    setReceiptLines((prev) => prev.map((line, idx) => (idx === 0 ? { ...line, lotNo: nextLotNo } : line)))
+  }, [lotNoTouched, processedAt, receiptLines])
+
   function handleLineChange<K extends keyof TpReceiptLine>(id: string, field: K, value: TpReceiptLine[K]) {
+    if (field === 'lotNo') {
+      setLotNoTouched(true)
+    }
     setReceiptLines((prev) => prev.map((line) => (line.id === id ? { ...line, [field]: value } : line)))
   }
 
@@ -955,7 +986,7 @@ export function ProductionStep4Page() {
       {/* Flow diagram modal */}
       <ProductionFlowModal
         visible={showFlowModal}
-        orderId={orderId}
+        orderId={orderId ?? null}
         onHide={() => setShowFlowModal(false)}
       />
     </div>

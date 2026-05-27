@@ -243,15 +243,16 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
       },
     })
 
+    if (!item.location_id) throw new Error('OPENING_STOCK_ITEM_NO_LOCATION')
     const tx = await db.inventoryTransaction.create({
       data: {
         batchId: batch.id,
         userId,
+        warehouseLocationId: item.location_id,
         type: 'import',
         quantityBase: Number(item.quantity_base),
         notes: `Opening stock auto-post from item #${item.id.toString()}`,
         transactionDate: item.opening_date ?? new Date(),
-        ...(item.location_id != null && { warehouseLocationId: item.location_id }),
       },
     })
 
@@ -854,15 +855,16 @@ router.put('/rows/:id', async (req, res) => {
       if (deltaQty !== 0) {
         const userId = await getFirstActiveUserId(db)
         const itemLocationId = toBigInt(current.location_id)
+        if (!itemLocationId) throw new Error('OPENING_STOCK_ITEM_NO_LOCATION')
         await db.inventoryTransaction.create({
           data: {
             batchId: postedBatchId,
             userId,
+            warehouseLocationId: itemLocationId,
             type: 'adjustment',
             quantityBase: deltaQty,
             notes: `Opening stock item #${id} edited: quantity ${previousQtyBase} -> ${quantityBase}`,
             transactionDate: new Date(),
-            ...(itemLocationId != null && { warehouseLocationId: itemLocationId }),
           },
         })
 
@@ -1020,15 +1022,16 @@ router.delete('/rows/:id', async (req, res) => {
           }
 
           const userId = await getFirstActiveUserId(db)
+          if (!posted.location_id) throw new Error('OPENING_STOCK_BATCH_NO_LOCATION')
           await db.inventoryTransaction.create({
             data: {
               batchId: postedBatchId,
               userId,
+              warehouseLocationId: posted.location_id,
               type: 'adjustment',
               quantityBase: reversalQty,
               notes: `Reversal delete opening stock item #${id}`,
               transactionDate: new Date(),
-              ...(posted?.location_id != null && { warehouseLocationId: posted.location_id }),
             },
           })
 

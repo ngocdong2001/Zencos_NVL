@@ -78,6 +78,10 @@ function normalizeText(value: string): string {
     .replace(/[\u0300-\u036f]/g, '')
 }
 
+function normalizeFilterValue(value: string | null | undefined): string {
+  return normalizeText(value ?? '')
+}
+
 function normalizeOrderUnitConversion(value: number | null | undefined): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
@@ -270,10 +274,12 @@ export function PurchaseOrderPage() {
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = normalizeText(search)
+    const normalizedStatusFilter = normalizeFilterValue(statusFilter)
+    const normalizedSupplierFilter = normalizeFilterValue(supplierFilter)
 
     return poRows.filter((row) => {
-      const inStatus = statusFilter === 'all' || row.status === statusFilter
-      const inSupplier = supplierFilter === 'all' || row.supplier === supplierFilter
+      const inStatus = normalizedStatusFilter === 'all' || normalizeFilterValue(row.status) === normalizedStatusFilter
+      const inSupplier = normalizedSupplierFilter === 'all' || normalizeFilterValue(row.supplier) === normalizedSupplierFilter
       const inFromDate = !fromDate || row.createdAt >= fromDate
       const inToDate = !toDate || row.createdAt <= toDate
       const text = normalizeText([row.code, row.supplier, row.creator, STATUS_LABELS[row.status]].join(' '))
@@ -645,7 +651,7 @@ export function PurchaseOrderPage() {
         productId: item.id,
         materialCode: item.code,
         materialName: item.materialName,
-        inciName: item.inciName ?? '',
+        inciName: '',
         manufacturerName: '',
         quantity: Number.isFinite(parsed) ? parsed : 0,
         unit: item.unit || 'base',

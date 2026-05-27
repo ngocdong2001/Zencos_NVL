@@ -22,6 +22,7 @@ export type ParsedImportResult = {
 
 const TAB_HEADERS: Record<TabId, string[]> = {
   materials: ['ma nvl', 'inci name', 'ten nguyen lieu', 'phan loai', 'don vi', 'don vi dat hang', 'trang thai'],
+  product_outputs: ['ma', 'ten', 'phan loai', 'don vi', 'trang thai'],
   classifications: ['ma', 'ten', 'ghi chu', 'trang thai'],
   locations: ['ma', 'ten', 'ghi chu', 'trang thai'],
   suppliers: ['ma', 'ten', 'sdt', 'lien he', 'dia chi', 'ghi chu', 'trang thai'],

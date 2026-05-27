@@ -766,6 +766,12 @@ router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), 
     return
   }
 
+  if (!pr.receivingLocationId) {
+    res.status(400).json({ error: 'Purchase request has no receiving location. Please set one before marking received.' })
+    return
+  }
+
+  const receivingLocationId = pr.receivingLocationId
   const receivedAt = new Date()
   const userId = BigInt(req.auth!.sub)
 
@@ -867,6 +873,7 @@ router.patch('/:id/receive', requireAuth, requirePermission('purchases.write'), 
           batchId: batch.id,
           userId,
           inboundReceiptItemId,
+          warehouseLocationId: receivingLocationId,
           type: 'import',
           quantityBase: item.quantityNeededBase,
           notes: `Goods received from inbound receipt ${inboundRef}`,

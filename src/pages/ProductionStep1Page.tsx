@@ -472,7 +472,7 @@ export function ProductionStep1Page() {
               disabled={isLocked}
               lockExistingLines={nvlExported && !isLocked}
               locationId={sourceLocationId ?? undefined}
-              asOfDate={processedAt ? processedAt.toISOString() : undefined}
+              asOfDate={processedAt ? `${processedAt.getFullYear()}-${String(processedAt.getMonth() + 1).padStart(2, '0')}-${String(processedAt.getDate()).padStart(2, '0')}` : undefined}
             />
           </div>
         )}

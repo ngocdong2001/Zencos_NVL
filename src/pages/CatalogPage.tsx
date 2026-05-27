@@ -14,7 +14,7 @@ import {
   tabItems,
 } from '../components/catalog/data'
 import type { BasicRow, BasicTabId, MaterialRow, ProductOutputRow, TabId } from '../components/catalog/types'
-import { containsInsensitive, downloadTextFile, toCsvRow } from '../components/catalog/utils'
+import { containsInsensitive, downloadTextFile, getNextCode, normalizeCatalogCode, normalizeLookupKey, toCsvRow } from '../components/catalog/utils'
 import {
   createBasic,
   createMaterial,
@@ -22,7 +22,6 @@ import {
   deleteMaterial,
   fetchBasics,
   fetchMaterials,
-  fetchNextMaterialCode,
   updateBasic,
   updateMaterial,
   fetchProductOutputsCatalog,
@@ -66,35 +65,6 @@ function parseApiError(error: unknown, fallbackMessage = 'Lưu dữ liệu thấ
   }
 }
 
-function getNextCode(codes: string[], prefix: string, pad = 3): string {
-  const used = new Set<number>()
-
-  for (const raw of codes) {
-    const code = raw.trim().toUpperCase()
-    if (!code.startsWith(`${prefix}-`)) continue
-    const suffix = code.slice(prefix.length + 1)
-    const n = Number.parseInt(suffix, 10)
-    if (Number.isFinite(n) && n > 0) used.add(n)
-  }
-
-  let next = 1
-  while (used.has(next)) next += 1
-  return `${prefix}-${String(next).padStart(pad, '0')}`
-}
-
-function normalizeCatalogCode(value: string): string {
-  return value.trim().toUpperCase()
-}
-
-function normalizeLookupKey(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase()
-    .replaceAll('đ', 'd')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-}
-
 function toBooleanFlag(value: string): boolean {
   const normalized = value.trim().toLocaleLowerCase()
   return ['1', 'true', 'yes', 'co', 'x'].includes(normalized)
@@ -122,7 +92,6 @@ export function CatalogPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
   const [catalogs, setCatalogs] = useState(initialBasicRows)
-  const [nextMatCode, setNextMatCode] = useState('NVL-001')
   const [loading, setLoading] = useState(false)
   const [productOutputs, setProductOutputs] = useState<ProductOutputRow[]>([])
   const [pageSize, setPageSize] = useState(10)
@@ -141,9 +110,8 @@ export function CatalogPage() {
   const isNumericId = (id: string) => /^\d+$/.test(id)
 
   const refreshMaterials = async () => {
-    const [rows, nextCode] = await Promise.all([fetchMaterials(), fetchNextMaterialCode()])
+    const rows = await fetchMaterials()
     setMaterials(rows)
-    setNextMatCode(nextCode)
   }
 
   const refreshBasicTab = async (tab: BasicTabId) => {
@@ -162,10 +130,9 @@ export function CatalogPage() {
     const loadCatalog = async () => {
       try {
         setLoading(true)
-        const [materialsData, nextMaterialCode, suppliersData, customersData, classificationsData, unitsData, locationsData, productOutputsData] =
+        const [materialsData, suppliersData, customersData, classificationsData, unitsData, locationsData, productOutputsData] =
           await Promise.all([
             fetchMaterials(),
-            fetchNextMaterialCode(),
             fetchBasics('suppliers'),
             fetchBasics('customers'),
             fetchBasics('classifications'),
@@ -176,7 +143,6 @@ export function CatalogPage() {
 
         if (cancelled) return
         setMaterials(materialsData)
-        setNextMatCode(nextMaterialCode)
         setCatalogs((prev) => ({
           ...prev,
           suppliers: suppliersData,
@@ -280,8 +246,8 @@ export function CatalogPage() {
     const tab = activeTab as BasicTabId
     const prefixMap: Record<BasicTabId, string> = {
       classifications: 'CLA',
-      suppliers: 'SUP',
-      customers: 'CUS',
+      suppliers: 'NCC',
+      customers: 'KH',
       locations: 'LOC',
       units: 'UNI',
     }
@@ -290,7 +256,12 @@ export function CatalogPage() {
 
   const nextProductOutputCode = useMemo(() => {
     if (activeTab !== 'product_outputs') return ''
-    return getNextCode(productOutputs.map((r) => r.code), 'TP', 3)
+    return getNextCode(productOutputs.filter((r) => r.outputType === 'finished').map((r) => r.code), 'SKU', 4)
+  }, [activeTab, productOutputs])
+
+  const nextSemiFinishedProductOutputCode = useMemo(() => {
+    if (activeTab !== 'product_outputs') return ''
+    return getNextCode(productOutputs.filter((r) => r.outputType === 'semi_finished').map((r) => r.code), 'BTP', 4)
   }, [activeTab, productOutputs])
 
   const classificationById = useMemo(
@@ -358,9 +329,6 @@ export function CatalogPage() {
     } catch (error) {
       console.error('Lưu nguyên liệu thất bại:', error)
       const parsed = parseApiError(error, 'Lưu nguyên liệu thất bại')
-      if (parsed.suggestedCode) {
-        setNextMatCode(parsed.suggestedCode)
-      }
       const hint = parsed.suggestedCode ? ` Mã gợi ý: ${parsed.suggestedCode}` : ''
       setCatalogNotice({ tone: 'error', message: `${parsed.message}${hint}` })
       return false
@@ -759,6 +727,7 @@ export function CatalogPage() {
           activeTab={activeTab}
           selectedIds={selectedIds}
           allVisibleSelected={allVisibleSelected}
+          materials={materials}
           pagedMaterials={pagedMaterials}
           pagedBasics={pagedBasics}
           pagedProductOutputs={pagedProductOutputs}
@@ -780,9 +749,9 @@ export function CatalogPage() {
           onSaveProductOutput={handleSaveProductOutput}
           onDelete={deleteRow}
           onManageDetail={(row) => setDetailProduct(row)}
-          nextMatCode={nextMatCode}
           nextBasicCode={nextBasicCode}
-          nextProductOutputCode={nextProductOutputCode}
+          nextFinishedProductOutputCode={nextProductOutputCode}
+          nextSemiFinishedProductOutputCode={nextSemiFinishedProductOutputCode}
         />
         <ProductDetailDialog product={detailProduct} onHide={() => setDetailProduct(null)} />
       </div>

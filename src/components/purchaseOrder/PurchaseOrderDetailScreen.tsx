@@ -10,7 +10,7 @@ import { InputText } from 'primereact/inputtext'
 import { InputTextarea } from 'primereact/inputtextarea'
 import { fetchInciSuggestions, fetchManufacturerSuggestions, fetchMaterials, type InciSuggestion, type ManufacturerSuggestion } from '../../lib/catalogApi'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../shared/HistoryTimeline'
-import { formatCurrency, formatQuantity, parseDecimalInput, toEditableNumberString } from './format'
+import { formatCurrency, formatQuantity, parseDecimalInput } from './format'
 import type { MaterialRow } from '../catalog/types'
 import type { PurchaseDraftLine, SupplierOption } from './types'
 
@@ -128,8 +128,6 @@ export function PurchaseOrderDetailScreen({
   })
   const [newQuantityInput, setNewQuantityInput] = useState('')
   const [newUnitPriceInput, setNewUnitPriceInput] = useState('')
-  const [newQuantityFocused, setNewQuantityFocused] = useState(false)
-  const [newUnitPriceFocused, setNewUnitPriceFocused] = useState(false)
   const [newProductLookupValue, setNewProductLookupValue] = useState<ProductSuggestion | string>('')
   const [newProductSuggestions, setNewProductSuggestions] = useState<ProductSuggestion[]>([])
   const [newProductNameLookupValue, setNewProductNameLookupValue] = useState<ProductSuggestion | string>('')
@@ -200,8 +198,6 @@ export function PurchaseOrderDetailScreen({
     })
     setNewQuantityInput('')
     setNewUnitPriceInput('')
-    setNewQuantityFocused(false)
-    setNewUnitPriceFocused(false)
     setNewProductLookupValue('')
     setNewProductSuggestions([])
     setNewProductNameLookupValue('')

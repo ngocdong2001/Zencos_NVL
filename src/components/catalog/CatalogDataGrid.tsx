@@ -7,6 +7,7 @@ import { Dropdown } from 'primereact/dropdown'
 import type { ColumnEvent } from 'primereact/column'
 import type { BasicRow, MaterialRow, ProductOutputRow, TabId } from './types'
 import { MaterialRowExpansion } from './MaterialRowExpansion'
+import { getNextCode, getNextMaterialCode, resolveMaterialCodePrefix } from './utils'
 
 const NEW_ID = '__new__'
 
@@ -33,6 +34,7 @@ type Props = {
   activeTab: TabId
   selectedIds: string[]
   allVisibleSelected: boolean
+  materials: MaterialRow[]
   pagedMaterials: MaterialRow[]
   pagedBasics: BasicRow[]
   pagedProductOutputs: ProductOutputRow[]
@@ -46,19 +48,19 @@ type Props = {
   onSaveProductOutput: (row: ProductOutputRow) => Promise<boolean>
   onDelete: (id: string) => void
   onManageDetail: (row: MaterialRow) => void
-  nextMatCode: string
   nextBasicCode: string
-  nextProductOutputCode: string
+  nextFinishedProductOutputCode: string
+  nextSemiFinishedProductOutputCode: string
 }
 
 export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
   function CatalogDataGrid(
-    { activeTab, selectedIds, allVisibleSelected, pagedMaterials, pagedBasics, pagedProductOutputs,
+    { activeTab, selectedIds, allVisibleSelected, materials, pagedMaterials, pagedBasics, pagedProductOutputs,
       classifications,
       units,
       suppliers,
-      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onSaveProductOutput, onDelete, onManageDetail,
-      nextMatCode, nextBasicCode, nextProductOutputCode },
+      onToggleSelectAll, onToggleSelectRow, onSaveMaterial, onSaveBasic, onSaveProductOutput, onDelete,
+      nextBasicCode, nextFinishedProductOutputCode, nextSemiFinishedProductOutputCode },
     ref,
   ) {
     const [pendingNewMat, setPendingNewMat] = useState<Partial<MaterialRow>>({})
@@ -126,6 +128,21 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     const classificationByCode = useMemo(
       () => new Map(classifications.map((item) => [item.code.toLowerCase(), item])),
       [classifications],
+    )
+
+    const materialCodes = useMemo(() => materials.map((item) => item.code), [materials])
+    const nextPackagingMatCode = useMemo(
+      () => getNextCode(materialCodes, 'BB', 4),
+      [materialCodes],
+    )
+    const nextStandardMatCode = useMemo(
+      () => getNextCode(materialCodes, 'NL', 4),
+      [materialCodes],
+    )
+
+    const nextMaterialCode = useMemo(
+      () => getNextMaterialCode(materialCodes, pendingNewMat.category ?? '', classifications),
+      [classifications, materialCodes, pendingNewMat.category],
     )
 
     const numberFormatter = useMemo(
@@ -248,6 +265,13 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       return [...pagedProductOutputs, newRow]
     }, [pagedProductOutputs, pendingNewProductOutput])
 
+    const nextProductOutputCode = useMemo(
+      () => (pendingNewProductOutput.outputType ?? 'finished') === 'semi_finished'
+        ? nextSemiFinishedProductOutputCode
+        : nextFinishedProductOutputCode,
+      [nextFinishedProductOutputCode, nextSemiFinishedProductOutputCode, pendingNewProductOutput.outputType],
+    )
+
     const canSaveNewProductOutput = Boolean(
       pendingNewProductOutput.name?.trim()
       && pendingNewProductOutput.unit?.trim()
@@ -299,7 +323,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             value={pendingNewProductOutput.code ?? nextProductOutputCode}
             onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, code: e.target.value }))}
             onKeyDown={handleNewRowKeyDown}
-            placeholder="Mã"
+            placeholder="Mã *"
           />
         )
       }
@@ -548,7 +572,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
 
         const candidate: MaterialRow = {
           id: `nvl-${Date.now()}`,
-          code: pendingNewMat.code?.trim() || nextMatCode,
+          code: pendingNewMat.code?.trim() || nextMaterialCode,
           inciName: pendingNewMat.inciName!.trim(),
           materialName: pendingNewMat.materialName!.trim(),
           category: pendingNewMat.category!.trim(),
@@ -701,10 +725,14 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
 
     function materialCodeBody(rowData: MaterialRow) {
       if (rowData.id === NEW_ID) {
+        const codeSuggestion = pendingNewMat.category
+          ? (resolveMaterialCodePrefix(pendingNewMat.category, classifications) === 'BB' ? nextPackagingMatCode : nextStandardMatCode)
+          : nextStandardMatCode
+
         return (
           <InputText
             ref={newMaterialCodeRef}
-            value={pendingNewMat.code ?? nextMatCode}
+            value={pendingNewMat.code ?? codeSuggestion}
             onChange={(e) => setNewMaterialField('code', e.target.value)}
             onKeyDown={handleNewRowKeyDown}
             placeholder="Mã *"

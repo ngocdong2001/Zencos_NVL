@@ -47,7 +47,7 @@ export const appRoutes: RouteConfig[] = [
   { path: '/warehouse/:id',             label: 'Chi tiết Vật tư',              icon: 'pi pi-box',          component: WarehouseItemDetailPage,  permission: 'warehouse:detail',  showInNav: false },
   { path: '/fg-warehouse',              label: 'Quản lý kho Thành phẩm',      icon: 'pi pi-box',          component: FgWarehousePage,          permission: 'warehouse:view' },
   { path: '/fg-warehouse/:id',          label: 'Chi tiết Thành phẩm',         icon: 'pi pi-box',          component: FgWarehouseItemDetailPage, permission: 'warehouse:detail', showInNav: false },
-  { path: '/stock-transfer',            label: 'Chuyển kho nội bộ',            icon: 'pi pi-arrow-right-left', component: StockTransferListPage,   permission: 'warehouse:view' },
+  { path: '/stock-transfer',            label: 'Chuyển kho nội bộ',            icon: 'pi pi-arrow-right-left', component: StockTransferListPage,   permission: 'warehouse:view', showInNav: false},
   { path: '/stock-transfer/new',        label: 'Tạo phiếu chuyển mới',         icon: 'pi pi-plus',         component: StockTransferPage,         permission: 'warehouse:write',   showInNav: false },
   { path: '/stock-transfer/:id',        label: 'Chi tiết phiếu chuyển',        icon: 'pi pi-pencil',       component: StockTransferPage,         permission: 'warehouse:write',   showInNav: false },
 

@@ -30,18 +30,23 @@ describe('CatalogDataGrid inline edit', () => {
     activeTab: 'materials' as const,
     selectedIds: [],
     allVisibleSelected: false,
+    materials: mockMaterials,
     pagedMaterials: mockMaterials,
     pagedBasics: mockBasics,
+    pagedProductOutputs: [],
     classifications: mockClassifications,
     units: mockUnits,
+    suppliers: mockBasics,
     onToggleSelectAll: vi.fn(),
     onToggleSelectRow: vi.fn(),
     onSaveMaterial: vi.fn(),
     onSaveBasic: vi.fn(),
+    onSaveProductOutput: vi.fn(),
     onDelete: vi.fn(),
     onManageDetail: vi.fn(),
-    nextMatCode: 'NVL-003',
-    nextBasicCode: 'SUP-002',
+    nextBasicCode: 'NCC-0002',
+    nextFinishedProductOutputCode: 'SKU-0001',
+    nextSemiFinishedProductOutputCode: 'BTP-0001',
   }
 
   it('creates a new material row when the draft is completed and Enter is pressed', async () => {
@@ -130,7 +135,7 @@ describe('CatalogDataGrid inline edit', () => {
     })
 
     // Try to save with incomplete fields (only code, missing INCI, name, category, unit)
-    const codeInputs = screen.getAllByDisplayValue('NVL-003')
+    const codeInputs = screen.getAllByDisplayValue('NL-0001')
     if (codeInputs.length > 0) {
       fireEvent.keyDown(codeInputs[0], { key: 'Enter', code: 'Enter' })
     }
