@@ -23,6 +23,8 @@ import { ProductionStep2Page } from '../pages/ProductionStep2Page'
 import { ProductionStep3Page } from '../pages/ProductionStep3Page'
 import { ProductionStep4Page } from '../pages/ProductionStep4Page'
 import { ProductionFlowDiagramPage } from '../pages/ProductionFlowDiagramPage'
+import ProductionBomListPage from '../pages/ProductionBomListPage'
+import ProductionBomPage from '../pages/ProductionBomPage'
 import { StockTransferListPage } from '../pages/StockTransferListPage'
 import { StockTransferPage } from '../pages/StockTransferPage'
 import { UserManagementPage } from '../pages/UserManagementPage'
@@ -68,6 +70,10 @@ export const appRoutes: RouteConfig[] = [
   { path: '/production/:orderId/buoc-3', label: 'Bước 3: Xuất BTP',           icon: 'pi pi-cog',          component: ProductionStep3Page,      permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/buoc-4', label: 'Bước 4: Nhập TP',            icon: 'pi pi-cog',          component: ProductionStep4Page,      permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/luu-do', label: 'Lưu đồ NVL',                 icon: 'pi pi-sitemap',      component: ProductionFlowDiagramPage, permission: 'production:view', showInNav: false },
+  { path: '/production-bom',            label: 'Định mức sản xuất',            icon: 'pi pi-list-check',   component: ProductionBomListPage,     permission: 'production:view' , showInNav: false},
+  { path: '/production-bom/new',        label: 'Tạo định mức mới',             icon: 'pi pi-plus',         component: ProductionBomPage,         permission: 'production:write', showInNav: false },
+  { path: '/production-bom/:id',        label: 'Chi tiết định mức',            icon: 'pi pi-list-check',   component: ProductionBomPage,         permission: 'production:view',  showInNav: false },
+  { path: '/production-bom/:id/edit',   label: 'Chỉnh sửa định mức',          icon: 'pi pi-pencil',       component: ProductionBomPage,         permission: 'production:write', showInNav: false },
   { path: '/tp-outbound',               label: 'Xuất kho TP',                  icon: 'pi pi-truck',        component: TpOutboundListPage,       permission: 'outbound:view' },
   { path: '/tp-outbound/new',           label: 'Tạo lệnh xuất TP mới',         icon: 'pi pi-plus',         component: TpOutboundPage,           permission: 'outbound:write',    showInNav: false },
   { path: '/tp-outbound/:orderId/edit', label: 'Chi tiết lệnh xuất TP',        icon: 'pi pi-pencil',       component: TpOutboundPage,           permission: 'outbound:write',    showInNav: false },

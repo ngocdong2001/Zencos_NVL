@@ -46,6 +46,19 @@ enum ProductionOrderStatus {
   cancelled
 }
 
+enum ProductionBomStatus {
+  draft
+  submitted
+  approved
+  inactive
+  archived
+}
+
+enum ProductionBomLineType {
+  nvl
+  btp
+}
+
 enum ProductOutputType {
   finished
   semi_finished
@@ -140,6 +153,8 @@ model User {
   createdOpeningStockDeclarations OpeningStockDeclaration[] @relation("OpeningStockCreatedBy")
   postedOpeningStockDeclarations  OpeningStockDeclaration[] @relation("OpeningStockPostedBy")
   notifications Notification[]
+  createdBoms  ProductionBom[] @relation("ProductionBomCreator")
+  approvedBoms ProductionBom[] @relation("ProductionBomApprover")
 
   @@map("users")
 }
@@ -174,6 +189,7 @@ model Product {
   productSuppliers ProductSupplier[]
   productionOrders ProductionOrder[]
   productionOrderLines ProductionOrderLine[]
+  productionBomLines   ProductionBomLine[]
 
   @@map("products")
 }
@@ -773,6 +789,7 @@ model ProductOutput {
   productionOrderLines ProductionOrderLine[]
   outputTransactions   ProductionOutputTransaction[]
   tpExportItems        TpExportOrderItem[]
+  productionBoms       ProductionBom[]
 
   @@index([outputType])
   @@map("products_outputs")
@@ -959,6 +976,54 @@ model ProductionOutputTransaction {
   @@index([tpExportOrderId])
   @@index([outputProductId, transactionDate, type])
   @@map("production_output_transactions")
+}
+
+// ─── Production BOM (Phiếu định mức sản xuất) ─────────────────────────────────
+model ProductionBom {
+  id              BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  bomCode         String?              @map("bom_code") @db.VarChar(100)
+  bomName         String               @map("bom_name") @db.VarChar(255)
+  outputProductId BigInt?              @map("output_product_id") @db.UnsignedBigInt
+  baseQty         Decimal              @default(1) @map("base_qty") @db.Decimal(15, 4)
+  version         Int                  @default(1) @db.SmallInt
+  status          ProductionBomStatus  @default(draft)
+  effectiveFrom   DateTime?            @map("effective_from") @db.Date
+  effectiveTo     DateTime?            @map("effective_to") @db.Date
+  notes           String?              @db.Text
+  createdBy       BigInt               @map("created_by") @db.UnsignedBigInt
+  approvedBy      BigInt?              @map("approved_by") @db.UnsignedBigInt
+  approvedAt      DateTime?            @map("approved_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  outputProduct   ProductOutput?       @relation(fields: [outputProductId], references: [id], onDelete: SetNull)
+  creator         User                 @relation("ProductionBomCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  approver        User?                @relation("ProductionBomApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+  lines           ProductionBomLine[]
+
+  @@index([status])
+  @@index([outputProductId])
+  @@map("production_boms")
+}
+
+model ProductionBomLine {
+  id          BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  bomId       BigInt                @map("bom_id") @db.UnsignedBigInt
+  sortOrder   Int                   @default(0) @map("sort_order") @db.SmallInt
+  lineType    ProductionBomLineType @default(nvl) @map("line_type")
+  productId   BigInt?               @map("product_id") @db.UnsignedBigInt
+  productCode String                @map("product_code") @db.VarChar(100)
+  productName String                @map("product_name") @db.VarChar(255)
+  qtyPerBase  Decimal               @default(0) @map("qty_per_base") @db.Decimal(15, 4)
+  wasteQty    Decimal               @default(0) @map("waste_qty") @db.Decimal(15, 4)
+  unit        String                @db.VarChar(50)
+  notes       String?               @db.VarChar(500)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  bom         ProductionBom         @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  product     Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([bomId])
+  @@map("production_bom_lines")
 }
 
 model PasswordResetToken {
