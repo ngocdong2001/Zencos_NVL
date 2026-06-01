@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL } from './api'
+import { apiFetch, buildApiUrl, getToken } from './api'
 
 const http = apiFetch
 
@@ -168,8 +168,9 @@ export async function deleteInventoryItem(id: string): Promise<{ deleted: boolea
 }
 
 export async function exportInventoryToExcel(): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/api/warehouse/export/excel`, {
+  const response = await fetch(buildApiUrl('/api/warehouse/export/excel'), {
     method: 'GET',
+    headers: { Authorization: `Bearer ${getToken() ?? ''}` },
   })
 
   if (!response.ok) {

@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL } from './api'
+import { apiFetch, buildApiUrl } from './api'
 
 const http = apiFetch
 
@@ -70,5 +70,5 @@ export function deleteInboundDraftDocument(draftCode: string, docId: string): Pr
 
 export function getInboundDraftDocumentFileUrl(draftCode: string, docId: string, download = false): string {
   const qs = download ? '?download=true' : ''
-  return `${API_BASE_URL}/api/inbound-drafts/${encodeURIComponent(draftCode)}/documents/${encodeURIComponent(docId)}/file${qs}`
+  return buildApiUrl(`/api/inbound-drafts/${encodeURIComponent(draftCode)}/documents/${encodeURIComponent(docId)}/file${qs}`)
 }

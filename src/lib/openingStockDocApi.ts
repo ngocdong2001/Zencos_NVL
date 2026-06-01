@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE_URL } from './api'
+import { apiFetch, buildApiUrl } from './api'
 
 const http = apiFetch
 
@@ -36,7 +36,7 @@ export function deleteItemDocument(itemId: string, docId: string): Promise<void>
 
 export function getDocumentFileUrl(itemId: string, docId: string, download = false): string {
   const qs = download ? '?download=true' : ''
-  return `${API_BASE_URL}/api/inventory-opening/rows/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(docId)}/file${qs}`
+  return buildApiUrl(`/api/inventory-opening/rows/${encodeURIComponent(itemId)}/documents/${encodeURIComponent(docId)}/file${qs}`)
 }
 
 export function formatFileSize(bytes: number): string {
