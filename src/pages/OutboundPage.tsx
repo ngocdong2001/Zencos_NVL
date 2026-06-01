@@ -22,6 +22,7 @@ import {
   type ExportOrderStatus,
   type InventoryStockBatch,
 } from '../lib/outboundApi'
+import { safeRandomId } from '../lib/uuid'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../components/purchaseOrder/format'
 import { showConfirmAction, showDangerConfirm } from '../lib/confirm'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
@@ -55,7 +56,7 @@ type MaterialLine = {
 
 function createEmptyLine(): MaterialLine {
   return {
-    key: crypto.randomUUID(),
+    key: safeRandomId(),
     materialId: '',
     requestedQtyValue: 0,
     requestedQtyInput: '',
@@ -364,7 +365,7 @@ export function OutboundPage() {
               }))
 
             editLines.push({
-              key: crypto.randomUUID(),
+              key: safeRandomId(),
               materialId: productId,
               requestedQtyValue: requestedQty,
               requestedQtyInput: requestedQty > 0 ? formatQuantity(requestedQty) : '',

@@ -13,6 +13,7 @@ import { fetchBasics } from '../lib/catalogApi'
 import type { BasicRow } from '../components/catalog/types'
 import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity } from '../components/purchaseOrder/format'
+import { safeRandomId } from '../lib/uuid'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
@@ -136,7 +137,7 @@ export function ProductionStep1Page() {
               exportDate: l.exportDate ? new Date(l.exportDate) : null,
             }))
             restored.push({
-              key: crypto.randomUUID(),
+              key: safeRandomId(),
               materialId: first.productId ?? '',
               materialCode: first.productCode ?? '',
               materialName: first.productName ?? '',

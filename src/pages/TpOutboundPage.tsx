@@ -24,6 +24,7 @@ import {
   type TpExportOrderStatus,
   type TpStockLot,
 } from '../lib/tpOutboundApi'
+import { safeRandomId } from '../lib/uuid'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../components/purchaseOrder/format'
 import { showConfirmAction, showDangerConfirm } from '../lib/confirm'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
@@ -72,7 +73,7 @@ function formatCurrencyVi(value: number): string {
 
 function createEmptyRow(): ItemRow {
   return {
-    key: crypto.randomUUID(),
+    key: safeRandomId(),
     outputProductId: '',
     lotNo: null,
     expiryDate: null,
@@ -253,7 +254,7 @@ export function TpOutboundPage() {
           const sourceItems = allocItems.length > 0 ? allocItems : headerItems
 
           const editRows: ItemRow[] = sourceItems.map((item) => ({
-            key: crypto.randomUUID(),
+            key: safeRandomId(),
             outputProductId: item.outputProductId,
             lotNo: item.lotNo ?? null,
             expiryDate: item.expiryDate ?? null,

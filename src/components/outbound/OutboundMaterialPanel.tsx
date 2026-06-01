@@ -17,6 +17,7 @@ import {
   fetchInventoryStock,
   type InventoryStockBatch,
 } from '../../lib/outboundApi'
+import { safeRandomId } from '../../lib/uuid'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../purchaseOrder/format'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ export type MaterialLine = {
 
 function createEmptyLine(): MaterialLine {
   return {
-    key: crypto.randomUUID(),
+    key: safeRandomId(),
     materialId: '',
     materialCode: '',
     materialName: '',
