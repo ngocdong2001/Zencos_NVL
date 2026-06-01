@@ -983,6 +983,7 @@ model ProductionBom {
   id              BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
   bomCode         String?              @map("bom_code") @db.VarChar(100)
   bomName         String               @map("bom_name") @db.VarChar(255)
+  bomVersion      String?              @map("bom_version") @db.VarChar(50)
   outputProductId BigInt?              @map("output_product_id") @db.UnsignedBigInt
   baseQty         Decimal              @default(1) @map("base_qty") @db.Decimal(15, 4)
   version         Int                  @default(1) @db.SmallInt

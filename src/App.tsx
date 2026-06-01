@@ -48,6 +48,7 @@ function AppLayout() {
     }))
 
   const sidebarFooterItems = [
+    { label: 'Tài khoản của tôi', icon: 'pi pi-user-edit', tone: 'default' as const, onClick: () => navigate('/profile') },
     ...(hasPermission('users:view') ? [{ label: 'Quản lý người dùng', icon: 'pi pi-users', tone: 'default' as const, onClick: () => navigate('/admin/users') }] : []),
     { label: 'Đăng xuất', icon: 'pi pi-power-off', tone: 'danger' as const, onClick: () => { logout() } },
   ]

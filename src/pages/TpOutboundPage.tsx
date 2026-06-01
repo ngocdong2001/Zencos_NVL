@@ -167,9 +167,11 @@ export function TpOutboundPage() {
   )
 
   const visibleRows = useMemo(() => {
+    const lastRow = itemRows[itemRows.length - 1]
+    const hasNewRow = !isLockedEditMode && lastRow != null && !lastRow.outputProductId
     if (!tableSearch.trim()) return itemRows
     const q = tableSearch.toLowerCase()
-    return itemRows.filter((r) => {
+    const filtered = itemRows.filter((r) => {
       const prod = products.find((p) => p.id === r.outputProductId)
       return (
         prod?.code?.toLowerCase().includes(q) ||
@@ -177,7 +179,11 @@ export function TpOutboundPage() {
         (r.lotNo ?? '').toLowerCase().includes(q)
       )
     })
-  }, [itemRows, tableSearch, products])
+    if (hasNewRow && lastRow && !filtered.includes(lastRow)) {
+      return [...filtered, lastRow]
+    }
+    return filtered
+  }, [itemRows, tableSearch, products, isLockedEditMode])
 
   const totalQty = useMemo(
     () => itemRows.reduce((s, r) => s + r.quantityBase, 0),
@@ -299,7 +305,11 @@ export function TpOutboundPage() {
             return { ...row, stockLots: restoredLots, stockLoading: false, availableQty: restoredAvailQty }
           })
 
-          setItemRows(finalRows.length > 0 ? finalRows : [createEmptyRow()])
+          setItemRows(
+            (detail.status === 'fulfilled' || detail.status === 'cancelled')
+              ? (finalRows.length > 0 ? finalRows : [createEmptyRow()])
+              : [...finalRows, createEmptyRow()],
+          )
         }
       } catch (error) {
         if (cancelled) return
@@ -323,19 +333,18 @@ export function TpOutboundPage() {
     setItemRows((prev) => prev.map((r) => (r.key === key ? updater(r) : r)))
   }
 
-  const addRow = () => {
-    if (isLockedEditMode) return
-    setItemRows((prev) => [...prev, createEmptyRow()])
-  }
-
   const removeRow = (key: string) => {
     if (isLockedEditMode) return
-    if (itemRows.length <= 1) return
+    // Never remove the "new row" (always-visible last empty row)
+    const lastRow = itemRows[itemRows.length - 1]
+    if (lastRow?.key === key && !lastRow?.outputProductId) return
     setItemRows((prev) => prev.filter((r) => r.key !== key))
   }
 
   const handleProductChange = async (key: string, newProductId: string) => {
     if (isLockedEditMode) return
+    // Capture whether this is the "new row" before updating
+    const wasNewRow = itemRows[itemRows.length - 1]?.key === key && !itemRows[itemRows.length - 1]?.outputProductId
     updateRow(key, (r) => ({
       ...r,
       outputProductId: newProductId,
@@ -348,6 +357,10 @@ export function TpOutboundPage() {
       stockLots: [],
       stockLoading: Boolean(newProductId),
     }))
+    // Auto-append a fresh new row when a product is selected on the last empty row
+    if (newProductId && wasNewRow) {
+      setItemRows((prev) => [...prev, createEmptyRow()])
+    }
     if (!newProductId) return
     try {
       const lots = await fetchTpStock(newProductId)
@@ -446,6 +459,10 @@ export function TpOutboundPage() {
 
   /* ── validation ── */
   const validateBeforeSubmit = (): boolean => {
+    if (!customerId) {
+      setFormError('Vui lòng chọn khách hàng trước khi lưu.')
+      return false
+    }
     const validRows = itemRows.filter((r) => r.outputProductId || r.quantityBase > 0)
     if (validRows.length === 0) {
       setFormError('Vui lòng thêm ít nhất một dòng hàng hóa.')
@@ -616,9 +633,11 @@ export function TpOutboundPage() {
   }
 
   /* ── table cell renderers ── */
-  const sttBody = (_row: ItemRow, opts: { rowIndex: number }) => (
-    <span className="tp-inv-stt">{opts.rowIndex + 1}</span>
-  )
+  const sttBody = (row: ItemRow, opts: { rowIndex: number }) => {
+    const isNewRow = !isLockedEditMode && itemRows[itemRows.length - 1]?.key === row.key && !row.outputProductId
+    if (isNewRow) return <span className="tp-inv-stt new-row-marker">+</span>
+    return <span className="tp-inv-stt">{opts.rowIndex + 1}</span>
+  }
 
   const productCodeBody = (row: ItemRow) => {
     const prod = products.find((p) => p.id === row.outputProductId)
@@ -756,6 +775,8 @@ export function TpOutboundPage() {
 
   const actionBody = (row: ItemRow) => {
     if (isLockedEditMode) return null
+    // The "new row" (last empty row) has no delete button
+    if (itemRows[itemRows.length - 1]?.key === row.key && !row.outputProductId) return null
     return (
       <Button
         icon="pi pi-trash"
@@ -764,7 +785,6 @@ export function TpOutboundPage() {
         severity="danger"
         size="small"
         onClick={() => removeRow(row.key)}
-        disabled={itemRows.length <= 1}
         tooltip="Xóa dòng"
         tooltipOptions={{ position: 'left' }}
       />
@@ -1072,6 +1092,10 @@ export function TpOutboundPage() {
               scrollable
               scrollHeight="auto"
               size="small"
+              rowClassName={(row: ItemRow) => {
+                const isNewRow = !isLockedEditMode && itemRows[itemRows.length - 1]?.key === row.key && !row.outputProductId
+                return isNewRow ? 'new-row' : ''
+              }}
             >
               <Column
                 header="STT"
@@ -1130,19 +1154,6 @@ export function TpOutboundPage() {
               )}
             </DataTable>
 
-            {/* Add row */}
-            {!isLockedEditMode && (
-              <div className="tp-inv-add-row-area">
-                <Button
-                  icon="pi pi-plus"
-                  label="Thêm dòng hàng"
-                  text
-                  size="small"
-                  onClick={addRow}
-                  className="tp-inv-add-row-btn"
-                />
-              </div>
-            )}
 
             {/* Summary */}
             <div className="tp-inv-summary">

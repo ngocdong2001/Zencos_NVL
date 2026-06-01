@@ -9,12 +9,11 @@ import { Dropdown } from 'primereact/dropdown'
 import { InputNumber } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
 import { InputTextarea } from 'primereact/inputtextarea'
-import { Tag } from 'primereact/tag'
-import { fetchMaterials } from '../lib/catalogApi'
-import { fetchProductOutputsCatalog } from '../lib/catalogApi'
+import { fetchMaterials, fetchProductOutputsCatalog } from '../lib/catalogApi'
 import type { MaterialRow, ProductOutputRow } from '../components/catalog/types'
 import {
   fetchProductionBom,
+  fetchNextBomCode,
   createProductionBom,
   updateProductionBom,
   submitProductionBom,
@@ -26,7 +25,7 @@ import {
   type BomLinePayload,
 } from '../lib/productionBomApi'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type LineRow = {
   _key: string
@@ -41,7 +40,7 @@ type LineRow = {
   notes: string
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STATUS_LABELS: Record<string, string> = {
   draft:     'Bản nháp',
@@ -50,19 +49,6 @@ const STATUS_LABELS: Record<string, string> = {
   inactive:  'Ngưng hiệu lực',
   archived:  'Lưu trữ',
 }
-
-const STATUS_SEVERITY: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'secondary'> = {
-  draft:     'secondary',
-  submitted: 'warning',
-  approved:  'success',
-  inactive:  'danger',
-  archived:  'secondary',
-}
-
-const LINE_TYPE_OPTIONS = [
-  { label: 'NVL', value: 'nvl' },
-  { label: 'BTP', value: 'btp' },
-]
 
 let keySeq = 0
 function nextKey() { return `row-${++keySeq}` }
@@ -82,7 +68,7 @@ function blankLine(lineType: ProductionBomLineType = 'nvl'): LineRow {
   }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function ProductionBomPage() {
   const { id } = useParams<{ id: string }>()
@@ -92,25 +78,27 @@ export default function ProductionBomPage() {
 
   // Header state
   const [bom,          setBom]          = useState<ProductionBom | null>(null)
+  const [bomCode,      setBomCode]      = useState('')
   const [bomName,      setBomName]      = useState('')
+  const [bomVersion,   setBomVersion]   = useState('')
   const [outputProduct,setOutputProduct]= useState<ProductOutputRow | null>(null)
   const [baseQty,      setBaseQty]      = useState<number | null>(1)
   const [effectiveFrom,setEffectiveFrom]= useState<Date | null>(null)
   const [effectiveTo,  setEffectiveTo]  = useState<Date | null>(null)
   const [notes,        setNotes]        = useState('')
-  const [lines,        setLines]        = useState<LineRow[]>([])
+  const [lines,        setLines]        = useState<LineRow[]>(() => [blankLine('nvl')])
 
   // Loading / saving
   const [loading,  setLoading]  = useState(false)
   const [saving,   setSaving]   = useState(false)
   const [error,    setError]    = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   // Autocomplete suggestions
-  const [outputSuggestions, setOutputSuggestions] = useState<ProductOutputRow[]>([])
-  const [outputQuery,       setOutputQuery]        = useState('')
+  const [allOutputProducts, setAllOutputProducts] = useState<ProductOutputRow[]>([])
   const [nvlSuggestions,  setNvlSuggestions]  = useState<MaterialRow[]>([])
 
-  // ─── Load existing BOM ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Load existing BOM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   useEffect(() => {
     if (!isEdit) return
@@ -118,7 +106,9 @@ export default function ProductionBomPage() {
     fetchProductionBom(id!)
       .then((data) => {
         setBom(data)
+        setBomCode(data.bomCode ?? '')
         setBomName(data.bomName)
+        setBomVersion(data.bomVersion ?? '')
         setBaseQty(Number(data.baseQty))
         setNotes(data.notes ?? '')
         setEffectiveFrom(data.effectiveFrom ? new Date(data.effectiveFrom) : null)
@@ -132,12 +122,12 @@ export default function ProductionBomPage() {
             unit: data.outputProduct.unit,
             notes: '',
           })
-          setOutputQuery(`${data.outputProduct.code} – ${data.outputProduct.name}`)
+
         }
-        setLines(data.lines.map((l) => ({
+        const loadedLines = data.lines.map((l) => ({
           _key: nextKey(),
           sortOrder: l.sortOrder,
-          lineType: l.lineType,
+          lineType: l.lineType as ProductionBomLineType,
           productId: l.productId,
           productCode: l.productCode,
           productName: l.productName,
@@ -145,63 +135,73 @@ export default function ProductionBomPage() {
           wasteQty: Number(l.wasteQty),
           unit: l.unit,
           notes: l.notes ?? '',
-        })))
+        }))
+        setLines(data.status === 'draft' ? [...loadedLines, blankLine('nvl')] : loadedLines)
       })
       .catch(() => setError('Không thể tải phiếu định mức.'))
       .finally(() => setLoading(false))
   }, [id, isEdit])
 
-  // ─── Autocomplete: Product Output ───────────────────────────────────────────
+  // ─── Auto-fill next BOM code for new form ──────────────────────────────────
+  useEffect(() => {
+    if (!isNew) return
+    fetchNextBomCode().then(setBomCode).catch(() => {})
+  }, [isNew])
 
-  const searchOutputs = useCallback(async (evt: AutoCompleteCompleteEvent) => {
-    const results = await fetchProductOutputsCatalog(evt.query)
-    setOutputSuggestions(results)
+  // ─── Load all product outputs ─────────────────────────────────────────────
+  useEffect(() => {
+    fetchProductOutputsCatalog().then(setAllOutputProducts).catch(() => {})
   }, [])
-
-  // ─── Autocomplete: NVL/BTP product ──────────────────────────────────────────
 
   const searchNvl = useCallback(async (evt: AutoCompleteCompleteEvent) => {
     const results = await fetchMaterials(evt.query)
     setNvlSuggestions(results)
   }, [])
 
-  // ─── Line helpers ────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Line helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const updateLine = (key: string, patch: Partial<LineRow>) => {
     setLines((prev) => prev.map((l) => l._key === key ? { ...l, ...patch } : l))
   }
 
   const removeLine = (key: string) => {
+    const lastLine = lines[lines.length - 1]
+    if (lastLine?._key === key && !lastLine?.productCode) return
     setLines((prev) => prev.filter((l) => l._key !== key))
   }
 
-  const addLine = (lineType: ProductionBomLineType) => {
-    setLines((prev) => [...prev, { ...blankLine(lineType), sortOrder: prev.length }])
-  }
+  // ─── Validation ────────────────────────────────────────────────────────────
 
-  // ─── Validation ──────────────────────────────────────────────────────────────
-
-  const validateBeforeSave = (): string | null => {
-    if (!bomName.trim()) return 'Vui lòng nhập tên định mức.'
-    if ((baseQty ?? 0) <= 0) return 'Quy mô mẻ phải lớn hơn 0.'
-    for (const l of lines) {
-      if (!l.productCode.trim()) return 'Tất cả dòng NVL/BTP phải chọn sản phẩm.'
-      if ((l.qtyPerBase ?? 0) <= 0) return 'Định mức tiêu hao phải lớn hơn 0.'
-      if (!l.unit.trim()) return 'Dòng NVL/BTP phải có đơn vị tính.'
+  const validateBeforeSave = (): string[] => {
+    const errs: string[] = []
+    if (!bomCode.trim()) errs.push('Vui lòng nhập mã định mức.')
+    if (!bomName.trim()) errs.push('Vui lòng nhập tên định mức.')
+    if ((baseQty ?? 0) <= 0) errs.push('Quy mô mẻ phải lớn hơn 0.')
+    const committedLines = lines.filter((l) => l.productCode.trim())
+    if (committedLines.length === 0) {
+      errs.push('Vui lòng thêm ít nhất một dòng NVL/BTP.')
+    } else {
+      committedLines.forEach((l, i) => {
+        const stt = i + 1
+        if ((l.qtyPerBase ?? 0) <= 0) errs.push(`Dòng ${stt} (${l.productCode}): Định mức tiêu hao phải lớn hơn 0.`)
+        if (!l.unit.trim()) errs.push(`Dòng ${stt} (${l.productCode}): Chưa có đơn vị tính.`)
+      })
     }
-    return null
+    return errs
   }
 
-  // ─── Save ────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const buildPayload = () => ({
-    bomName: bomName.trim(),
+    bomCode:  bomCode.trim()  || undefined,
+    bomName:  bomName.trim(),
+    bomVersion: bomVersion.trim() || undefined,
     outputProductId: outputProduct ? Number(outputProduct.id) : null,
     baseQty: baseQty ?? 1,
     effectiveFrom: effectiveFrom ? effectiveFrom.toISOString().slice(0, 10) : null,
     effectiveTo:   effectiveTo   ? effectiveTo.toISOString().slice(0, 10)   : null,
     notes: notes.trim() || null,
-    lines: lines.map((l, i): BomLinePayload => ({
+    lines: lines.filter((l) => l.productCode.trim()).map((l, i): BomLinePayload => ({
       sortOrder:   i,
       lineType:    l.lineType,
       productId:   l.productId ? Number(l.productId) : null,
@@ -215,8 +215,9 @@ export default function ProductionBomPage() {
   })
 
   const handleSave = async () => {
-    const err = validateBeforeSave()
-    if (err) { setError(err); return }
+    const errs = validateBeforeSave()
+    if (errs.length > 0) { setValidationErrors(errs); return }
+    setValidationErrors([])
     setError(null)
     setSaving(true)
     try {
@@ -233,7 +234,7 @@ export default function ProductionBomPage() {
     }
   }
 
-  // ─── Status transitions ───────────────────────────────────────────────────────
+  // â”€â”€â”€ Status transitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleTransition = async (action: () => Promise<ProductionBom>, successMsg?: string) => {
     setError(null)
@@ -250,82 +251,122 @@ export default function ProductionBomPage() {
     void successMsg
   }
 
-  // ─── Readonly mode ────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Readonly mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const isReadonly = bom ? !['draft'].includes(bom.status) : false
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   if (loading) {
-    return <div className="p-4">Đang tải...</div>
+    return (
+      <section className="outbound-page">
+        <div className="catalog-inline-notice">Äang táº£i...</div>
+      </section>
+    )
   }
 
   return (
-    <div className="p-4" style={{ maxWidth: 1100 }}>
-      {/* Header */}
-      <div className="flex align-items-center gap-2 mb-3">
-        <Button
-          icon="pi pi-arrow-left"
-          text
-          onClick={() => navigate('/production-bom')}
-        />
-        <h2 className="m-0">
-          {isNew ? 'Tạo phiếu định mức' : `Phiếu định mức ${bom?.bomCode ?? ''}`}
-        </h2>
-        {bom && (
-          <Tag
-            value={STATUS_LABELS[bom.status] ?? bom.status}
-            severity={STATUS_SEVERITY[bom.status]}
-            className="ml-2"
-          />
+    <section className="outbound-page">
+      {/* â”€â”€ Page header â”€â”€ */}
+      <header className="outbound-page-header outbound-page-title-row">
+        <div>
+          <h1>{isNew ? 'Tạo phiếu định mức sản xuất' : (isReadonly ? 'Chi tiết phiếu định mức' : 'Chỉnh sửa phiếu định mức')}</h1>
+          <p>
+            {isNew
+              ? 'Khai báo danh sách NVL/BTP và định mức tiêu hao theo quy mô mẻ.'
+              : isReadonly
+                ? 'Phiếu đang ở chế độ chỉ xem.'
+                : 'Cập nhật thông tin và danh sách NVL/BTP của phiếu định mức.'}
+          </p>
+        </div>
+        {bom?.bomCode && (
+          <span className="inbound-create-code-tag">{bom.bomCode}</span>
         )}
-      </div>
+        {bom && (
+          <span className={`app-status-badge ${bom.status}`} style={{ alignSelf: 'center' }}>
+            {STATUS_LABELS[bom.status] ?? bom.status}
+          </span>
+        )}
+      </header>
 
-      {error && (
-        <div className="p-message p-message-error mb-3">
-          <span className="p-message-text">{error}</span>
+      {/* â”€â”€ Inline notice â”€â”€ */}      {validationErrors.length > 0 && (
+        <div className="catalog-inline-notice error">
+          <ul style={{ margin: 0, paddingLeft: '1.2em' }}>
+            {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+          <button type="button" className="catalog-inline-notice-close" onClick={() => setValidationErrors([])} aria-label="Đóng">×</button>
+        </div>
+      )}      {error && (
+        <div className="catalog-inline-notice error">
+          <span>{error}</span>
+          <button type="button" className="catalog-inline-notice-close" onClick={() => setError(null)} aria-label="Đóng">×</button>
         </div>
       )}
 
-      {/* Header card */}
-      <div className="p-card p-3 mb-3">
-        <div className="grid">
-          <div className="col-12 md:col-6">
-            <label className="block mb-1 font-medium">Tên định mức <span className="text-red-500">*</span></label>
+      {/* ── Section 1: Thông tin chung ── */}
+      <article className="outbound-card">
+        <div className="outbound-customer-section-header">
+          <i className="pi pi-info-circle" aria-hidden />
+          <span>1. THÔNG TIN CHUNG</span>
+        </div>
+        <div className="outbound-customer-section-divider" />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px 16px', alignItems: 'start' }}>
+
+          {/* Row 1: Mã định mức | Tên định mức | Phiên bản */}
+          <label className="outbound-field">
+            <span>Mã định mức <span style={{ color: 'var(--red-500)' }}>*</span></span>
+            <InputText
+              value={bomCode}
+              onChange={(e) => setBomCode(e.target.value)}
+              disabled={isReadonly}
+              className="outbound-customer-select w-full"
+              placeholder="Nhập mã định mức..."
+            />
+          </label>
+
+          <label className="outbound-field">
+            <span>Tên định mức <span style={{ color: 'var(--red-500)' }}>*</span></span>
             <InputText
               value={bomName}
               onChange={(e) => setBomName(e.target.value)}
               disabled={isReadonly}
-              className="w-full"
-              placeholder="Tên phiếu định mức"
+              className="outbound-customer-select w-full"
+              placeholder="Nhập tên phiếu định mức..."
             />
-          </div>
+          </label>
 
-          <div className="col-12 md:col-6">
-            <label className="block mb-1 font-medium">Sản phẩm đầu ra</label>
-            <AutoComplete
-              value={outputQuery}
-              suggestions={outputSuggestions}
-              completeMethod={searchOutputs}
-              field="name"
-              itemTemplate={(item: ProductOutputRow) => (
-                <span>{item.code} – {item.name} <span className="text-color-secondary">({item.unit})</span></span>
-              )}
-              onChange={(e) => setOutputQuery(typeof e.value === 'string' ? e.value : `${(e.value as ProductOutputRow).code} – ${(e.value as ProductOutputRow).name}`)}
-              onSelect={(e) => {
-                const p = e.value as ProductOutputRow
-                setOutputProduct(p)
-                setOutputQuery(`${p.code} – ${p.name}`)
-              }}
-              onClear={() => { setOutputProduct(null); setOutputQuery('') }}
+          <label className="outbound-field">
+            <span>Phiên bản</span>
+            <InputText
+              value={bomVersion}
+              onChange={(e) => setBomVersion(e.target.value)}
               disabled={isReadonly}
-              className="w-full"
-              placeholder="Tìm sản phẩm đầu ra..."
+              className="outbound-customer-select w-full"
+              placeholder="v1.0..."
             />
-          </div>
+          </label>
 
-          <div className="col-12 md:col-3">
-            <label className="block mb-1 font-medium">Quy mô mẻ (base qty) <span className="text-red-500">*</span></label>
+          {/* Row 2: Sản phẩm đầu ra | Quy mô mẻ | (empty) */}
+
+          <label className="outbound-field">
+            <span>Sản phẩm đầu ra</span>
+            <Dropdown
+              value={outputProduct?.id ?? null}
+              options={allOutputProducts.map(p => ({ label: `${p.code} – ${p.name} (${p.unit})`, value: p.id }))}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(e) => setOutputProduct(allOutputProducts.find(p => p.id === e.value) ?? null)}
+              disabled={isReadonly}
+              className="outbound-customer-select w-full"
+              placeholder="Chọn sản phẩm đầu ra..."
+              filter
+              showClear
+            />
+          </label>
+
+          <label className="outbound-field">
+            <span>Quy mô mẻ (base qty) <span style={{ color: 'var(--red-500)' }}>*</span></span>
             <InputNumber
               value={baseQty}
               onValueChange={(e) => setBaseQty(e.value ?? null)}
@@ -335,49 +376,47 @@ export default function ProductionBomPage() {
               minFractionDigits={0}
               maxFractionDigits={3}
               min={0.001}
-              className="w-full"
-              suffix={outputProduct ? ` ${outputProduct.unit}` : undefined}
+              className="outbound-customer-select w-full"
+              suffix={outputProduct?.unit ? ` ${outputProduct.unit}` : undefined}
             />
-          </div>
+          </label>
 
-          <div className="col-12 md:col-3">
-            <label className="block mb-1 font-medium">Hiệu lực từ</label>
+          {/* Row 3: Hiệu lực từ | Hiệu lực đến | Người tạo */}
+          <label className="outbound-field">
+            <span>Hiệu lực từ</span>
             <Calendar
               value={effectiveFrom}
               onChange={(e) => setEffectiveFrom(e.value as Date | null)}
               disabled={isReadonly}
               dateFormat="dd/mm/yy"
               showButtonBar
-              className="w-full"
+              showIcon
+              className="outbound-customer-select w-full"
             />
-          </div>
+          </label>
 
-          <div className="col-12 md:col-3">
-            <label className="block mb-1 font-medium">Hiệu lực đến</label>
+          <label className="outbound-field">
+            <span>Hiệu lực đến</span>
             <Calendar
               value={effectiveTo}
               onChange={(e) => setEffectiveTo(e.value as Date | null)}
               disabled={isReadonly}
               dateFormat="dd/mm/yy"
               showButtonBar
+              showIcon
               minDate={effectiveFrom ?? undefined}
-              className="w-full"
+              className="outbound-customer-select w-full"
             />
-          </div>
+          </label>
 
-          {bom && (
-            <div className="col-12 md:col-3">
-              <label className="block mb-1 font-medium">Người tạo</label>
-              <InputText
-                value={bom.creator?.fullName ?? ''}
-                readOnly
-                className="w-full"
-              />
-            </div>
-          )}
+          <label className="outbound-field">
+            <span>Người tạo</span>
+            <InputText value={bom?.creator?.fullName ?? ''} readOnly className="outbound-customer-select w-full" />
+          </label>
 
-          <div className="col-12">
-            <label className="block mb-1 font-medium">Ghi chú</label>
+          {/* Row 4: Ghi chú full width */}
+          <label className="outbound-field" style={{ gridColumn: '1 / -1' }}>
+            <span>Ghi chú</span>
             <InputTextarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -386,275 +425,293 @@ export default function ProductionBomPage() {
               rows={2}
               className="w-full"
             />
-          </div>
+          </label>
         </div>
-      </div>
+      </article>
 
-      {/* Lines table */}
-      <div className="p-card p-3 mb-3">
-        <div className="flex align-items-center gap-2 mb-2">
-          <span className="font-semibold">Danh sách NVL / BTP</span>
-          {!isReadonly && (
-            <>
-              <Button
-                label="+ Thêm NVL"
-                size="small"
-                outlined
-                onClick={() => addLine('nvl')}
-              />
-              <Button
-                label="+ Thêm BTP"
-                size="small"
-                outlined
-                severity="secondary"
-                onClick={() => addLine('btp')}
-              />
-            </>
-          )}
+      {/* â”€â”€ Section 2: Danh sách NVL/BTP â”€â”€ */}
+      <article className="outbound-card">
+        <div className="outbound-customer-section-header">
+          <i className="pi pi-list" aria-hidden />
+          <span>2. DANH SÁCH NVL / BTP</span>
         </div>
+        <div className="outbound-customer-section-divider" />
 
-        <DataTable
-          value={lines}
-          dataKey="_key"
-          emptyMessage="Chưa có dòng NVL/BTP nào. Nhấn '+ Thêm NVL' hoặc '+ Thêm BTP'."
-          className="p-datatable-sm"
-          scrollable
-          scrollHeight="400px"
-        >
-          <Column
-            header="Loại"
-            style={{ width: '100px' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <Tag
-                  value={row.lineType.toUpperCase()}
-                  severity={row.lineType === 'nvl' ? 'info' : 'warning'}
-                />
-              ) : (
-                <Dropdown
-                  value={row.lineType}
-                  options={LINE_TYPE_OPTIONS}
-                  onChange={(e) => updateLine(row._key, { lineType: e.value })}
-                  style={{ width: '80px' }}
-                />
-              )
-            }
-          />
-
-          <Column
-            header="Mã / Tên nguyên liệu"
-            style={{ minWidth: '240px' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span>{row.productCode} – {row.productName}</span>
-              ) : (
-                <AutoComplete
-                  value={row.productCode || ''}
-                  suggestions={nvlSuggestions}
-                  completeMethod={searchNvl}
-                  field="code"
-                  itemTemplate={(item: MaterialRow) => (
-                    <span>{item.code} – {item.materialName} <span className="text-color-secondary">({item.unit})</span></span>
-                  )}
-                  onChange={(e) => {
-                    const v = e.value
-                    if (typeof v === 'string') updateLine(row._key, { productCode: v })
-                  }}
-                  onSelect={(e) => {
-                    const m = e.value as MaterialRow
-                    updateLine(row._key, {
-                      productId:   m.id,
-                      productCode: m.code,
-                      productName: m.materialName,
-                      unit:        m.unit,
-                    })
-                  }}
-                  placeholder="Tìm NVL/BTP..."
-                  style={{ width: '100%' }}
-                />
-              )
-            }
-          />
-
-          <Column
-            header="Tên nguyên liệu"
-            style={{ minWidth: '180px' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span>{row.productName}</span>
-              ) : (
-                <InputText
-                  value={row.productName}
-                  onChange={(e) => updateLine(row._key, { productName: e.target.value })}
-                  style={{ width: '100%' }}
-                  placeholder="Tên"
-                />
-              )
-            }
-          />
-
-          <Column
-            header={`Định mức / ${outputProduct?.unit ?? 'mẻ'}`}
-            style={{ width: '150px', textAlign: 'right' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span style={{ display: 'block', textAlign: 'right' }}>
-                  {Number(row.qtyPerBase ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
-                </span>
-              ) : (
-                <InputNumber
-                  value={row.qtyPerBase}
-                  onValueChange={(e) => updateLine(row._key, { qtyPerBase: e.value ?? null })}
-                  mode="decimal"
-                  locale="vi-VN"
-                  minFractionDigits={0}
-                  maxFractionDigits={3}
-                  min={0}
-                  inputStyle={{ textAlign: 'right', width: '100%' }}
-                />
-              )
-            }
-          />
-
-          <Column
-            header="Hao hụt"
-            style={{ width: '130px', textAlign: 'right' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span style={{ display: 'block', textAlign: 'right' }}>
-                  {Number(row.wasteQty ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
-                </span>
-              ) : (
-                <InputNumber
-                  value={row.wasteQty}
-                  onValueChange={(e) => updateLine(row._key, { wasteQty: e.value ?? null })}
-                  mode="decimal"
-                  locale="vi-VN"
-                  minFractionDigits={0}
-                  maxFractionDigits={3}
-                  min={0}
-                  inputStyle={{ textAlign: 'right', width: '100%' }}
-                />
-              )
-            }
-          />
-
-          <Column
-            header="ĐVT"
-            style={{ width: '90px' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span>{row.unit}</span>
-              ) : (
-                <InputText
-                  value={row.unit}
-                  onChange={(e) => updateLine(row._key, { unit: e.target.value })}
-                  style={{ width: '100%' }}
-                  placeholder="kg/L..."
-                />
-              )
-            }
-          />
-
-          <Column
-            header="Ghi chú"
-            style={{ minWidth: '150px' }}
-            body={(row: LineRow) =>
-              isReadonly ? (
-                <span>{row.notes}</span>
-              ) : (
-                <InputText
-                  value={row.notes}
-                  onChange={(e) => updateLine(row._key, { notes: e.target.value })}
-                  style={{ width: '100%' }}
-                />
-              )
-            }
-          />
-
-          {!isReadonly && (
+        <div className="inbound-table-wrap data-grid-wrap">
+          <DataTable
+            value={lines}
+            dataKey="_key"
+            size="small"
+            scrollable
+            cellMemo={false}
+            tableStyle={{ minWidth: '900px' }}
+            emptyMessage="Ch\u01b0a c\u00f3 d\u00f2ng NVL/BTP."
+            className="inbound-table prime-catalog-table outbound-bom-table"
+            stripedRows
+            rowClassName={(row: LineRow) => {
+              const isNewRow = !isReadonly && lines[lines.length - 1]?._key === row._key && !row.productCode
+              return isNewRow ? 'new-row' : ''
+            }}
+          >
             <Column
-              header=""
-              style={{ width: '48px', textAlign: 'center' }}
-              body={(row: LineRow) => (
-                <Button
-                  icon="pi pi-trash"
-                  text
-                  rounded
-                  severity="danger"
-                  size="small"
-                  onClick={() => removeLine(row._key)}
-                />
-              )}
+              header="STT"
+              style={{ width: '52px', textAlign: 'center' }}
+              body={(row: LineRow, opts) => {
+                const isNewRow = !isReadonly && lines[lines.length - 1]?._key === row._key && !row.productCode
+                if (isNewRow) return <span className="bom-new-row-marker">+</span>
+                return <span style={{ display: 'block', textAlign: 'center' }}>{(opts.rowIndex ?? 0) + 1}</span>
+              }}
             />
-          )}
-        </DataTable>
-      </div>
+            <Column
+              header="Mã nguyên liệu"
+              style={{ minWidth: '180px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <strong>{row.productCode}</strong>
+                ) : (
+                  <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                    <AutoComplete
+                      value={row.productCode || ''}
+                      suggestions={nvlSuggestions}
+                      completeMethod={searchNvl}
+                      field="code"
+                      appendTo={document.body}
+                      itemTemplate={(item: MaterialRow) => (
+                        <span>{item.code} – {item.materialName} <span className="text-color-secondary">({item.unit})</span></span>
+                      )}
+                      onChange={(e) => {
+                        const v = e.value
+                        if (typeof v === 'string') updateLine(row._key, { productCode: v })
+                      }}
+                      onSelect={(e) => {
+                        const m = e.value as MaterialRow
+                        const wasNewRow = lines[lines.length - 1]?._key === row._key && !row.productCode
+                        updateLine(row._key, {
+                          productId:   m.id,
+                          productCode: m.code,
+                          productName: m.materialName,
+                          unit:        m.unit,
+                        })
+                        if (wasNewRow) {
+                          setLines((prev) => [...prev, blankLine(row.lineType)])
+                        }
+                      }}
+                      placeholder="Tìm mã..."
+                      className="opening-stock-autocomplete"
+                      inputClassName="opening-stock-autocomplete-input"
+                    />
+                  </div>
+                )
+              }
+            />
+            <Column
+              header="Tên nguyên liệu"
+              style={{ minWidth: '220px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <span>{row.productName}</span>
+                ) : (
+                  <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                    <AutoComplete
+                      value={row.productName || ''}
+                      suggestions={nvlSuggestions}
+                      completeMethod={searchNvl}
+                      field="materialName"
+                      appendTo={document.body}
+                      itemTemplate={(item: MaterialRow) => (
+                        <span>{item.code} – {item.materialName} <span className="text-color-secondary">({item.unit})</span></span>
+                      )}
+                      onChange={(e) => {
+                        const v = e.value
+                        if (typeof v === 'string') updateLine(row._key, { productName: v })
+                      }}
+                      onSelect={(e) => {
+                        const m = e.value as MaterialRow
+                        const wasNewRow = lines[lines.length - 1]?._key === row._key && !row.productCode
+                        updateLine(row._key, {
+                          productId:   m.id,
+                          productCode: m.code,
+                          productName: m.materialName,
+                          unit:        m.unit,
+                        })
+                        if (wasNewRow) {
+                          setLines((prev) => [...prev, blankLine(row.lineType)])
+                        }
+                      }}
+                      placeholder="Tìm tên..."
+                      className="opening-stock-autocomplete"
+                      inputClassName="opening-stock-autocomplete-input"
+                    />
+                  </div>
+                )
+              }
+            />
+            <Column
+              header={`Định mức / ${outputProduct?.unit ?? 'mẻ'}`}
+              style={{ width: '150px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <span className="inbound-number">
+                    {Number(row.qtyPerBase ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
+                  </span>
+                ) : (
+                  <InputNumber
+                    value={row.qtyPerBase}
+                    onValueChange={(e) => updateLine(row._key, { qtyPerBase: e.value ?? null })}
+                    mode="decimal"
+                    locale="vi-VN"
+                    minFractionDigits={0}
+                    maxFractionDigits={3}
+                    min={0}
+                    inputStyle={{ textAlign: 'right', width: '100%' }}
+                  />
+                )
+              }
+            />
+            <Column
+              header="Hao hụt"
+              style={{ width: '130px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <span className="inbound-number">
+                    {Number(row.wasteQty ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 3 })}
+                  </span>
+                ) : (
+                  <InputNumber
+                    value={row.wasteQty}
+                    onValueChange={(e) => updateLine(row._key, { wasteQty: e.value ?? null })}
+                    mode="decimal"
+                    locale="vi-VN"
+                    minFractionDigits={0}
+                    maxFractionDigits={3}
+                    min={0}
+                    inputStyle={{ textAlign: 'right', width: '100%' }}
+                  />
+                )
+              }
+            />
+            <Column
+              header="ĐVT"
+              style={{ width: '90px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <span>{row.unit}</span>
+                ) : (
+                  <InputText
+                    value={row.unit}
+                    onChange={(e) => updateLine(row._key, { unit: e.target.value })}
+                    style={{ width: '100%' }}
+                    placeholder="kg/L..."
+                  />
+                )
+              }
+            />
+            <Column
+              header="Ghi chú"
+              style={{ minWidth: '140px' }}
+              body={(row: LineRow) =>
+                isReadonly ? (
+                  <span>{row.notes || '---'}</span>
+                ) : (
+                  <InputText
+                    value={row.notes}
+                    onChange={(e) => updateLine(row._key, { notes: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                )
+              }
+            />
+            {!isReadonly && (
+              <Column
+                header=""
+                style={{ width: '48px' }}
+                body={(row: LineRow) => {
+                  const isNewRow = lines[lines.length - 1]?._key === row._key && !row.productCode
+                  if (isNewRow) return null
+                  return (
+                    <Button
+                      type="button"
+                      icon="pi pi-trash"
+                      text
+                      severity="danger"
+                      className="icon-btn"
+                      aria-label="Xóa dòng"
+                      tooltip="Xóa dòng"
+                      tooltipOptions={{ position: 'top' }}
+                      onClick={() => removeLine(row._key)}
+                    />
+                  )
+                }}
+              />
+            )}
+          </DataTable>
+        </div>
+      </article>
 
-      {/* Footer actions */}
-      <div className="flex gap-2 flex-wrap">
-        {/* Save draft — only if draft/new */}
+      {/* â”€â”€ Footer actions â”€â”€ */}
+      <div className="outbound-page-actions" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', padding: '1rem 0' }}>
         {(isNew || bom?.status === 'draft') && (
           <Button
+            type="button"
             label="Lưu bản nháp"
             icon="pi pi-save"
+            className="btn btn-primary"
             loading={saving}
             onClick={handleSave}
           />
         )}
-
-        {/* Submit — draft only */}
         {!isNew && bom?.status === 'draft' && (
           <Button
+            type="button"
             label="Gửi duyệt"
             icon="pi pi-send"
+            className="btn"
             severity="warning"
             loading={saving}
             onClick={() => handleTransition(() => submitProductionBom(id!))}
           />
         )}
-
-        {/* Recall — submitted only */}
         {!isNew && bom?.status === 'submitted' && (
           <Button
+            type="button"
             label="Thu hồi"
             icon="pi pi-undo"
+            className="btn"
             severity="secondary"
             loading={saving}
             onClick={() => handleTransition(() => recallProductionBom(id!))}
           />
         )}
-
-        {/* Approve — submitted only */}
         {!isNew && bom?.status === 'submitted' && (
           <Button
+            type="button"
             label="Phê duyệt"
             icon="pi pi-check"
+            className="btn"
             severity="success"
             loading={saving}
             onClick={() => handleTransition(() => approveProductionBom(id!))}
           />
         )}
-
-        {/* Deactivate — approved only */}
         {!isNew && bom?.status === 'approved' && (
           <Button
+            type="button"
             label="Ngưng hiệu lực"
             icon="pi pi-ban"
-            severity="danger"
             outlined
+            severity="danger"
             loading={saving}
             onClick={() => handleTransition(() => deactivateProductionBom(id!))}
           />
         )}
-
         <Button
+          type="button"
           label="Quay lại"
-          icon="pi pi-times"
-          text
+          icon="pi pi-arrow-left"
+          className="btn btn-ghost"
           onClick={() => navigate('/production-bom')}
         />
       </div>
-    </div>
+    </section>
   )
 }

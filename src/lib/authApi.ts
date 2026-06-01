@@ -37,3 +37,11 @@ export async function changePasswordApi(currentPassword: string, newPassword: st
     body: JSON.stringify({ currentPassword, newPassword }),
   })
 }
+
+export async function updateProfileApi(data: { fullName?: string; email?: string }): Promise<AuthUser> {
+  const res = await apiFetch<AuthUser & { role: string }>('/api/users/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+  return res
+}

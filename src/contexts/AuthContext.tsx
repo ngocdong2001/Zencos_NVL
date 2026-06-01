@@ -15,6 +15,8 @@ type AuthContextValue = AuthState & {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   hasPermission: (permission: string) => boolean
+  refreshUser: () => Promise<void>
+  setUser: (user: AuthUser) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -75,6 +77,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: null, permissions: [], isLoading: false, isAuthenticated: false })
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const { user, permissions } = await fetchMe()
+    setState((s) => ({ ...s, user, permissions }))
+  }, [])
+
+  const setUser = useCallback((user: AuthUser) => {
+    setState((s) => ({ ...s, user }))
+  }, [])
+
   const hasPermission = useCallback(
     (permission: string) => {
       return state.permissions.includes('*') || state.permissions.includes(permission)
@@ -83,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <AuthContext.Provider value={{ ...state, login, logout, hasPermission }}>
+    <AuthContext.Provider value={{ ...state, login, logout, hasPermission, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   )

@@ -25,6 +25,7 @@ export type ProductionBom = {
   id: string
   bomCode: string | null
   bomName: string
+  bomVersion: string | null
   outputProductId: string | null
   outputProduct: { id: string; code: string; name: string; outputType: string; unit: string } | null
   baseQty: number
@@ -63,6 +64,8 @@ export type BomLinePayload = {
 }
 
 export type CreateBomPayload = {
+  bomCode?: string
+  bomVersion?: string
   bomName: string
   outputProductId?: number | null
   baseQty?: number
@@ -91,6 +94,11 @@ export async function fetchProductionBoms(params?: {
 
 export async function fetchProductionBom(id: string): Promise<ProductionBom> {
   return http<ProductionBom>(`/api/production-boms/${id}`)
+}
+
+export async function fetchNextBomCode(): Promise<string> {
+  const res = await http<{ code: string }>('/api/production-boms/next-code')
+  return res.code
 }
 
 export async function createProductionBom(data: CreateBomPayload): Promise<ProductionBom> {

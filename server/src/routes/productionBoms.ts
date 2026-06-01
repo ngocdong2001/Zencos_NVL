@@ -8,11 +8,8 @@ const router = Router()
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildBomCode(): string {
-  const now = new Date()
-  const yyyy = now.getFullYear()
-  const mm   = String(now.getMonth() + 1).padStart(2, '0')
-  const seq  = String(now.getTime()).slice(-4)
-  return `BOM-${yyyy}${mm}-${seq}`
+  const seq = String(Date.now()).slice(-4)
+  return `DM-${seq}`
 }
 
 const serializeBigInt = (obj: unknown): unknown => {
@@ -54,7 +51,9 @@ const lineSchema = z.object({
 })
 
 const createSchema = z.object({
+  bomCode:        z.string().min(1).optional(),
   bomName:        z.string().min(1),
+  bomVersion:     z.string().optional(),
   outputProductId:z.number().int().positive().nullable().optional(),
   baseQty:        z.number().positive().default(1),
   effectiveFrom:  z.string().nullable().optional(),
@@ -100,6 +99,23 @@ router.get('/', requireAuth, requirePermission('production:view'), async (req: A
   res.json(serializeBigInt({ data, total, page: pageNum, limit: limitNum }))
 })
 
+// ─── NEXT CODE ────────────────────────────────────────────────────────────────
+
+router.get('/next-code', requireAuth, requirePermission('production:view'), async (_req, res) => {
+  // Find the highest DM-NNNN numeric suffix among existing codes
+  const boms = await prisma.productionBom.findMany({
+    where:  { bomCode: { startsWith: 'DM-' } },
+    select: { bomCode: true },
+  })
+  let max = 0
+  for (const b of boms) {
+    const num = parseInt((b.bomCode ?? '').replace('DM-', ''), 10)
+    if (!isNaN(num) && num > max) max = num
+  }
+  const next = `DM-${String(max + 1).padStart(4, '0')}`
+  res.json({ code: next })
+})
+
 // ─── GET SINGLE ───────────────────────────────────────────────────────────────
 
 router.get('/:id', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {
@@ -117,8 +133,9 @@ router.post('/', requireAuth, requirePermission('production:write'), async (req:
 
   const bom = await prisma.productionBom.create({
     data: {
-      bomCode:        buildBomCode(),
+      bomCode:        body.bomCode?.trim() || buildBomCode(),
       bomName:        body.bomName,
+      bomVersion:     body.bomVersion?.trim() ?? null,
       outputProductId: body.outputProductId ? BigInt(body.outputProductId) : null,
       baseQty:        body.baseQty,
       effectiveFrom:  body.effectiveFrom ? new Date(body.effectiveFrom) : null,
@@ -162,6 +179,8 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
     return tx.productionBom.update({
       where: { id },
       data: {
+        ...(body.bomCode?.trim() ? { bomCode: body.bomCode.trim() } : {}),
+        bomVersion:      body.bomVersion?.trim() ?? null,
         bomName:         body.bomName,
         outputProductId: body.outputProductId ? BigInt(body.outputProductId) : null,
         baseQty:         body.baseQty,

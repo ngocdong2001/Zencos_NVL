@@ -29,6 +29,7 @@ import { StockTransferListPage } from '../pages/StockTransferListPage'
 import { StockTransferPage } from '../pages/StockTransferPage'
 import { UserManagementPage } from '../pages/UserManagementPage'
 import { RolePermissionsPage } from '../pages/RolePermissionsPage'
+import { ProfilePage } from '../pages/ProfilePage'
 
 export type RouteConfig = {
   path: string
@@ -86,4 +87,7 @@ export const appRoutes: RouteConfig[] = [
   // Admin (hidden from nav)
   { path: '/admin/users',               label: 'Quản lý người dùng',           icon: 'pi pi-users',        component: UserManagementPage,       permission: 'users:view',        showInNav: false },
   { path: '/admin/role-permissions',    label: 'Phân quyền theo vai trò',      icon: 'pi pi-shield',       component: RolePermissionsPage,      permission: 'users:view',        showInNav: false },
+
+  // Profile (always accessible for authenticated users)
+  { path: '/profile',                   label: 'Tài khoản của tôi',            icon: 'pi pi-user-edit',    component: ProfilePage,                                               showInNav: false },
 ]

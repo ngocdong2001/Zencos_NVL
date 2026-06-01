@@ -175,6 +175,40 @@ router.get('/profile', async (req: AuthenticatedRequest, res) => {
   return res.json({ ...user, id: String(user.id) })
 })
 
+const updateProfileSchema = z.object({
+  fullName: z.string().min(1).max(191).optional(),
+  email: z.string().email().max(191).optional(),
+})
+
+// PUT /api/users/profile — update own profile (fullName, email)
+router.put('/profile', async (req: AuthenticatedRequest, res) => {
+  const parsed = updateProfileSchema.safeParse(req.body)
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Invalid payload', errors: parsed.error.flatten() })
+  }
+
+  const userId = req.auth?.sub
+  if (!userId) return res.status(401).json({ message: 'Unauthorized' })
+
+  const user = await prisma.user.findFirst({ where: { id: BigInt(userId), deletedAt: null } })
+  if (!user) return res.status(404).json({ message: 'Not found' })
+
+  if (parsed.data.email && parsed.data.email !== user.email) {
+    const conflict = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+    if (conflict) {
+      return res.status(409).json({ message: 'Email đã được sử dụng bởi tài khoản khác' })
+    }
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: BigInt(userId) },
+    data: parsed.data,
+    select: { id: true, email: true, fullName: true, role: true, isActive: true, updatedAt: true },
+  })
+
+  return res.json({ ...updated, id: String(updated.id) })
+})
+
 // POST /api/users/change-password — change own password
 router.post('/change-password', async (req: AuthenticatedRequest, res) => {
   const parsed = selfChangePasswordSchema.safeParse(req.body)
