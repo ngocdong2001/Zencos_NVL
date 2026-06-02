@@ -1,4 +1,12 @@
+import * as XLSX from 'xlsx'
 import type { BasicRow } from './types'
+
+export function downloadExcelTemplate(headers: string[], fileName: string): void {
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet([headers])
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+  XLSX.writeFile(wb, fileName)
+}
 
 export function toCsvRow(values: string[]): string {
   return values

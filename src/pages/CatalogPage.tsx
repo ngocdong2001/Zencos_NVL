@@ -14,7 +14,7 @@ import {
   tabItems,
 } from '../components/catalog/data'
 import type { BasicRow, BasicTabId, MaterialRow, ProductOutputRow, TabId } from '../components/catalog/types'
-import { containsInsensitive, downloadTextFile, getNextCode, normalizeCatalogCode, normalizeLookupKey, toCsvRow } from '../components/catalog/utils'
+import { containsInsensitive, downloadExcelTemplate, downloadTextFile, getNextCode, normalizeCatalogCode, normalizeLookupKey, toCsvRow } from '../components/catalog/utils'
 import {
   createBasic,
   createMaterial,
@@ -496,17 +496,17 @@ export function CatalogPage() {
   }
 
   const downloadTemplate = () => {
-    const content =
-      activeTab === 'materials'
-        ? toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái'])
-        : activeTab === 'units'
-          ? toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái'])
-          : activeTab === 'suppliers'
-            ? toCsvRow(['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
-            : activeTab === 'customers'
-              ? toCsvRow(['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái'])
-          : toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái'])
-    downloadTextFile(content, `template-${activeTab}.csv`, 'text/csv;charset=utf-8;')
+    const headersMap: Record<string, string[]> = {
+      materials:        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng'],
+      product_outputs:  ['Mã', 'Tên', 'Phân loại', 'Đơn vị'],
+      units:            ['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định'],
+      suppliers:        ['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú'],
+      customers:        ['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú'],
+      classifications:  ['Mã', 'Tên', 'Ghi chú'],
+      locations:        ['Mã', 'Tên', 'Ghi chú'],
+    }
+    const headers = headersMap[activeTab] ?? ['Mã', 'Tên', 'Ghi chú']
+    downloadExcelTemplate(headers, `template-${activeTab}.xlsx`)
   }
 
   const handleOpenImportModal = () => {
