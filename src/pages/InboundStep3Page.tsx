@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Dialog } from 'primereact/dialog'
@@ -698,12 +698,12 @@ export function InboundStep3Page() {
           </aside>
         </div>
 
-        <footer className="inbound-create-footer">
+        <footer className="page-action-footer">
           <p className="inbound-create-autosave-hint">
             <i className="pi pi-clock" />
             Dữ liệu được tự động lưu nháp sau mỗi 30 giây
           </p>
-          <div className="inbound-create-footer-actions">
+          <div className="page-action-footer-actions">
             <Button
               type="button"
               className="btn btn-ghost inbound-cancel-btn"

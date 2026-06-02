@@ -130,3 +130,18 @@ export async function recallProductionBom(id: string): Promise<ProductionBom> {
 export async function deactivateProductionBom(id: string): Promise<ProductionBom> {
   return http<ProductionBom>(`/api/production-boms/${id}/deactivate`, { method: 'POST' })
 }
+
+// ─── History ───────────────────────────────────────────────────────────────────
+
+export type ProductionBomHistoryRow = {
+  id: string
+  actionType: string
+  actionLabel: string
+  actorName: string
+  createdAt: string
+  data: Record<string, unknown> | null
+}
+
+export function fetchProductionBomHistory(id: string): Promise<ProductionBomHistoryRow[]> {
+  return http<ProductionBomHistoryRow[]>(`/api/production-boms/${encodeURIComponent(id)}/history`)
+}

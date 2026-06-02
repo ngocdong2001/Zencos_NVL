@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Calendar } from 'primereact/calendar'
@@ -633,12 +633,11 @@ export function InboundStep1Page() {
           </aside>
         </div>
 
-        <footer className="inbound-create-footer">
+        <footer className="page-action-footer">
           <p>
-            <i className="pi pi-clock" />
-            Dữ liệu được tự động lưu nháp sau mỗi 30 giây
+             
           </p>
-          <div className="inbound-create-footer-actions">
+          <div className="page-action-footer-actions">
             <Button
               type="button"
               className="btn btn-ghost inbound-cancel-btn"

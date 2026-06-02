@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AutoComplete, type AutoCompleteCompleteEvent } from 'primereact/autocomplete'
 import { Button } from 'primereact/button'
@@ -23,7 +23,10 @@ import {
   type ProductionBom,
   type ProductionBomLineType,
   type BomLinePayload,
+  fetchProductionBomHistory,
+  type ProductionBomHistoryRow,
 } from '../lib/productionBomApi'
+import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 
 // â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -42,12 +45,12 @@ type LineRow = {
 
 // â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const STATUS_LABELS: Record<string, string> = {
-  draft:     'Bản nháp',
-  submitted: 'Chờ duyệt',
-  approved:  'Đã duyệt',
-  inactive:  'Ngưng hiệu lực',
-  archived:  'Lưu trữ',
+function getBomStatusMeta(status: string): { label: string; tone: string } {
+  if (status === 'submitted') return { label: 'Chờ duyệt', tone: 'pending_qc' }
+  if (status === 'approved')  return { label: 'Đã duyệt',        tone: 'posted' }
+  if (status === 'inactive')  return { label: 'Ngưng hiệu lực',   tone: 'cancelled' }
+  if (status === 'archived')  return { label: 'Lưu trữ',          tone: 'archived' }
+  return { label: 'Bản nháp', tone: 'draft' }
 }
 
 let keySeq = 0
@@ -97,6 +100,12 @@ export default function ProductionBomPage() {
   // Autocomplete suggestions
   const [allOutputProducts, setAllOutputProducts] = useState<ProductOutputRow[]>([])
   const [nvlSuggestions,  setNvlSuggestions]  = useState<MaterialRow[]>([])
+
+  // History
+  const [historyEvents,  setHistoryEvents]  = useState<HistoryTimelineEvent[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError,   setHistoryError]   = useState<string | null>(null)
+  const [historyVersion, setHistoryVersion] = useState(0)
 
   // â”€â”€â”€ Load existing BOM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -157,6 +166,35 @@ export default function ProductionBomPage() {
     const results = await fetchMaterials(evt.query)
     setNvlSuggestions(results)
   }, [])
+
+  // ─── Load history ─────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!id || id === 'new') {
+      setHistoryEvents([])
+      return
+    }
+    let cancelled = false
+    setHistoryLoading(true)
+    setHistoryError(null)
+    fetchProductionBomHistory(id)
+      .then((rows: ProductionBomHistoryRow[]) => {
+        if (cancelled) return
+        setHistoryEvents(rows.map((r) => ({
+          id:         r.id,
+          actionType: r.actionType,
+          action:     r.actionLabel,
+          actorName:  r.actorName,
+          at:         r.createdAt,
+        })))
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setHistoryError(err instanceof Error ? err.message : 'Không thể tải lịch sử thao tác.')
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false) })
+    return () => { cancelled = true }
+  }, [id, historyVersion])
 
   // â”€â”€â”€ Line helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -242,6 +280,7 @@ export default function ProductionBomPage() {
     try {
       const result = await action()
       setBom(result)
+      setHistoryVersion((v) => v + 1)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       setError(msg)
@@ -270,7 +309,12 @@ export default function ProductionBomPage() {
       {/* â”€â”€ Page header â”€â”€ */}
       <header className="outbound-page-header outbound-page-title-row">
         <div>
-          <h1>{isNew ? 'Tạo phiếu định mức sản xuất' : (isReadonly ? 'Chi tiết phiếu định mức' : 'Chỉnh sửa phiếu định mức')}</h1>
+          <div className="inbound-step4-title-row">
+            <h1>{isNew ? 'Tạo phiếu định mức sản xuất' : (isReadonly ? 'Chi tiết phiếu định mức' : 'Chỉnh sửa phiếu định mức')}</h1>
+            {(() => { const m = getBomStatusMeta(bom?.status ?? 'draft'); return (
+              <span className={`purchase-detail-draft-tag inbound-title-status-tag ${m.tone}`}>{m.label}</span>
+            ) })()}
+          </div>
           <p>
             {isNew
               ? 'Khai báo danh sách NVL/BTP và định mức tiêu hao theo quy mô mẻ.'
@@ -281,11 +325,6 @@ export default function ProductionBomPage() {
         </div>
         {bom?.bomCode && (
           <span className="inbound-create-code-tag">{bom.bomCode}</span>
-        )}
-        {bom && (
-          <span className={`app-status-badge ${bom.status}`} style={{ alignSelf: 'center' }}>
-            {STATUS_LABELS[bom.status] ?? bom.status}
-          </span>
         )}
       </header>
 
@@ -302,6 +341,10 @@ export default function ProductionBomPage() {
           <button type="button" className="catalog-inline-notice-close" onClick={() => setError(null)} aria-label="Đóng">×</button>
         </div>
       )}
+
+      {/* ── Sections + history panel ── */}
+      <div className="inbound-step-layout-with-history">
+        <div className="inbound-step-main">
 
       {/* ── Section 1: Thông tin chung ── */}
       <article className="outbound-card">
@@ -485,14 +528,14 @@ export default function ProductionBomPage() {
                       }}
                       onSelect={(e) => {
                         const m = e.value as MaterialRow
-                        const wasNewRow = lines[lines.length - 1]?._key === row._key && !row.productCode
+                        const isLastRow = lines[lines.length - 1]?._key === row._key
                         updateLine(row._key, {
                           productId:   m.id,
                           productCode: m.code,
                           productName: m.materialName,
                           unit:        m.unit,
                         })
-                        if (wasNewRow) {
+                        if (isLastRow) {
                           setLines((prev) => [...prev, blankLine(row.lineType)])
                         }
                       }}
@@ -527,14 +570,14 @@ export default function ProductionBomPage() {
                       }}
                       onSelect={(e) => {
                         const m = e.value as MaterialRow
-                        const wasNewRow = lines[lines.length - 1]?._key === row._key && !row.productCode
+                        const isLastRow = lines[lines.length - 1]?._key === row._key
                         updateLine(row._key, {
                           productId:   m.id,
                           productCode: m.code,
                           productName: m.materialName,
                           unit:        m.unit,
                         })
-                        if (wasNewRow) {
+                        if (isLastRow) {
                           setLines((prev) => [...prev, blankLine(row.lineType)])
                         }
                       }}
@@ -647,71 +690,95 @@ export default function ProductionBomPage() {
           </DataTable>
         </div>
       </article>
+        </div>{/* /inbound-step-main */}
+
+        <aside className="inbound-step-history-panel">
+          <div className="inbound-step4-section-header">
+            <i className="pi pi-history" />
+            <span>LỊCH SỬ THAO TÁC</span>
+          </div>
+          {id && id !== 'new' ? (
+            <HistoryTimeline
+              events={historyEvents}
+              loading={historyLoading}
+              error={historyError}
+              emptyMessage="Chưa có lịch sử thao tác cho phiếu định mức này."
+            />
+          ) : (
+            <p className="purchase-side-note">Lịch sử thao tác sẽ hiển thị sau khi lưu phiếu nháp lần đầu.</p>
+          )}
+        </aside>
+      </div>{/* /inbound-step-layout-with-history */}
+
+      
 
       {/* â”€â”€ Footer actions â”€â”€ */}
-      <div className="outbound-page-actions" style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', padding: '1rem 0' }}>
-        {(isNew || bom?.status === 'draft') && (
+      <footer className="page-action-footer">
+        <p>
+          <i className="pi pi-info-circle" />
+          {isNew ? 'Điền đầy đủ thông tin rồi lưu bản nháp.' : isReadonly ? 'Phiếu chỉ xem, không thể chỉnh sửa.' : 'Cập nhật xong nhấn Lưu.'}
+        </p>
+        <div className="page-action-footer-actions">
           <Button
             type="button"
-            label="Lưu bản nháp"
-            icon="pi pi-save"
-            className="btn btn-primary"
-            loading={saving}
-            onClick={handleSave}
+            label="Quay lại"
+            icon="pi pi-angle-left"
+            className="btn btn-ghost"
+            onClick={() => navigate('/production-bom')}
           />
-        )}
-        {!isNew && bom?.status === 'draft' && (
-          <Button
-            type="button"
-            label="Gửi duyệt"
-            icon="pi pi-send"
-            className="btn"
-            severity="warning"
-            loading={saving}
-            onClick={() => handleTransition(() => submitProductionBom(id!))}
-          />
-        )}
-        {!isNew && bom?.status === 'submitted' && (
-          <Button
-            type="button"
-            label="Thu hồi"
-            icon="pi pi-undo"
-            className="btn"
-            severity="secondary"
-            loading={saving}
-            onClick={() => handleTransition(() => recallProductionBom(id!))}
-          />
-        )}
-        {!isNew && bom?.status === 'submitted' && (
-          <Button
-            type="button"
-            label="Phê duyệt"
-            icon="pi pi-check"
-            className="btn"
-            severity="success"
-            loading={saving}
-            onClick={() => handleTransition(() => approveProductionBom(id!))}
-          />
-        )}
-        {!isNew && bom?.status === 'approved' && (
-          <Button
-            type="button"
-            label="Ngưng hiệu lực"
-            icon="pi pi-ban"
-            outlined
-            severity="danger"
-            loading={saving}
-            onClick={() => handleTransition(() => deactivateProductionBom(id!))}
-          />
-        )}
-        <Button
-          type="button"
-          label="Quay lại"
-          icon="pi pi-arrow-left"
-          className="btn btn-ghost"
-          onClick={() => navigate('/production-bom')}
-        />
-      </div>
+          {!isNew && bom?.status === 'approved' && (
+            <Button
+              type="button"
+              label="Ngưng hiệu lực"
+              icon="pi pi-ban"
+              outlined
+              severity="danger"
+              loading={saving}
+              onClick={() => handleTransition(() => deactivateProductionBom(id!))}
+            />
+          )}
+          {!isNew && bom?.status === 'submitted' && (
+            <Button
+              type="button"
+              label="Thu hồi"
+              icon="pi pi-undo"
+              className="btn btn-ghost"
+              loading={saving}
+              onClick={() => handleTransition(() => recallProductionBom(id!))}
+            />
+          )}
+          {!isNew && bom?.status === 'submitted' && (
+            <Button
+              type="button"
+              label="Phê duyệt"
+              icon="pi pi-check"
+              className="btn btn-primary inbound-next-btn"
+              loading={saving}
+              onClick={() => handleTransition(() => approveProductionBom(id!))}
+            />
+          )}
+          {!isNew && bom?.status === 'draft' && (
+            <Button
+              type="button"
+              label="Gửi duyệt"
+              icon="pi pi-send"
+              className="btn btn-primary inbound-next-btn"
+              loading={saving}
+              onClick={() => handleTransition(() => submitProductionBom(id!))}
+            />
+          )}
+          {(isNew || bom?.status === 'draft') && (
+            <Button
+              type="button"
+              label="Lưu bản nháp"
+              icon="pi pi-save"
+              className="btn btn-primary inbound-next-btn"
+              loading={saving}
+              onClick={handleSave}
+            />
+          )}
+        </div>
+      </footer>
     </section>
   )
 }

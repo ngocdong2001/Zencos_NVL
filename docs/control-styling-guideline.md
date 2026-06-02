@@ -66,32 +66,41 @@ This document defines standard styling for UI controls to maintain consistency a
 - **optionLabel** and **optionValue** are REQUIRED (PrimeReact v10.9.7)
 - Must include icon indicators for visual consistency
 
-#### Calendar (Date Range)
+#### Calendar (Date Range — split 2 inputs)
+
+InboundPage and similar list pages use **two separate Calendar controls** wrapped in `app-filter-control app-date-control`:
+
 ```tsx
-<label className="app-filter-control">
+<div className="app-filter-control app-date-control">
   <i className="pi pi-calendar" aria-hidden />
+  <span>Từ ngày</span>
   <Calendar
-    value={dateRange}
-    onChange={(e) => setDateRange(e.value)}
-    selectionMode="range"
-    readOnlyInput
-    placeholder="Từ ngày - Đến ngày"
+    value={fromDate}
+    onChange={(e) => setFromDate((e.value as Date | null) ?? null)}
     dateFormat="dd/mm/yy"
-    showButtonBar
+    readOnlyInput
+    showIcon
+    aria-label="Từ ngày"
   />
-  {dateRange?.[0] && (
-    <button
-      type="button"
-      className="app-filter-clear-btn"
-      onClick={() => setDateRange(null)}
-      title="Xóa bộ lọc"
-      aria-label="Xóa bộ lọc"
-    >
-      <i className="pi pi-times" />
-    </button>
-  )}
-</label>
+</div>
+
+<div className="app-filter-control app-date-control">
+  <i className="pi pi-calendar" aria-hidden />
+  <span>Đến ngày</span>
+  <Calendar
+    value={toDate}
+    onChange={(e) => setToDate((e.value as Date | null) ?? null)}
+    dateFormat="dd/mm/yy"
+    readOnlyInput
+    showIcon
+    aria-label="Đến ngày"
+  />
+</div>
 ```
+
+**`app-date-control`** modifier adds `min-width: 210px` and styles the label `<span>` in muted gray.
+
+> **Do NOT use** `selectionMode="range"` with a single Calendar in the toolbar — it does not match the current pattern.
 
 #### Clear Button Style (app-filter-clear-btn)
 ```css
@@ -113,32 +122,37 @@ This document defines standard styling for UI controls to maintain consistency a
 }
 ```
 
-## Filter Section (filter-section)
+## Status Badge (app-status-badge)
 
-### Container (used outside toolbar, e.g., in page header area)
-```css
-.filter-section {
-  background: rgba(243, 244, 246, 0.3);
-  border: 1px solid #dee1e6;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  box-shadow: 0 1px 2px rgba(23, 26, 31, 0.05);
-}
+Dùng `<span className="app-status-badge {status}">` để hiển thị trạng thái. Class modifier là giá trị status string nguyên bản từ API (không dịch).
+
+```tsx
+<span className={`app-status-badge ${row.status}`}>
+  {STATUS_LABELS[row.status] ?? row.status}
+</span>
 ```
 
-### Divider (filter-divider)
-```css
-.filter-divider {
-  width: 1px;
-  height: 24px;
-  background: #dee1e6;
-  flex-shrink: 0;
-}
-```
+### Các modifier hiện có
+
+| Class modifier | Màu | Ý nghĩa |
+|---|---|---|
+| `draft` | xám | Bản nháp |
+| `pending` | xám | Chờ xử lý |
+| `submitted` | xanh dương | Chờ duyệt |
+| `waiting_qc` | xanh dương | Chờ QC |
+| `approved` | vàng amber | Đã duyệt |
+| `ordered` | tím | Đã đặt hàng |
+| `processing` | tím | Đang xử lý |
+| `partially_received` | vàng nâu | Nhập một phần |
+| `received` | xanh lá | Đã nhập kho |
+| `done` | xanh lá | Hoàn thành |
+| `completed` | xanh lá | Hoàn thành (đơn sản xuất) |
+| `fulfilled` | xanh lá | Đã thực hiện |
+| `cancelled` | đỏ | Đã hủy |
+| `inactive` | đỏ nhạt | Ngưng hiệu lực |
+| `archived` | xám | Lưu trữ |
+
+> **Không** tự viết inline style cho badge. Nếu cần thêm status mới, bổ sung vào `src/App.css` theo cùng pattern.
 
 ## Quantity Formatting
 
@@ -196,6 +210,5 @@ This document defines standard styling for UI controls to maintain consistency a
 
 **Last Updated**: 2026-05-20  
 **Related Files**: 
-- `src/App.css` — Global toolbar and filter styles
-- `src/pages/WarehousePage.css` — Filter section examples
+- `src/App.css` — Global toolbar, filter, and badge styles
 - `docs/quantity-format-guideline.md` — Numeric formatting rules

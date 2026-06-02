@@ -35,6 +35,22 @@ const bomInclude = {
   lines: { orderBy: { sortOrder: 'asc' as const } },
 }
 
+// ─── History helper ───────────────────────────────────────────────────────────
+
+type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
+async function logBomAction(
+  db: TxClient | typeof prisma,
+  bomId: bigint,
+  actorId: bigint,
+  actionType: string,
+  actionLabel: string,
+) {
+  await (db as typeof prisma).productionBomLog.create({
+    data: { bomId, actorId, actionType, actionLabel },
+  })
+}
+
 // ─── Validation schemas ───────────────────────────────────────────────────────
 
 const lineSchema = z.object({
@@ -159,6 +175,8 @@ router.post('/', requireAuth, requirePermission('production:write'), async (req:
     include: bomInclude,
   })
 
+  await logBomAction(prisma, bom.id, userId, 'created', 'Tạo phiếu định mức')
+
   res.status(201).json(serializeBigInt(bom))
 })
 
@@ -174,9 +192,11 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
     res.status(409).json({ error: 'Chỉ phiếu ở trạng thái "Bản nháp" mới được chỉnh sửa.' }); return
   }
 
+  const userId = BigInt(req.auth!.sub)
+
   const bom = await prisma.$transaction(async (tx) => {
     await tx.productionBomLine.deleteMany({ where: { bomId: id } })
-    return tx.productionBom.update({
+    const updated = await tx.productionBom.update({
       where: { id },
       data: {
         ...(body.bomCode?.trim() ? { bomCode: body.bomCode.trim() } : {}),
@@ -203,6 +223,8 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
       },
       include: bomInclude,
     })
+    await logBomAction(tx, id, userId, 'updated', 'Cập nhật phiếu định mức')
+    return updated
   })
 
   res.json(serializeBigInt(bom))
@@ -211,7 +233,8 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
 // ─── SUBMIT (draft → submitted) ───────────────────────────────────────────────
 
 router.post('/:id/submit', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
-  const id = BigInt(req.params.id)
+  const id     = BigInt(req.params.id)
+  const userId = BigInt(req.auth!.sub)
   const existing = await prisma.productionBom.findUnique({ where: { id }, select: { status: true, lines: { select: { id: true } } } })
   if (!existing) { res.status(404).json({ error: 'Không tìm thấy phiếu định mức.' }); return }
   if (existing.status !== 'draft') {
@@ -220,10 +243,10 @@ router.post('/:id/submit', requireAuth, requirePermission('production:write'), a
   if (existing.lines.length === 0) {
     res.status(422).json({ error: 'Phiếu định mức phải có ít nhất 1 dòng NVL/BTP.' }); return
   }
-  const bom = await prisma.productionBom.update({
-    where: { id },
-    data:  { status: 'submitted' },
-    include: bomInclude,
+  const bom = await prisma.$transaction(async (tx) => {
+    const updated = await tx.productionBom.update({ where: { id }, data: { status: 'submitted' }, include: bomInclude })
+    await logBomAction(tx, id, userId, 'submitted', 'Gửi duyệt phiếu định mức')
+    return updated
   })
   res.json(serializeBigInt(bom))
 })
@@ -238,10 +261,10 @@ router.post('/:id/approve', requireAuth, requirePermission('production:write'), 
   if (existing.status !== 'submitted') {
     res.status(409).json({ error: 'Chỉ phiếu "Đã gửi duyệt" mới có thể phê duyệt.' }); return
   }
-  const bom = await prisma.productionBom.update({
-    where: { id },
-    data:  { status: 'approved', approvedBy: userId, approvedAt: new Date() },
-    include: bomInclude,
+  const bom = await prisma.$transaction(async (tx) => {
+    const updated = await tx.productionBom.update({ where: { id }, data: { status: 'approved', approvedBy: userId, approvedAt: new Date() }, include: bomInclude })
+    await logBomAction(tx, id, userId, 'approved', 'Phê duyệt phiếu định mức')
+    return updated
   })
   res.json(serializeBigInt(bom))
 })
@@ -249,16 +272,17 @@ router.post('/:id/approve', requireAuth, requirePermission('production:write'), 
 // ─── RECALL to draft (submitted → draft) ─────────────────────────────────────
 
 router.post('/:id/recall', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
-  const id = BigInt(req.params.id)
+  const id     = BigInt(req.params.id)
+  const userId = BigInt(req.auth!.sub)
   const existing = await prisma.productionBom.findUnique({ where: { id }, select: { status: true } })
   if (!existing) { res.status(404).json({ error: 'Không tìm thấy phiếu định mức.' }); return }
   if (existing.status !== 'submitted') {
     res.status(409).json({ error: 'Chỉ phiếu "Đã gửi duyệt" mới có thể thu hồi.' }); return
   }
-  const bom = await prisma.productionBom.update({
-    where: { id },
-    data:  { status: 'draft', approvedBy: null, approvedAt: null },
-    include: bomInclude,
+  const bom = await prisma.$transaction(async (tx) => {
+    const updated = await tx.productionBom.update({ where: { id }, data: { status: 'draft', approvedBy: null, approvedAt: null }, include: bomInclude })
+    await logBomAction(tx, id, userId, 'recalled', 'Thu hồi phiếu định mức')
+    return updated
   })
   res.json(serializeBigInt(bom))
 })
@@ -266,18 +290,62 @@ router.post('/:id/recall', requireAuth, requirePermission('production:write'), a
 // ─── DEACTIVATE (approved → inactive) ────────────────────────────────────────
 
 router.post('/:id/deactivate', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
-  const id = BigInt(req.params.id)
+  const id     = BigInt(req.params.id)
+  const userId = BigInt(req.auth!.sub)
   const existing = await prisma.productionBom.findUnique({ where: { id }, select: { status: true } })
   if (!existing) { res.status(404).json({ error: 'Không tìm thấy phiếu định mức.' }); return }
   if (existing.status !== 'approved') {
     res.status(409).json({ error: 'Chỉ phiếu "Đã duyệt" mới có thể ngưng hiệu lực.' }); return
   }
-  const bom = await prisma.productionBom.update({
-    where: { id },
-    data:  { status: 'inactive' },
-    include: bomInclude,
+  const bom = await prisma.$transaction(async (tx) => {
+    const updated = await tx.productionBom.update({ where: { id }, data: { status: 'inactive' }, include: bomInclude })
+    await logBomAction(tx, id, userId, 'deactivated', 'Ngưng hiệu lực phiếu định mức')
+    return updated
   })
   res.json(serializeBigInt(bom))
+})
+
+// ─── HISTORY ──────────────────────────────────────────────────────────────────
+
+router.get('/:id/history', requireAuth, requirePermission('production:view'), async (req: AuthenticatedRequest, res) => {
+  const id = BigInt(req.params.id)
+
+  const bom = await prisma.productionBom.findUnique({
+    where: { id },
+    select: { id: true, createdAt: true, creator: { select: { fullName: true } } },
+  })
+  if (!bom) { res.status(404).json({ error: 'Không tìm thấy phiếu định mức.' }); return }
+
+  const logs = await prisma.productionBomLog.findMany({
+    where: { bomId: id },
+    orderBy: { createdAt: 'desc' },
+    include: { actor: { select: { fullName: true } } },
+  })
+
+  const rows: Array<{ id: string; actionType: string; actionLabel: string; actorName: string; createdAt: string; data: unknown }> =
+    logs.map((entry) => ({
+      id:          entry.id.toString(),
+      actionType:  entry.actionType,
+      actionLabel: entry.actionLabel,
+      actorName:   entry.actor.fullName,
+      createdAt:   entry.createdAt.toISOString(),
+      data:        entry.data,
+    }))
+
+  // Always show virtual 'created' event if no real log exists yet
+  if (!rows.some((r) => r.actionType === 'created')) {
+    rows.push({
+      id:          `virtual-created-${bom.id.toString()}`,
+      actionType:  'created',
+      actionLabel: 'Tạo phiếu định mức',
+      actorName:   bom.creator.fullName,
+      createdAt:   bom.createdAt.toISOString(),
+      data:        null,
+    })
+  }
+
+  rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  res.json(rows)
 })
 
 export default router

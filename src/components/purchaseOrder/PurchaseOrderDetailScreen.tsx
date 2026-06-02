@@ -578,61 +578,7 @@ export function PurchaseOrderDetailScreen({
           </div>
         </div>
 
-        <div className="purchase-detail-header-actions">
-          {detailCanRecallToDraft ? (
-            <Button
-              type="button"
-              className="btn btn-ghost"
-              icon="pi pi-undo"
-              label={detailRecalling ? 'Đang thu hồi...' : 'Thu hồi về nháp'}
-              disabled={detailRecalling || detailLoading || detailSaving || detailSubmitting || detailDeleting}
-              onClick={onRecallToDraft}
-            />
-          ) : null}
-          {detailCanDelete ? (
-            <Button
-              type="button"
-              className="btn btn-ghost purchase-detail-delete-btn"
-              icon="pi pi-trash"
-              label={detailDeleting ? 'Đang xóa...' : 'Xóa phiếu'}
-              disabled={detailDeleting || detailRecalling || detailLoading || detailSaving || detailSubmitting}
-              onClick={onDelete}
-            />
-          ) : null}
-          {detailCanOpenInboundDrilldown ? (
-            <Button
-              type="button"
-              className="btn btn-ghost"
-              icon="pi pi-sitemap"
-              label="Tra phiếu nhập"
-              disabled={detailLoading || detailSaving || detailSubmitting || detailRecalling || detailDeleting}
-              onClick={onOpenInboundDrilldown}
-            />
-          ) : null}
-          <Button
-            type="button"
-            className="btn btn-ghost"
-            icon="pi pi-save"
-            label={detailSaving ? 'Đang lưu...' : 'Lưu bản nháp'}
-            disabled={!detailEditable || detailDeleting || detailRecalling || detailSaving || detailSubmitting}
-            onClick={onSaveDraft}
-          />
-          <Button
-            type="button"
-            className="btn btn-ghost"
-            icon="pi pi-times"
-            label="Hủy bỏ"
-            onClick={onCancel}
-          />
-          <Button
-            type="button"
-            className="btn btn-primary"
-            icon="pi pi-send"
-            label={detailSubmitting ? 'Đang gửi...' : 'Gửi cho thu mua'}
-            disabled={!detailEditable || detailDeleting || detailRecalling || detailSaving || detailSubmitting || detailLoading}
-            onClick={onSubmit}
-          />
-        </div>
+
       </header>
 
       {detailSubmitError ? <p className="po-field-error">{detailSubmitError}</p> : null}
@@ -1198,6 +1144,78 @@ export function PurchaseOrderDetailScreen({
           </section>
         </aside>
       </div>
+
+      <footer className="page-action-footer">
+        <p>
+          <i className="pi pi-info-circle" />
+          {detailEditable
+            ? 'Cập nhật xong nhấn Lưu bản nháp hoặc Gửi cho thu mua.'
+            : 'Phiếu đang ở trạng thái chỉ xem, không thể chỉnh sửa.'}
+        </p>
+        <div className="page-action-footer-actions">
+          <Button
+            type="button"
+            label="Quay lại"
+            icon="pi pi-angle-left"
+            className="btn btn-ghost"
+            onClick={onBack}
+          />
+          {detailCanRecallToDraft ? (
+            <Button
+              type="button"
+              className="btn btn-ghost"
+              icon="pi pi-undo"
+              label="Thu hồi về nháp"
+              loading={detailRecalling}
+              disabled={detailRecalling || detailLoading || detailSaving || detailSubmitting || detailDeleting}
+              onClick={onRecallToDraft}
+            />
+          ) : null}
+          {detailCanDelete ? (
+            <Button
+              type="button"
+              className="btn btn-ghost purchase-detail-delete-btn"
+              icon="pi pi-trash"
+              label="Xóa phiếu"
+              loading={detailDeleting}
+              disabled={detailDeleting || detailRecalling || detailLoading || detailSaving || detailSubmitting}
+              onClick={onDelete}
+            />
+          ) : null}
+          {detailCanOpenInboundDrilldown ? (
+            <Button
+              type="button"
+              className="btn btn-ghost"
+              icon="pi pi-sitemap"
+              label="Tra phiếu nhập"
+              disabled={detailLoading || detailSaving || detailSubmitting || detailRecalling || detailDeleting}
+              onClick={onOpenInboundDrilldown}
+            />
+          ) : null}
+          {detailEditable ? (
+            <Button
+              type="button"
+              className="btn btn-ghost inbound-next-btn"
+              icon="pi pi-save"
+              label="Lưu bản nháp"
+              loading={detailSaving}
+              disabled={detailDeleting || detailRecalling || detailSaving || detailSubmitting}
+              onClick={onSaveDraft}
+            />
+          ) : null}
+          {detailEditable ? (
+            <Button
+              type="button"
+              className="btn btn-primary inbound-next-btn"
+              icon="pi pi-send"
+              label="Gửi cho thu mua"
+              loading={detailSubmitting}
+              disabled={detailDeleting || detailRecalling || detailSaving || detailSubmitting || detailLoading}
+              onClick={onSubmit}
+            />
+          ) : null}
+        </div>
+      </footer>
     </section>
   )
 }

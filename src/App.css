@@ -6025,10 +6025,11 @@ input {
   border: 1px solid #fde68a;
 }
 
-/* success / received / done / fulfilled */
+/* success / received / done / fulfilled / completed */
 .app-status-badge.received,
 .app-status-badge.done,
-.app-status-badge.fulfilled {
+.app-status-badge.fulfilled,
+.app-status-badge.completed {
   background: #dcfce7;
   color: #16a34a;
   border: 1px solid #bbf7d0;
@@ -6039,6 +6040,20 @@ input {
   background: #fee2e2;
   color: #b91c1c;
   border: 1px solid #fecaca;
+}
+
+/* inactive / ngưng hiệu lực */
+.app-status-badge.inactive {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+/* archived / lưu trữ */
+.app-status-badge.archived {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
 }
 
 .app-table-toolbar,
@@ -7448,6 +7463,12 @@ input {
   border-color: #fecaca;
 }
 
+.inbound-title-status-tag.archived {
+  background: #f3f4f6;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+
 .inbound-step4-status-tag {
   display: inline-flex;
   align-items: center;
@@ -7513,7 +7534,7 @@ input {
 .inbound-readonly-card .inbound-create-body,
 .inbound-readonly-card .inbound-step2-body,
 .inbound-readonly-card .inbound-step3-body,
-.inbound-readonly-card .inbound-create-footer,
+.inbound-readonly-card .page-action-footer,
 .inbound-readonly-card .inbound-step4-body {
   pointer-events: none;
   opacity: 0.74;
@@ -7856,7 +7877,7 @@ input {
   white-space: nowrap;
 }
 
-.inbound-create-footer {
+.page-action-footer {
   border-top: 1px solid #e6e8ed;
   background: rgba(244, 244, 246, 0.05);
   padding: 16px 32px;
@@ -7866,7 +7887,7 @@ input {
   gap: 12px;
 }
 
-.inbound-create-footer p {
+.page-action-footer p {
   margin: 0;
   color: #5a5c68;
   font-style: italic;
@@ -7876,7 +7897,7 @@ input {
   gap: 8px;
 }
 
-.inbound-create-footer-actions {
+.page-action-footer-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -9334,14 +9355,14 @@ input {
   background: #f8f9fb;
 }
 
-.inbound-step4-footer .inbound-create-footer-actions {
+.inbound-step4-footer .page-action-footer-actions {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
 }
 
-.inbound-step4-footer .inbound-create-footer-actions > * {
+.inbound-step4-footer .page-action-footer-actions > * {
   width: 100%;
 }
 
@@ -9390,7 +9411,7 @@ input {
     gap: 10px;
   }
 
-  .inbound-step4-footer .inbound-create-footer-actions {
+  .inbound-step4-footer .page-action-footer-actions {
     grid-template-columns: 1fr;
   }
 
@@ -9632,12 +9653,12 @@ input {
     display: none;
   }
 
-  .inbound-create-footer {
+  .page-action-footer {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .inbound-create-footer-actions {
+  .page-action-footer-actions {
     width: 100%;
     justify-content: flex-end;
   }
