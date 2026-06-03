@@ -43,7 +43,7 @@ type Props = {
   onSubmit: () => void
   onRecallToDraft: () => void
   onDelete: () => void
-  onCancel: () => void
+  onCancel?: () => void
   onDetailDraftRefChange: (value: string) => void
   detailSubmitError: string | null
   detailSubmitSuccess: string | null
@@ -87,7 +87,7 @@ export function PurchaseOrderDetailScreen({
   onSubmit,
   onRecallToDraft,
   onDelete,
-  onCancel,
+  onCancel: _onCancel,
   onDetailDraftRefChange,
   detailSubmitError,
   detailSubmitSuccess,
