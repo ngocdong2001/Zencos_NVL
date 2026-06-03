@@ -71,7 +71,7 @@ export const appRoutes: RouteConfig[] = [
   { path: '/production/:orderId/buoc-3', label: 'Bước 3: Xuất BTP',           icon: 'pi pi-cog',          component: ProductionStep3Page,      permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/buoc-4', label: 'Bước 4: Nhập TP',            icon: 'pi pi-cog',          component: ProductionStep4Page,      permission: 'production:write', showInNav: false },
   { path: '/production/:orderId/luu-do', label: 'Lưu đồ NVL',                 icon: 'pi pi-sitemap',      component: ProductionFlowDiagramPage, permission: 'production:view', showInNav: false },
-  { path: '/production-bom',            label: 'Định mức sản xuất',            icon: 'pi pi-list-check',   component: ProductionBomListPage,     permission: 'production:view' , showInNav: false},
+  { path: '/production-bom',            label: 'Định mức sản xuất',            icon: 'pi pi-list-check',   component: ProductionBomListPage,     permission: 'production:view' , showInNav: true},
   { path: '/production-bom/new',        label: 'Tạo định mức mới',             icon: 'pi pi-plus',         component: ProductionBomPage,         permission: 'production:write', showInNav: false },
   { path: '/production-bom/:id',        label: 'Chi tiết định mức',            icon: 'pi pi-list-check',   component: ProductionBomPage,         permission: 'production:view',  showInNav: false },
   { path: '/production-bom/:id/edit',   label: 'Chỉnh sửa định mức',          icon: 'pi pi-pencil',       component: ProductionBomPage,         permission: 'production:write', showInNav: false },
