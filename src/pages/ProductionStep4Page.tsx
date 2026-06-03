@@ -217,9 +217,10 @@ export function ProductionStep4Page() {
           setReceiptLines(step4Lines.map((line) => normalizeStep4LineWithOrderOutput(mapLineToReceiptLine(line), data)))
           setLotNoTouched(true)
         } else if (data.outputProductId && data.outputProduct) {
-          setActualInputQty(defaultQtyByOutputUnit)
+          const initQty = data.plannedQty ?? defaultQtyByOutputUnit
+          setActualInputQty(initQty)
           setInputQtyTouched(false)
-          setReceiptLines([mapOrderOutputToStep4Draft(data, defaultQtyByOutputUnit)])
+          setReceiptLines([mapOrderOutputToStep4Draft(data, initQty)])
           setLotNoTouched(false)
         } else {
           setActualInputQty(0)

@@ -71,8 +71,7 @@ function mapStep2LineToStep3Payload(line: ProductionOrderLine): LinePayload {
   const plannedQty = Number(line.plannedQty)
   const actualQty = Number(line.actualQty)
   return {
-    // For step-2 BTP out lines, productCode IS the BTP code; use outputProductId as productId if productId is null
-    productId: line.productId ?? line.outputProductId,
+    productId: line.productId ?? null,
     outputProductId: line.outputProductId,
     productCode: line.productCode,
     productName: line.productName,
