@@ -55,6 +55,7 @@ const orderInclude = {
   creator:       { select: { id: true, fullName: true } },
   skuProduct:    { select: { id: true, code: true, name: true } },
   outputProduct: { select: { id: true, code: true, name: true, outputType: true, unit: true } },
+  productionBom: { select: { id: true, bomCode: true, bomName: true } },
   ...linesInclude,
 }
 
@@ -231,6 +232,8 @@ const createSchema = z.object({
   skuName:         z.string().max(255).optional().nullable(),
   productType:     z.string().max(100).optional().nullable(),
   outputProductId: z.coerce.bigint().optional().nullable(),
+  productionBomId: z.coerce.bigint().optional().nullable(),
+  plannedQty:      z.coerce.number().positive().optional().nullable(),
   notes:           z.string().optional().nullable(),
 })
 
@@ -252,6 +255,8 @@ router.post('/', requireAuth, requirePermission('production:write'), async (req:
       skuName:         body.skuName ?? null,
       productType:     body.productType ?? null,
       outputProductId: body.outputProductId ?? null,
+      productionBomId: body.productionBomId ?? null,
+      plannedQty:      body.plannedQty ?? null,
       notes:           body.notes ?? null,
       createdBy: userId,
       status:    'draft',
@@ -297,6 +302,8 @@ router.put('/:id', requireAuth, requirePermission('production:write'), async (re
       ...(body.skuName         !== undefined && { skuName:         body.skuName }),
       ...(body.productType     !== undefined && { productType:     body.productType }),
       ...(body.outputProductId !== undefined && { outputProductId: body.outputProductId }),
+      ...(body.productionBomId !== undefined && { productionBomId: body.productionBomId }),
+      ...(body.plannedQty      !== undefined && { plannedQty:      body.plannedQty }),
       ...(body.notes           !== undefined && { notes:           body.notes }),
     },
     include: orderInclude,

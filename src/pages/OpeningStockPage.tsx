@@ -17,7 +17,7 @@ import { OpeningStockImportModal } from '../components/openingStock/OpeningStock
 import { parseOpeningStockExcel } from '../components/openingStock/openingStockExcelImport'
 import type { ImportDocType } from '../components/openingStock/openingStockExcelImport'
 import type { OpeningStockImportParseResult } from '../components/openingStock/openingStockExcelImport'
-import { containsInsensitive, downloadTextFile } from '../components/catalog/utils'
+import { containsInsensitive, downloadExcelTemplate } from '../components/catalog/utils'
 import {
   createOpeningStockRow,
   deleteOpeningStockRow,
@@ -832,12 +832,10 @@ export function OpeningStockPage() {
   }
 
   const handleDownloadTemplate = () => {
-    const template = [
-      'MA NVL,SO LO,SO HOA DON,NGAY HOA DON,NHA CUNG CAP,SL (gr/ml),DON GIA,NGAY TD,NGAY SX,HAN SD,FILE MSDS,FILE COA,FILE HOA DON,FILE KHAC',
-      'RAW-NEW-001,LOT-001,HD-001,2026-01-02,SUP-01 - Nha cung cap A,1000,25000,2026-01-01,2024-01-01,2028-12-31,msds-raw-new-001.pdf,coa-raw-new-001.pdf,invoice-raw-new-001.pdf,hinh-anh-lot-001.jpg',
-    ].join('\n')
-
-    downloadTextFile(template, 'mau-khai-bao-ton-kho-dau-ky.csv', 'text/csv;charset=utf-8;')
+    downloadExcelTemplate(
+      ['MA NVL', 'SO LO', 'SO HOA DON', 'NGAY HOA DON', 'NHA CUNG CAP', 'SL (gr/ml)', 'DON GIA', 'NGAY TD', 'NGAY SX', 'HAN SD', 'FILE MSDS', 'FILE COA', 'FILE HOA DON', 'FILE KHAC'],
+      'mau-khai-bao-ton-kho-dau-ky.xlsx',
+    )
   }
 
   const handleOpenUpload = () => {

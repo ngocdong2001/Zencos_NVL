@@ -112,6 +112,13 @@ function normalizeStatus(raw: string): string {
   return raw
 }
 
+function normalizeOutputType(raw: string): string {
+  const normalized = normalizeText(raw)
+  if (['thanh pham', 'tp', 'finished', 'finish', 'thanh_pham', 'tp (thanh pham)', 'finished (tp)'].includes(normalized)) return 'finished'
+  if (['ban thanh pham', 'btp', 'semi_finished', 'semi finished', 'ban_thanh_pham', 'btp (ban thanh pham)'].includes(normalized)) return 'semi_finished'
+  return raw
+}
+
 function mapHeader(rawHeader: string, expectedHeaders: string[]): string | null {
   const normalized = normalizeText(rawHeader)
   if (!normalized) return null
@@ -126,10 +133,22 @@ function mapHeader(rawHeader: string, expectedHeaders: string[]): string | null 
 
 function requiredForTab(tab: TabId): string[] {
   if (tab === 'materials') return ['inci name', 'ten nguyen lieu', 'phan loai', 'don vi']
+  if (tab === 'product_outputs') return ['ma', 'ten', 'phan loai', 'don vi']
   if (tab === 'suppliers') return ['ma', 'ten']
   if (tab === 'customers') return ['ten']
   if (tab === 'units') return ['ma', 'ten']
   return ['ma', 'ten']
+}
+
+function validateProductOutputRow(values: Record<string, string>, issues: ImportIssue[]) {
+  const outputType = values['phan loai']
+  if (outputType && outputType !== 'finished' && outputType !== 'semi_finished') {
+    issues.push({
+      field: 'phan loai',
+      message: `Phân loại "${outputType}" không hợp lệ. Nhập "Thành phẩm" hoặc "Bán thành phẩm".`,
+      severity: 'error',
+    })
+  }
 }
 
 function validateBasicTabRow(tab: BasicTabId, values: Record<string, string>, issues: ImportIssue[]) {
@@ -157,6 +176,7 @@ function buildRowValues(
   })
 
   if ('trang thai' in values) values['trang thai'] = normalizeStatus(values['trang thai'])
+  if ('phan loai' in values && !(expectedHeaders.includes('ma nvl'))) values['phan loai'] = normalizeOutputType(values['phan loai'])
   if ('dv mua hang' in values) values['dv mua hang'] = isTruthyFlag(values['dv mua hang']) ? '1' : '0'
   if ('hien thi mac dinh' in values) values['hien thi mac dinh'] = isTruthyFlag(values['hien thi mac dinh']) ? '1' : '0'
 
@@ -201,7 +221,9 @@ export async function parseCatalogExcel(file: File, tab: TabId): Promise<ParsedI
       }
     }
 
-    if (tab !== 'materials') {
+    if (tab === 'product_outputs') {
+      validateProductOutputRow(values, issues)
+    } else if (tab !== 'materials') {
       validateBasicTabRow(tab as BasicTabId, values, issues)
     }
 

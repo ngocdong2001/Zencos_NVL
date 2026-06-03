@@ -880,6 +880,8 @@ model ProductionOrder {
   createdAt    DateTime              @default(now()) @map("created_at")
   updatedAt    DateTime              @updatedAt @map("updated_at")
   outputProductId BigInt?              @map("output_product_id") @db.UnsignedBigInt
+  productionBomId BigInt?              @map("production_bom_id") @db.UnsignedBigInt
+  plannedQty      Decimal?             @map("planned_qty") @db.Decimal(15, 4)
   nvlExportedAt   DateTime?            @map("nvl_exported_at")
   step1ProcessedAt DateTime?           @map("step1_processed_at")
   step2ProcessedAt DateTime?           @map("step2_processed_at")
@@ -888,6 +890,7 @@ model ProductionOrder {
   creator         User                  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   skuProduct      Product?              @relation(fields: [skuProductId], references: [id], onDelete: SetNull)
   outputProduct   ProductOutput?        @relation(fields: [outputProductId], references: [id], onDelete: SetNull)
+  productionBom   ProductionBom?        @relation("ProductionOrderBom", fields: [productionBomId], references: [id], onDelete: SetNull)
   lines           ProductionOrderLine[]
   logs            ProductionOrderLog[]
   outputTransactions ProductionOutputTransaction[]
@@ -897,6 +900,7 @@ model ProductionOrder {
   @@index([issuedAt])
   @@index([skuProductId])
   @@index([outputProductId])
+  @@index([productionBomId])
   @@map("production_orders")
 }
 
@@ -1002,6 +1006,7 @@ model ProductionBom {
   approver        User?                @relation("ProductionBomApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
   lines           ProductionBomLine[]
   logs            ProductionBomLog[]
+  productionOrders ProductionOrder[]    @relation("ProductionOrderBom")
 
   @@index([status])
   @@index([outputProductId])

@@ -4,13 +4,15 @@ import { Button } from 'primereact/button'
 import { Calendar } from 'primereact/calendar'
 import { Dialog } from 'primereact/dialog'
 import { Dropdown } from 'primereact/dropdown'
+import { InputNumber } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
 import { ProductionStepBar } from '../components/production/ProductionStepBar'
 import { OutboundMaterialPanel, type MaterialLine, type AllocationRow } from '../components/outbound/OutboundMaterialPanel'
-import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderStatus, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
+import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderHeader, updateProductionOrderStatus, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
 import { exportNvlRequestDoc } from '../lib/productionNvlRequestExport'
 import { fetchBasics } from '../lib/catalogApi'
 import type { BasicRow } from '../components/catalog/types'
+import { fetchProductionBoms, fetchProductionBom } from '../lib/productionBomApi'
 import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity } from '../components/purchaseOrder/format'
 import { safeRandomId } from '../lib/uuid'
@@ -27,6 +29,8 @@ export function ProductionStep1Page() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savingLines, setSavingLines] = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftSuccess, setDraftSuccess] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [voiding, setVoiding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +51,14 @@ export function ProductionStep1Page() {
   // Warehouse location for step-1 NVL export
   const [locations, setLocations] = useState<BasicRow[]>([])
   const [sourceLocationId, setSourceLocationId] = useState<string | null>(null)
+
+  // BOM (định mức sản xuất) selection
+  const [boms, setBoms] = useState<{ id: string; bomCode: string | null; bomName: string; baseQty: number; outputProductId: string | null }[]>([])
+  const [selectedBomId, setSelectedBomId] = useState<string | null>(null)
+  const [bomApplying, setBomApplying] = useState(false)
+  const [plannedQty, setPlannedQty] = useState<number>(1)
+  // Ref to the raw BOM NVL lines (qtyPerBase), used for re-scaling when plannedQty changes
+  const bomNvlLinesRef = useRef<Array<{ productId: string; productCode: string; productName: string; unit: string; qtyPerBase: number }> | null>(null)
 
   // History
   const [historyEvents, setHistoryEvents] = useState<HistoryTimelineEvent[]>([])
@@ -98,6 +110,23 @@ export function ProductionStep1Page() {
       .catch(() => {})
   }, [])
 
+  // Load approved BOMs:
+  //  - new order: all approved BOMs (user picks BOM first → product auto-filled)
+  //  - existing order: filtered by outputProductId
+  useEffect(() => {
+    if (!orderId) {
+      fetchProductionBoms({ status: 'approved', limit: 200 })
+        .then(res => setBoms(res.data))
+        .catch(() => setBoms([]))
+      return
+    }
+    const productId = order?.outputProductId ?? null
+    if (!productId) { setBoms([]); return }
+    fetchProductionBoms({ status: 'approved', limit: 200 })
+      .then(res => setBoms(res.data.filter(b => b.outputProductId === productId)))
+      .catch(() => setBoms([]))
+  }, [orderId, order?.outputProductId])
+
   // Load order from API if orderId present
   useEffect(() => {
     if (!orderId) return
@@ -111,6 +140,10 @@ export function ProductionStep1Page() {
         setOutputProductId(data.outputProductId ?? null)
         setNotes(data.notes ?? '')
         setNvlExported(!!data.nvlExportedAt)
+        // Restore selected BOM (Definition mức sản xuất)
+        if (data.productionBomId) setSelectedBomId(data.productionBomId)
+        // Restore planned quantity
+        if (data.plannedQty != null) setPlannedQty(data.plannedQty)
 
         // Reconstruct panel lines from saved step-1 out lines
         const step1Lines = data.lines.filter(l => l.step === 1 && l.direction === 'out')
@@ -124,7 +157,10 @@ export function ProductionStep1Page() {
           const restored: MaterialLine[] = []
           for (const [, groupLines] of grouped) {
             const first = groupLines[0]
-            const allocationRows: AllocationRow[] = groupLines.map(l => ({
+            // Skip draft-only placeholder rows (actualQty=0) — they only exist to persist intent
+            const allocationRows: AllocationRow[] = groupLines
+              .filter(l => l.actualQty > 0)
+              .map(l => ({
               batchId: '',
               lotNo: l.lotNo ?? '',
               expiryDate: l.expiryDate,
@@ -168,6 +204,143 @@ export function ProductionStep1Page() {
     void loadHistory(orderId)
   }, [orderId])
 
+  // Re-scale BOM NVL lines when plannedQty changes (only when BOM cached + NVL not yet exported)
+  useEffect(() => {
+    if (!selectedBomId || !bomNvlLinesRef.current || nvlExported) return
+    const qty = plannedQty > 0 ? plannedQty : 1
+    const rescaled: MaterialLine[] = bomNvlLinesRef.current.map(l => ({
+      key: safeRandomId(),
+      materialId: l.productId,
+      materialCode: l.productCode,
+      materialName: l.productName,
+      materialUnit: l.unit,
+      requestedQtyValue: l.qtyPerBase * qty,
+      requestedQtyInput: formatQuantity(l.qtyPerBase * qty),
+      requestedQtyFocused: false,
+      allocationRows: [],
+      shortageAcknowledged: false,
+      stockRows: [],
+      fefoSuggestions: [],
+      stockLoading: false,
+    }))
+    setInitialPanelLines(rescaled)
+    currentLinesRef.current = rescaled
+  }, [plannedQty]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSaveDraft() {
+    if (!orderId) return
+    setSavingDraft(true)
+    setError(null)
+    setDraftSuccess(false)
+    try {
+      // Always persist the selected BOM on the order header
+      await updateProductionOrderHeader(orderId, { productionBomId: selectedBomId ?? null, plannedQty: plannedQty > 0 ? plannedQty : null })
+
+      // Only update lines when NVL has not yet been confirmed-exported
+      // (calling upsertProductionOrderLines after export would wipe the confirmed lines)
+      if (!nvlExported) {
+        const lines = currentLinesRef.current
+        const payloads = lines.flatMap((line) => {
+          if (!line.materialId) return []
+          const allocatedRows = line.allocationRows.filter((r) => r.exportQty > 0)
+          if (allocatedRows.length > 0) {
+            // Lines that already have lot allocations
+            return allocatedRows.map((r) => ({
+              productId: line.materialId || null,
+              productCode: line.materialCode || line.materialId,
+              productName: line.materialName || line.materialId,
+              lotNo: r.lotNo || null,
+              expiryDate: r.expiryDate || null,
+              exportDate: r.exportDate ? r.exportDate.toISOString() : null,
+              plannedQty: line.requestedQtyValue,
+              actualQty: r.exportQty,
+              wasteQty: 0,
+              unit: line.materialUnit || 'g',
+              direction: 'out' as const,
+              locationId: sourceLocationId || null,
+            }))
+          } else {
+            // Draft-only: persist material intent + locationId + plannedQty with actualQty=0
+            return [{
+              productId: line.materialId || null,
+              productCode: line.materialCode || line.materialId,
+              productName: line.materialName || line.materialId,
+              lotNo: null,
+              expiryDate: null,
+              exportDate: null,
+              plannedQty: line.requestedQtyValue,
+              actualQty: 0,
+              wasteQty: 0,
+              unit: line.materialUnit || 'g',
+              direction: 'out' as const,
+              locationId: sourceLocationId || null,
+            }]
+          }
+        })
+        await upsertProductionOrderLines(orderId, 1, payloads, processedAt?.toISOString() ?? null)
+      }
+      setDraftSuccess(true)
+      setTimeout(() => setDraftSuccess(false), 3000)
+      void loadHistory(orderId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lưu nháp thất bại')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  async function handleApplyBom(bomId: string | null) {
+    setSelectedBomId(bomId)
+    if (!bomId) {
+      // Clear auto-filled output product when BOM is cleared (new order mode only)
+      if (!orderId) setOutputProductId(null)
+      bomNvlLinesRef.current = null
+      setInitialPanelLines([])
+      currentLinesRef.current = []
+      return
+    }
+    setBomApplying(true)
+    setError(null)
+    try {
+      const bom = await fetchProductionBom(bomId)
+      // In new order mode: auto-fill output product from BOM
+      if (!orderId && bom.outputProductId) {
+        setOutputProductId(bom.outputProductId)
+      }
+      const nvlLines = bom.lines.filter(l => l.lineType === 'nvl')
+      // Cache raw BOM lines for re-scaling when plannedQty changes
+      bomNvlLinesRef.current = nvlLines.map(l => ({
+        productId:   l.productId ?? '',
+        productCode: l.productCode ?? '',
+        productName: l.productName ?? '',
+        unit:        l.unit ?? '',
+        qtyPerBase:  l.qtyPerBase,
+      }))
+      const qty = plannedQty > 0 ? plannedQty : 1
+      const newLines: MaterialLine[] = nvlLines.map(l => ({
+        key: safeRandomId(),
+        materialId: l.productId ?? '',
+        materialCode: l.productCode ?? '',
+        materialName: l.productName ?? '',
+        materialUnit: l.unit ?? '',
+        requestedQtyValue: l.qtyPerBase * qty,
+        requestedQtyInput: formatQuantity(l.qtyPerBase * qty),
+        requestedQtyFocused: false,
+        allocationRows: [],
+        shortageAcknowledged: false,
+        stockRows: [],
+        fefoSuggestions: [],
+        stockLoading: false,
+      }))
+      setInitialPanelLines(newLines)
+      currentLinesRef.current = newLines
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tải định mức sản xuất.')
+    } finally {
+      setBomApplying(false)
+    }
+  }
+
   async function handleCreate() {
     if (!outputProductId) {
       setError('Vui lòng chọn Sản phẩm đầu ra trước khi tạo phiếu.')
@@ -180,6 +353,8 @@ export function ProductionStep1Page() {
         orderRef: orderRef || null,
         issuedAt: issueDate || undefined,
         outputProductId: outputProductId || null,
+        productionBomId: selectedBomId || null,
+        plannedQty: plannedQty > 0 ? plannedQty : null,
         notes: notes || null,
       })
       navigate(`/production/${created.id}/buoc-1`, { replace: true })
@@ -396,8 +571,62 @@ export function ProductionStep1Page() {
                 style={{ width: '100%' }}
               />
             </div>
-            <div className="prod-form-field" style={{ gridColumn: 'span 2' }}>
-              <label>SẢN PHẨM ĐẦU RA</label>
+            {/* ── ĐỊNH MỨC SẢN XUẤT + SỐ LƯỢNG KẾ HOẠCH ── */}
+            {!isLocked && (
+              <>
+                <div className="prod-form-field" style={{ gridColumn: 'span 3' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ĐỊNH MỨC SẢN XUẤT
+                    {boms.length === 0 && <span style={{ fontWeight: 400, color: '#94a3b8' }}>(không có định mức đã duyệt)</span>}
+                    {selectedBomId && !bomApplying && (
+                      <span style={{ fontWeight: 400, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <i className="pi pi-check-circle" />Đã áp dụng
+                      </span>
+                    )}
+                    {bomApplying && <i className="pi pi-spin pi-spinner" style={{ color: '#5269e0', fontSize: 13 }} />}
+                  </label>
+                  <Dropdown
+                    value={selectedBomId}
+                    options={boms.map(b => ({
+                      label: `[${b.bomCode ?? '---'}] ${b.bomName}`,
+                      value: b.id,
+                    }))}
+                    onChange={(e) => { void handleApplyBom(e.value as string | null) }}
+                    placeholder="Chọn định mức để tự động điền NVL..."
+                    filter
+                    showClear
+                    disabled={(orderId ? nvlExported : false) || bomApplying}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div className="prod-form-field">
+                  <label>
+                    SỐ LƯỢNG KẾ HOẠCH
+                    {selectedBomId && <span style={{ fontWeight: 400, color: '#5269e0' }}> (nhân ĐM)</span>}
+                  </label>
+                  <InputNumber
+                    value={plannedQty}
+                    onValueChange={(e) => setPlannedQty(e.value ?? 1)}
+                    min={0.001}
+                    minFractionDigits={0}
+                    maxFractionDigits={3}
+                    locale="vi-VN"
+                    disabled={isLocked || nvlExported}
+                    style={{ width: '100%' }}
+                    inputStyle={{ width: '100%' }}
+                  />
+                </div>
+              </>
+            )}
+            <div className="prod-form-field" style={{ gridColumn: 'span 4' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                SẢN PHẨM ĐẦU RA
+                {!orderId && selectedBomId && (
+                  <span style={{ fontWeight: 400, fontSize: 11, color: '#5269e0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <i className="pi pi-lock" />Khóa theo định mức
+                  </span>
+                )}
+              </label>
               {orderId ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {order?.outputProduct ? (
@@ -427,7 +656,8 @@ export function ProductionStep1Page() {
                   placeholder="Chọn sản phẩm đầu ra (TP / BTP)..."
                   filter
                   showClear
-                  style={{ width: '100%' }}
+                  disabled={!!selectedBomId}
+                  style={{ width: '100%', background: selectedBomId ? '#f8fafc' : undefined }}
                 />
               )}
             </div>
@@ -543,6 +773,11 @@ export function ProductionStep1Page() {
           )}
         </div>
         <div className="prod-footer-bar__right">
+          {draftSuccess && (
+            <span style={{ fontSize: 12, color: '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <i className="pi pi-check-circle" />Đã lưu nháp
+            </span>
+          )}
           {saveSuccess && (
             <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <i className="pi pi-check-circle" />{nvlExported ? 'Đã xuất thêm NVL thành công' : 'Đã xuất kho NVL thành công'}
@@ -563,6 +798,15 @@ export function ProductionStep1Page() {
           />
           {orderId ? (
             <>
+              <Button
+                label="Lưu nháp"
+                icon="pi pi-pencil"
+                loading={savingDraft}
+                disabled={isLocked}
+                className="p-button-outlined p-button-secondary"
+                style={{ fontSize: 12, fontWeight: 700 }}
+                onClick={handleSaveDraft}
+              />
               <Button
                 label={nvlExported ? 'Xuất thêm NVL' : 'Lưu xuất NVL'}
                 icon={nvlExported ? 'pi pi-plus' : 'pi pi-save'}

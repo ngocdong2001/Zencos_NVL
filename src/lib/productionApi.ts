@@ -100,6 +100,9 @@ export type ProductionOrderDetail = ProductionOrderListRow & {
   step2ProcessedAt: string | null
   step3ProcessedAt: string | null
   step4ProcessedAt: string | null
+  productionBomId: string | null
+  productionBom: { id: string; bomCode: string | null; bomName: string } | null
+  plannedQty: number | null
 }
 
 export type LinePayload = {
@@ -158,6 +161,8 @@ export async function createProductionOrder(data: {
   skuName?: string | null
   productType?: string | null
   outputProductId?: string | null
+  productionBomId?: string | null
+  plannedQty?: number | null
   notes?: string | null
 }): Promise<ProductionOrderDetail> {
   return http<ProductionOrderDetail>('/api/production-orders', {
@@ -176,6 +181,8 @@ export async function updateProductionOrderHeader(
     skuName?: string | null
     productType?: string | null
     outputProductId?: string | null
+    productionBomId?: string | null
+    plannedQty?: number | null
     notes?: string | null
   },
 ): Promise<ProductionOrderDetail> {

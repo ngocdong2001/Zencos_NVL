@@ -498,7 +498,7 @@ export function CatalogPage() {
   const downloadTemplate = () => {
     const headersMap: Record<string, string[]> = {
       materials:        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng'],
-      product_outputs:  ['Mã', 'Tên', 'Phân loại', 'Đơn vị'],
+      product_outputs:  ['Mã', 'Tên', 'Phân loại (Thành phẩm / Bán thành phẩm)', 'Đơn vị'],
       units:            ['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định'],
       suppliers:        ['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú'],
       customers:        ['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú'],
@@ -645,6 +645,38 @@ export function CatalogPage() {
     return { successCount, failedRows }
   }
 
+  const importProductOutputRows = async (rows: ParsedImportRow[]) => {
+    let successCount = 0
+    const failedRows: ParsedImportRow[] = []
+
+    for (const row of rows) {
+      const values = row.values
+      const outputType = values['phan loai'] === 'semi_finished' ? 'semi_finished' as const : 'finished' as const
+
+      try {
+        await createProductOutput({
+          code: values['ma'],
+          name: values['ten'],
+          outputType,
+          unit: values['don vi'],
+          notes: values['ghi chu'] ?? '',
+        })
+        successCount += 1
+      } catch (error) {
+        const parsed = parseApiError(error, 'Import thất bại.')
+        failedRows.push({
+          ...row,
+          issues: [
+            ...row.issues,
+            { field: 'import', message: parsed.message, severity: 'error' },
+          ],
+        })
+      }
+    }
+
+    return { successCount, failedRows }
+  }
+
   const handleConfirmImport = async (rows: ParsedImportRow[]) => {
     if (rows.length === 0) {
       setImportSummary('Không có dòng hợp lệ để import.')
@@ -658,15 +690,13 @@ export function CatalogPage() {
       const result = activeTab === 'materials'
         ? await importMaterialRows(rows)
         : activeTab === 'product_outputs'
-          ? { successCount: 0, failedRows: rows }
+          ? await importProductOutputRows(rows)
           : await importBasicRows(rows)
 
       if (activeTab === 'materials') {
         await refreshMaterials()
       } else if (activeTab === 'product_outputs') {
-        setImportParseError('Import chưa được hỗ trợ cho tab Thành phẩm/Bán TP.')
-        setImporting(false)
-        return
+        await refreshProductOutputs()
       } else {
         await refreshBasicTab(activeTab as BasicTabId)
       }
