@@ -43,6 +43,7 @@ type CatalogToolbarProps = {
   tabItems: Array<{ id: TabId; label: string }>
   selectedCount: number
   onExport: () => void
+  onDeleteSelected: () => void
   onOpenProductForm: () => void
   onFocusQuickAdd: () => void
   onDownloadTemplate: () => void
@@ -56,6 +57,7 @@ export function CatalogToolbar({
   tabItems,
   selectedCount,
   onExport,
+  onDeleteSelected,
   onOpenProductForm,
   onFocusQuickAdd,
   onDownloadTemplate,
@@ -75,6 +77,14 @@ export function CatalogToolbar({
         <div className="title-actions">
           <button type="button" className="btn btn-ghost" onClick={onExport}>
             <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onDeleteSelected}
+            disabled={selectedCount === 0}
+          >
+            <i className="pi pi-trash" /> Xóa mục đã chọn ({selectedCount})
           </button>
           <button type="button" className="btn btn-ghost" onClick={onOpenProductForm}>
             <i className="pi pi-plus-circle" /> Tạo NVL mới

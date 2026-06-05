@@ -602,6 +602,41 @@ export function OpeningStockPage() {
     syncSelectionByVisibleRows(nextSelectedIds, visibleIds)
   }
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return
+
+    const confirmed = window.confirm(
+      `Bạn có chắc muốn xóa ${selectedIds.length} dòng đã chọn?\n\nLưu ý: Các dòng đã post sẽ tự động tạo bút toán đảo chiều.`,
+    )
+    if (!confirmed) return
+
+    let deletedCount = 0
+    let reversalCount = 0
+    const errors: string[] = []
+    const deletedIds: string[] = []
+
+    for (const id of [...selectedIds]) {
+      try {
+        const result = await deleteOpeningStockRow(id)
+        deletedIds.push(id)
+        deletedCount += 1
+        if (result.autoReversed) reversalCount += 1
+      } catch (error) {
+        errors.push(parseApiErrorMessage(error, `Không thể xóa dòng.`))
+      }
+    }
+
+    if (deletedIds.length > 0) {
+      setRows((prev) => prev.filter((row) => !deletedIds.includes(row.id)))
+      setSelectedIds((prev) => prev.filter((id) => !deletedIds.includes(id)))
+    }
+
+    const parts = [`Đã xóa ${deletedCount}/${selectedIds.length} dòng.`]
+    if (reversalCount > 0) parts.push(`Tạo ${reversalCount} bút toán đảo chiều.`)
+    if (errors.length > 0) parts.push(`${errors.length} dòng thất bại.`)
+    showNotice(parts.join(' '), errors.length > 0 ? 'error' : 'success')
+  }
+
   const handleDeleteRow = async (id: string) => {
     try {
       const deleted = await deleteOpeningStockRow(id)
@@ -1446,6 +1481,14 @@ export function OpeningStockPage() {
             </div>
             <button type="button" className="btn btn-ghost" onClick={() => void handleExportAll()}>
               <i className="pi pi-download" /> Xuất Tất Cả (Excel)
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void handleDeleteSelected()}
+              disabled={selectedIds.length === 0}
+            >
+              <i className="pi pi-trash" /> Xóa mục đã chọn ({selectedIds.length})
             </button>
             <button
               type="button"

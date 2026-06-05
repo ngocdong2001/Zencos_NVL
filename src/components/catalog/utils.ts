@@ -8,6 +8,13 @@ export function downloadExcelTemplate(headers: string[], fileName: string): void
   XLSX.writeFile(wb, fileName)
 }
 
+export function downloadExcelFile(rows: Array<Array<string | number | boolean | null | undefined>>, fileName: string, sheetName = 'Sheet1'): void {
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  XLSX.writeFile(wb, fileName)
+}
+
 export function toCsvRow(values: string[]): string {
   return values
     .map((value) => {

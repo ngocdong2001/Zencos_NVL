@@ -1,0 +1,456 @@
+{
+  "00-login.png": [
+    {
+      "x": 762,
+      "y": 487,
+      "w": 396,
+      "h": 66,
+      "n": 1,
+      "note": "Nhập tài khoản"
+    },
+    {
+      "x": 762,
+      "y": 589,
+      "w": 294,
+      "h": 66,
+      "n": 2,
+      "note": "Nhập mật khẩu"
+    },
+    {
+      "x": 762,
+      "y": 663,
+      "w": 396,
+      "h": 66,
+      "n": 3,
+      "note": "Đăng nhập"
+    }
+  ],
+  "01-overview.png": [
+    {
+      "x": 288,
+      "y": 192,
+      "w": 193,
+      "h": 60,
+      "n": 1,
+      "note": "Tạo phiếu nhanh"
+    },
+    {
+      "x": 308,
+      "y": 324,
+      "w": 354,
+      "h": 34,
+      "n": 2,
+      "note": "Khu vực KPI"
+    }
+  ],
+  "02-warehouse-nvl.png": [
+    {
+      "x": 1560,
+      "y": 112,
+      "w": 141,
+      "h": 56,
+      "n": 1,
+      "note": "Xuất báo cáo"
+    },
+    {
+      "x": 312,
+      "y": 324,
+      "w": 1552,
+      "h": 98,
+      "n": 2,
+      "note": "Bộ lọc vận hành"
+    }
+  ],
+  "03-warehouse-tp.png": [
+    {
+      "x": 1722,
+      "y": 112,
+      "w": 141,
+      "h": 56,
+      "n": 1,
+      "note": "Xuất báo cáo"
+    },
+    {
+      "x": 312,
+      "y": 324,
+      "w": 1552,
+      "h": 97,
+      "n": 2,
+      "note": "Bộ lọc theo ngày"
+    }
+  ],
+  "04-purchase-shortage.png": [
+    {
+      "x": 280,
+      "y": 137,
+      "w": 430,
+      "h": 44,
+      "n": 1,
+      "note": "Màn hình thống kê thiếu hụt"
+    },
+    {
+      "x": 297,
+      "y": 338,
+      "w": 262,
+      "h": 38,
+      "n": 2,
+      "note": "Bảng thống kê nguyên liệu thiếu hụt"
+    },
+    {
+      "x": 1573,
+      "y": 150,
+      "w": 310,
+      "h": 73,
+      "n": 3,
+      "note": "Khu vực tạo nhanh PO"
+    }
+  ],
+  "04-purchase-po-list.png": [
+    {
+      "x": 280,
+      "y": 137,
+      "w": 358,
+      "h": 44,
+      "n": 1,
+      "note": "Bảng kê phiếu PO"
+    },
+    {
+      "x": 1702,
+      "y": 137,
+      "w": 193,
+      "h": 52,
+      "n": 2,
+      "note": "Tạo phiếu mới"
+    },
+    {
+      "x": 281,
+      "y": 275,
+      "w": 1614,
+      "h": 295,
+      "n": 3,
+      "note": "Danh sách và trạng thái phiếu"
+    }
+  ],
+  "04-purchase-order.png": [
+    {
+      "x": 295,
+      "y": 203,
+      "w": 1292,
+      "h": 37,
+      "n": 1,
+      "note": "Nhập thông tin chung"
+    },
+    {
+      "x": 295,
+      "y": 492,
+      "w": 227,
+      "h": 37,
+      "n": 2,
+      "note": "Nhập dòng nguyên liệu"
+    },
+    {
+      "x": 1506,
+      "y": 946,
+      "w": 172,
+      "h": 56,
+      "n": 3,
+      "note": "Lưu phiếu sau khi nhập"
+    }
+  ],
+  "05-inbound-list.png": [
+    {
+      "x": 1718,
+      "y": 80,
+      "w": 177,
+      "h": 56,
+      "n": 1,
+      "note": "Tạo phiếu nhập mới"
+    }
+  ],
+  "06-inbound-step1.png": [
+    {
+      "x": 280,
+      "y": 80,
+      "w": 398,
+      "h": 51,
+      "n": 1,
+      "note": "Thông tin bước 1"
+    },
+    {
+      "x": 1677,
+      "y": 945,
+      "w": 185,
+      "h": 56,
+      "n": 2,
+      "note": "Đi tiếp bước 2"
+    }
+  ],
+  "07-outbound-list.png": [
+    {
+      "x": 1727,
+      "y": 80,
+      "w": 168,
+      "h": 56,
+      "n": 1,
+      "note": "Tạo lệnh mới"
+    }
+  ],
+  "08-production-list.png": [
+    {
+      "x": 1727,
+      "y": 80,
+      "w": 168,
+      "h": 56,
+      "n": 1,
+      "note": "Tạo lệnh sản xuất"
+    }
+  ],
+  "09-production-step1.png": [
+    {
+      "x": 349,
+      "y": 297,
+      "w": 185,
+      "h": 38,
+      "n": 1,
+      "note": "Thông tin phiếu"
+    },
+    {
+      "x": 1689,
+      "y": 1022,
+      "w": 214,
+      "h": 51,
+      "n": 2,
+      "note": "Tạo và đi tiếp"
+    }
+  ],
+  "10-production-bom.png": [
+    {
+      "x": 280,
+      "y": 80,
+      "w": 339,
+      "h": 44,
+      "n": 1,
+      "note": "Thông tin định mức"
+    },
+    {
+      "x": 1531,
+      "y": 916,
+      "w": 172,
+      "h": 56,
+      "n": 2,
+      "note": "Lưu định mức"
+    }
+  ],
+  "11-tp-outbound.png": [
+    {
+      "x": 1727,
+      "y": 80,
+      "w": 168,
+      "h": 56,
+      "n": 1,
+      "note": "Tạo lệnh mới"
+    }
+  ],
+  "12-catalog.png": [
+    {
+      "x": 1534,
+      "y": 80,
+      "w": 159,
+      "h": 56,
+      "n": 1,
+      "note": "Nhập dữ liệu"
+    },
+    {
+      "x": 280,
+      "y": 80,
+      "w": 423,
+      "h": 44,
+      "n": 2,
+      "note": "Khu vực danh mục"
+    }
+  ],
+  "13-opening-stock.png": [
+    {
+      "x": 1561,
+      "y": 84,
+      "w": 183,
+      "h": 56,
+      "n": 1,
+      "note": "Tạo mã nhanh"
+    },
+    {
+      "x": 281,
+      "y": 263,
+      "w": 1639,
+      "h": 120,
+      "n": 2,
+      "note": "Bảng tồn đầu kỳ"
+    }
+  ],
+  "14-stock-transfer.png": [
+    {
+      "x": 354,
+      "y": 104,
+      "w": 245,
+      "h": 42,
+      "n": 1,
+      "note": "Thông tin phiếu chuyển"
+    },
+    {
+      "x": 1664,
+      "y": 1020,
+      "w": 235,
+      "h": 54,
+      "n": 2,
+      "note": "Xác nhận phiếu"
+    }
+  ],
+  "15-users.png": [
+    {
+      "x": 1696,
+      "y": 104,
+      "w": 175,
+      "h": 63,
+      "n": 1,
+      "note": "Tạo tài khoản"
+    },
+    {
+      "x": 304,
+      "y": 171,
+      "w": 1568,
+      "h": 302,
+      "n": 2,
+      "note": "Danh sách người dùng"
+    }
+  ],
+  "16-role-permissions.png": [
+    {
+      "x": 364,
+      "y": 116,
+      "w": 234,
+      "h": 40,
+      "n": 1,
+      "note": "Tiêu đề phân quyền"
+    },
+    {
+      "x": 305,
+      "y": 197,
+      "w": 1615,
+      "h": 883,
+      "n": 2,
+      "note": "Ma trận quyền"
+    }
+  ],
+  "17-profile.png": [
+    {
+      "x": 765,
+      "y": 233,
+      "w": 646,
+      "h": 34,
+      "n": 1,
+      "note": "Cập nhật hồ sơ"
+    },
+    {
+      "x": 765,
+      "y": 681,
+      "w": 646,
+      "h": 34,
+      "n": 2,
+      "note": "Đổi mật khẩu"
+    }
+  ],
+  "06-inbound-step2.png": [
+    {
+      "x": 280,
+      "y": 107,
+      "w": 423,
+      "h": 59,
+      "n": 1,
+      "note": "Chi tiết Lô hàng"
+    },
+    {
+      "x": 300,
+      "y": 268,
+      "w": 400,
+      "h": 201,
+      "n": 2,
+      "note": "Nhập LOT, đơn giá, số lượng"
+    },
+    {
+      "x": 300,
+      "y": 509,
+      "w": 400,
+      "h": 161,
+      "n": 3,
+      "note": "Thông tin hóa đơn, MFG/EXP"
+    },
+    {
+      "x": 1677,
+      "y": 1266,
+      "w": 185,
+      "h": 75,
+      "n": 4,
+      "note": "Tiếp tục bước 3"
+    }
+  ],
+  "06-inbound-step3.png": [
+    {
+      "x": 197,
+      "y": 59,
+      "w": 297,
+      "h": 32,
+      "n": 1,
+      "note": "Số lượng & Chứng từ"
+    },
+    {
+      "x": 211,
+      "y": 132,
+      "w": 281,
+      "h": 73,
+      "n": 2,
+      "note": "Xác nhận số lượng"
+    },
+    {
+      "x": 211,
+      "y": 235,
+      "w": 562,
+      "h": 220,
+      "n": 3,
+      "note": "Đính kèm COA, MSDS"
+    },
+    {
+      "x": 1178,
+      "y": 694,
+      "w": 130,
+      "h": 41,
+      "n": 4,
+      "note": "Tiếp tục bước 4"
+    }
+  ],
+  "06-inbound-step4.png": [
+    {
+      "x": 126,
+      "y": 64,
+      "w": 190,
+      "h": 35,
+      "n": 1,
+      "note": "Xác nhận dữ liệu"
+    },
+    {
+      "x": 135,
+      "y": 160,
+      "w": 360,
+      "h": 320,
+      "n": 2,
+      "note": "Tóm tắt thông tin phiếu"
+    },
+    {
+      "x": 630,
+      "y": 756,
+      "w": 83,
+      "h": 45,
+      "n": 3,
+      "note": "Xác nhận hoàn tất"
+    }
+  ]
+}

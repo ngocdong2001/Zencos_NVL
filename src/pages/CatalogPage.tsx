@@ -14,7 +14,7 @@ import {
   tabItems,
 } from '../components/catalog/data'
 import type { BasicRow, BasicTabId, MaterialRow, ProductOutputRow, TabId } from '../components/catalog/types'
-import { containsInsensitive, downloadExcelTemplate, downloadTextFile, getNextCode, normalizeCatalogCode, normalizeLookupKey, toCsvRow } from '../components/catalog/utils'
+import { containsInsensitive, downloadExcelFile, downloadExcelTemplate, getNextCode, normalizeCatalogCode, normalizeLookupKey } from '../components/catalog/utils'
 import {
   createBasic,
   createMaterial,
@@ -450,24 +450,61 @@ export function CatalogPage() {
     }
   }
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return
+
+    const confirmDelete = window.confirm(`Bạn có chắc muốn xóa ${selectedIds.length} mục đã chọn?`)
+    if (!confirmDelete) return
+
+    try {
+      if (activeTab === 'materials') {
+        await Promise.all(selectedIds.filter((id) => isNumericId(id)).map((id) => deleteMaterial(id)))
+        await refreshMaterials()
+      } else if (activeTab === 'product_outputs') {
+        await Promise.all(selectedIds.filter((id) => isNumericId(id)).map((id) => deleteProductOutput(id)))
+        await refreshProductOutputs()
+      } else {
+        const tab = activeTab as BasicTabId
+        await Promise.all(selectedIds.filter((id) => isNumericId(id)).map((id) => deleteBasic(tab, id)))
+        await refreshBasicTab(tab)
+      }
+
+      setSelectedIds([])
+      setCatalogNotice({ tone: 'success', message: `Đã xóa ${selectedIds.length} mục đã chọn.` })
+    } catch (error) {
+      console.error('Xóa hàng loạt thất bại:', error)
+      setCatalogNotice({ tone: 'error', message: 'Xóa các mục đã chọn thất bại.' })
+    }
+  }
+
   const exportCurrent = () => {
     if (activeTab === 'materials') {
       const rows = [
-        toCsvRow(['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái']),
+        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái'],
         ...filteredMaterials.map((r) => {
           const byId = classificationById.get(r.category)
           const byCode = classificationByCodeLookup.get(r.category.toLowerCase())
           const categoryLabel = byId?.name ?? byCode?.name ?? r.category
-          return toCsvRow([r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.orderUnit || r.unit, r.status])
+          return [r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.orderUnit || r.unit, r.status]
         }),
       ]
-      downloadTextFile(rows.join('\n'), 'catalog-nguyen-lieu.csv', 'text/csv;charset=utf-8;')
+      downloadExcelFile(rows, 'catalog-nguyen-lieu.xlsx')
       return
     }
+
+    if (activeTab === 'product_outputs') {
+      const rows = [
+        ['Mã', 'Tên', 'Phân loại', 'Đơn vị', 'Ghi chú'],
+        ...filteredProductOutputs.map((r) => [r.code, r.name, r.outputType, r.unit, r.notes]),
+      ]
+      downloadExcelFile(rows, 'catalog-product_outputs.xlsx')
+      return
+    }
+
     const rows = activeTab === 'units'
       ? [
-          toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái']),
-          ...filteredBasics.map((r) => toCsvRow([
+          ['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định', 'Trạng thái'],
+          ...filteredBasics.map((r) => [
             r.code,
             r.name,
             r.note,
@@ -476,23 +513,23 @@ export function CatalogPage() {
             r.isPurchaseUnit ? '1' : '0',
             r.isDefaultDisplay ? '1' : '0',
             r.status,
-          ])),
+          ]),
         ]
       : activeTab === 'suppliers'
         ? [
-            toCsvRow(['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
-            ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.phone ?? '', r.contactInfo ?? '', r.address ?? '', r.note, r.status])),
+            ['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú', 'Trạng thái'],
+            ...filteredBasics.map((r) => [r.code, r.name, r.phone ?? '', r.contactInfo ?? '', r.address ?? '', r.note, r.status]),
           ]
         : activeTab === 'customers'
           ? [
-              toCsvRow(['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái']),
-              ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.phone ?? '', r.email ?? '', r.address ?? '', r.note, r.status])),
+              ['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú', 'Trạng thái'],
+              ...filteredBasics.map((r) => [r.code, r.name, r.phone ?? '', r.email ?? '', r.address ?? '', r.note, r.status]),
             ]
       : [
-          toCsvRow(['Mã', 'Tên', 'Ghi chú', 'Trạng thái']),
-          ...filteredBasics.map((r) => toCsvRow([r.code, r.name, r.note, r.status])),
+          ['Mã', 'Tên', 'Ghi chú', 'Trạng thái'],
+          ...filteredBasics.map((r) => [r.code, r.name, r.note, r.status]),
         ]
-    downloadTextFile(rows.join('\n'), `catalog-${activeTab}.csv`, 'text/csv;charset=utf-8;')
+    downloadExcelFile(rows, `catalog-${activeTab}.xlsx`)
   }
 
   const downloadTemplate = () => {
@@ -731,6 +768,7 @@ export function CatalogPage() {
           tabItems={tabItems}
           selectedCount={selectedCount}
           onExport={exportCurrent}
+          onDeleteSelected={handleDeleteSelected}
           onOpenProductForm={() => setProductModalOpen(true)}
           onFocusQuickAdd={() => {
             gridRef.current?.focusNewRow()
@@ -769,7 +807,9 @@ export function CatalogPage() {
             }
           }}
           onToggleSelectRow={(id, checked) =>
-            setSelectedIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)))
+            setSelectedIds((prev) => (checked
+              ? (prev.includes(id) ? prev : [...prev, id])
+              : prev.filter((s) => s !== id)))
           }
           classifications={catalogs.classifications}
           units={catalogs.units}
