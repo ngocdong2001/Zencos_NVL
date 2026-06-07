@@ -279,6 +279,58 @@ export function CatalogPage() {
     [catalogs.classifications],
   )
 
+  const annotateMaterialMerge = (parsed: ParsedImportResult): ParsedImportResult => {
+    const materialByCode = new Map(materials.map((m) => [normalizeCatalogCode(m.code), m]))
+    const materialByNormalizedName = new Map(
+      materials.filter((m) => m.materialName.trim()).map((m) => [normalizeLookupKey(m.materialName), m]),
+    )
+    const materialByNormalizedInci = new Map(
+      materials.filter((m) => m.inciName.trim()).map((m) => [normalizeLookupKey(m.inciName), m]),
+    )
+
+    const annotatedRows = parsed.rows.map((row): ParsedImportRow => {
+      const rawCode = normalizeCatalogCode(row.values['ma nvl'] ?? '')
+      const byCode = rawCode ? materialByCode.get(rawCode) : undefined
+
+      if (byCode) {
+        const diffFields: string[] = []
+        const importedName = (row.values['ten nguyen lieu'] ?? '').trim()
+        const importedInci = (row.values['inci name'] ?? '').trim()
+        const importedUnit = (row.values['don vi'] ?? '').trim()
+        const importedOrderUnit = (row.values['don vi dat hang'] ?? '').trim()
+
+        if (importedName && normalizeLookupKey(importedName) !== normalizeLookupKey(byCode.materialName)) {
+          diffFields.push('ten nguyen lieu')
+        }
+        if (importedInci && normalizeLookupKey(importedInci) !== normalizeLookupKey(byCode.inciName)) {
+          diffFields.push('inci name')
+        }
+        if (importedUnit && importedUnit.toLowerCase() !== byCode.unit.toLowerCase()) {
+          diffFields.push('don vi')
+        }
+        if (importedOrderUnit && importedOrderUnit.toLowerCase() !== (byCode.orderUnit || byCode.unit).toLowerCase()) {
+          diffFields.push('don vi dat hang')
+        }
+
+        return { ...row, mergeAction: 'update', existingId: byCode.id, diffFields }
+      }
+
+      const rawName = normalizeLookupKey((row.values['ten nguyen lieu'] ?? '').trim())
+      const rawInci = normalizeLookupKey((row.values['inci name'] ?? '').trim())
+      const byName = rawName ? materialByNormalizedName.get(rawName) : undefined
+      const byInci = !byName && rawInci ? materialByNormalizedInci.get(rawInci) : undefined
+      const fuzzyMatch = byName ?? byInci
+
+      if (fuzzyMatch) {
+        return { ...row, mergeAction: 'conflict', conflictWith: fuzzyMatch.materialName }
+      }
+
+      return { ...row, mergeAction: 'new' }
+    })
+
+    return { ...parsed, rows: annotatedRows }
+  }
+
   const basicTabLabels: Record<BasicTabId, string> = {
     classifications: 'phân loại',
     suppliers: 'nhà cung cấp',
@@ -571,7 +623,8 @@ export function CatalogPage() {
       setImportSummary(null)
       setSelectedImportFileName(file.name)
       const parsed = await parseCatalogExcel(file, activeTab)
-      setParsedImportResult(parsed)
+      const annotated = activeTab === 'materials' ? annotateMaterialMerge(parsed) : parsed
+      setParsedImportResult(annotated)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Không thể đọc file import.'
       setImportParseError(message)
@@ -585,7 +638,99 @@ export function CatalogPage() {
     let successCount = 0
     const failedRows: ParsedImportRow[] = []
 
-    for (const row of rows) {
+    // Build unit lookup maps for FK validation
+    const unitCodeSet = new Set(catalogs.units.map((u) => u.code.toLowerCase()))
+    const unitNameSet = new Set(catalogs.units.map((u) => normalizeLookupKey(u.name)))
+
+    // Track codes seen in this import batch to catch intra-batch duplicates
+    const importCodesSeen = new Map<string, number>()
+
+    // Build existing material code set for cross-DB duplicate check
+    const existingMaterialCodes = new Set(materials.map((m) => normalizeCatalogCode(m.code)))
+
+    // Pre-validate all rows first, then only call API for rows without pre-validation errors
+    type AnnotatedRow = { row: ParsedImportRow; preIssues: typeof failedRows[number]['issues'] }
+    const annotated: AnnotatedRow[] = rows.map((row) => {
+      const values = row.values
+      const preIssues: typeof failedRows[number]['issues'] = []
+
+      // ── 1. Duplicate code within import batch ──
+      const rawCode = (values['ma nvl'] ?? '').trim()
+      const normalizedCode = normalizeCatalogCode(rawCode)
+      if (normalizedCode) {
+        const seenAt = importCodesSeen.get(normalizedCode)
+        if (seenAt !== undefined) {
+          preIssues.push({
+            field: 'ma nvl',
+            message: `Mã "${rawCode}" trùng với dòng ${seenAt} trong file import.`,
+            severity: 'error',
+          })
+        } else {
+          importCodesSeen.set(normalizedCode, row.rowNumber)
+          // ── 2. Duplicate code against existing DB records ──
+          // Skip for 'update' rows — they intentionally target an existing record via merge
+          if (row.mergeAction !== 'update' && existingMaterialCodes.has(normalizedCode)) {
+            preIssues.push({
+              field: 'ma nvl',
+              message: `Mã "${rawCode}" đã tồn tại trong hệ thống.`,
+              severity: 'error',
+            })
+          }
+        }
+      }
+
+      // ── 3. Validate phân loại (classification FK) ──
+      const rawProductType = (values['phan loai'] ?? '').trim()
+      if (rawProductType) {
+        const normalizedProductType = normalizeLookupKey(rawProductType)
+        const matched =
+          (isNumericId(rawProductType) ? classificationById.get(rawProductType) : undefined) ??
+          classificationByCodeLookup.get(rawProductType.toLowerCase()) ??
+          classificationByNameLookup.get(normalizedProductType)
+        if (!matched) {
+          preIssues.push({
+            field: 'phan loai',
+            message: `Phân loại "${rawProductType}" không tìm thấy trong danh mục.`,
+            severity: 'error',
+          })
+        }
+      }
+
+      // ── 4. Validate đơn vị (unit FK) ──
+      const rawUnit = (values['don vi'] ?? '').trim()
+      if (rawUnit) {
+        const isValidUnit = unitCodeSet.has(rawUnit.toLowerCase()) || unitNameSet.has(normalizeLookupKey(rawUnit))
+        if (!isValidUnit) {
+          preIssues.push({
+            field: 'don vi',
+            message: `Đơn vị "${rawUnit}" không tìm thấy trong danh mục.`,
+            severity: 'error',
+          })
+        }
+      }
+
+      // ── 5. Validate đơn vị đặt hàng if provided ──
+      const rawOrderUnit = (values['don vi dat hang'] ?? '').trim()
+      if (rawOrderUnit) {
+        const isValidOrderUnit = unitCodeSet.has(rawOrderUnit.toLowerCase()) || unitNameSet.has(normalizeLookupKey(rawOrderUnit))
+        if (!isValidOrderUnit) {
+          preIssues.push({
+            field: 'don vi dat hang',
+            message: `Đơn vị đặt hàng "${rawOrderUnit}" không tìm thấy trong danh mục.`,
+            severity: 'error',
+          })
+        }
+      }
+
+      return { row, preIssues }
+    })
+
+    for (const { row, preIssues } of annotated) {
+      if (preIssues.length > 0) {
+        failedRows.push({ ...row, issues: [...row.issues, ...preIssues] })
+        continue
+      }
+
       const values = row.values
       const rawProductType = (values['phan loai'] ?? '').trim()
       const normalizedProductType = normalizeLookupKey(rawProductType)
@@ -615,7 +760,11 @@ export function CatalogPage() {
       } as const
 
       try {
-        await createMaterial(payload)
+        if (row.mergeAction === 'update' && row.existingId) {
+          await updateMaterial(row.existingId, payload)
+        } else {
+          await createMaterial(payload)
+        }
         successCount += 1
       } catch (error) {
         const parsed = parseApiError(error)

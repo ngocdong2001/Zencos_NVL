@@ -278,6 +278,7 @@ export function OpeningStockPage() {
   const [catalogSyncSuppliers, setCatalogSyncSuppliers] = useState<CatalogSyncSupplier[]>([])
   const [syncingCatalog, setSyncingCatalog] = useState(false)
   const [importStep, setImportStep] = useState<1 | 2 | 3>(1)
+  const [importLocationId, setImportLocationId] = useState<string | null>(null)
   const [productModalOpen, setProductModalOpen] = useState(false)
   const [docModalItem, setDocModalItem] = useState<{ id: string; label: string } | null>(null)
   const [detailModalRow, setDetailModalRow] = useState<OpeningStockRow | null>(null)
@@ -878,6 +879,7 @@ export function OpeningStockPage() {
     setImportModalOpen(true)
     setImportSummary(null)
     setImportParseError(null)
+    setImportLocationId(selectedLocationId)
   }
 
   const resetImportState = () => {
@@ -890,6 +892,7 @@ export function OpeningStockPage() {
     setCatalogSyncProducts([])
     setCatalogSyncSuppliers([])
     setImportStep(1)
+    setImportLocationId(null)
   }
 
   const handleCloseImportModal = () => {
@@ -963,6 +966,18 @@ export function OpeningStockPage() {
       return request
     }
 
+    // Build set of (code, lot) pairs already in the database
+    const existingDbKeys = new Set(
+      rows.map((r) => `${normalizeCode(r.code)}|||${r.lot.trim().toLowerCase()}`),
+    )
+
+    // Build set of (code, lot) pairs that appear more than once in the import file
+    const importKeyCount = new Map<string, number>()
+    for (const r of sourceRows) {
+      const k = `${normalizeCode(r.code)}|||${r.lot.trim().toLowerCase()}`
+      importKeyCount.set(k, (importKeyCount.get(k) ?? 0) + 1)
+    }
+
     return Promise.all(sourceRows.map(async (row) => {
       const material = await getExactMaterial(row.code)
       const preferredUnit = await getPreferredUnit(row.code)
@@ -972,7 +987,9 @@ export function OpeningStockPage() {
         (w) =>
           !w.startsWith('Không lookup được Mã NVL') &&
           !w.startsWith('Không lookup được đơn vị đơn giá') &&
-          !w.startsWith('Không lookup được nhà cung cấp'),
+          !w.startsWith('Không lookup được nhà cung cấp') &&
+          !w.startsWith('Trùng với dữ liệu đã có') &&
+          !w.startsWith('Trùng trong file import'),
       )
       if (row.code && !material) {
         nextWarnings.push('Không lookup được Mã NVL để lấy Tên thương mại/Tên INCI.')
@@ -982,6 +999,15 @@ export function OpeningStockPage() {
       }
       if (row.supplierText && !supplier) {
         nextWarnings.push('Không lookup được nhà cung cấp từ dữ liệu import.')
+      }
+      // Duplicate detection against existing database rows
+      const importKey = `${normalizeCode(row.code)}|||${row.lot.trim().toLowerCase()}`
+      if (row.code && existingDbKeys.has(importKey)) {
+        nextWarnings.push(`Trùng với dữ liệu đã có trong database: Mã NVL ${row.code} - Số lô "${row.lot || '(trống)'}".`)
+      }
+      // Duplicate detection within the import file itself
+      if (row.code && (importKeyCount.get(importKey) ?? 0) > 1) {
+        nextWarnings.push(`Trùng trong file import: Mã NVL ${row.code} - Số lô "${row.lot || '(trống)'}" xuất hiện nhiều lần.`)
       }
 
       // Import quantity in template is already base quantity (gr/ml), keep it as base.
@@ -1221,7 +1247,7 @@ export function OpeningStockPage() {
       return
     }
 
-    if (!selectedLocationId) {
+    if (!importLocationId) {
       setImportParseError('Vui lòng chọn kho nhận hàng trước khi import.')
       return
     }
@@ -1251,7 +1277,7 @@ export function OpeningStockPage() {
             invoiceNo: row.invoiceNo || undefined,
             invoiceDate: row.invoiceDate || undefined,
             supplierId: resolveSupplierIdByImportValue(row.supplierText),
-            locationId: selectedLocationId || null,
+            locationId: importLocationId || null,
             quantityBase: row.convertedQuantityBase ?? row.quantityBase,
             unitPriceValue: row.unitPriceValue,
             unitPriceUnitId: row.lookupUnitPriceUnitId,
@@ -2146,6 +2172,9 @@ export function OpeningStockPage() {
         onPickExcelFile={handlePickImportFile}
         onPickAttachments={handlePickAttachmentFiles}
         onImport={handleConfirmImport}
+        locationOptions={locationOptions}
+        importLocationId={importLocationId}
+        onLocationChange={setImportLocationId}
       />
 
       {detailModalRow ? (

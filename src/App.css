@@ -696,6 +696,42 @@ input {
   gap: 8px;
 }
 
+/* ── Location row in import wizard ───────────────────────── */
+.import-location-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f0f7f4;
+  border: 1px solid rgba(12, 26, 20, 0.12);
+  border-radius: 8px;
+}
+
+.import-location-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: #1e2d27;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.import-location-label .pi {
+  color: #2e7d52;
+}
+
+.import-location-required {
+  color: #c0392b;
+  font-size: var(--font-size-body);
+}
+
+.import-location-dropdown {
+  flex: 1;
+  min-width: 220px;
+}
+
 .import-filename {
   display: block;
   margin-top: 2px;
@@ -954,10 +990,35 @@ input {
 
 .import-footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   border-top: 1px solid rgba(12, 26, 20, 0.08);
   padding: 12px 24px 18px;
+}
+
+.import-location-warn {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-caption);
+  color: #c0392b;
+  font-weight: 600;
+}
+
+.import-location-badge {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-caption);
+  color: #1d6b41;
+  font-weight: 600;
+  background: #eaf5ef;
+  border: 1px solid #a8d5bc;
+  border-radius: 6px;
+  padding: 3px 8px;
 }
 
 /* ── Catalog Sync Sub-dialog ─────────────────────────────── */

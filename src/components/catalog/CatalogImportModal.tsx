@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { TabId } from './types'
 import type { ParsedImportResult } from './excelImport'
 
@@ -32,6 +32,7 @@ const HEADER_LABELS: Record<string, string> = {
   'ten nguyen lieu': 'Tên nguyên liệu',
   'phan loai': 'Phân loại',
   'don vi': 'Đơn vị',
+  'don vi dat hang': 'ĐV đặt hàng',
   'trang thai': 'Trạng thái',
   ma: 'Mã',
   ten: 'Tên',
@@ -59,17 +60,36 @@ export function CatalogImportModal({
   onPickFile,
   onImport,
 }: CatalogImportModalProps) {
-  const [issueFilter, setIssueFilter] = useState<'all' | 'valid' | 'error'>('all')
+  const [issueFilter, setIssueFilter] = useState<'all' | 'new' | 'update' | 'conflict' | 'error'>('all')
 
   const rows = parsedResult?.rows ?? []
-  const validRows = useMemo(() => rows.filter((row) => row.issues.length === 0), [rows])
+  const hasMergeAnnotation = rows.length > 0 && rows.some((r) => r.mergeAction !== undefined)
+
+  useEffect(() => { setIssueFilter('all') }, [parsedResult])
+
   const errorRows = useMemo(() => rows.filter((row) => row.issues.some((issue) => issue.severity === 'error')), [rows])
+  const validRows = useMemo(() => rows.filter((row) => !row.issues.some((issue) => issue.severity === 'error')), [rows])
+  const newRows = useMemo(() => validRows.filter((row) => !row.mergeAction || row.mergeAction === 'new'), [validRows])
+  const updateRows = useMemo(() => validRows.filter((row) => row.mergeAction === 'update'), [validRows])
+  const conflictRows = useMemo(() => validRows.filter((row) => row.mergeAction === 'conflict'), [validRows])
 
   const visibleRows = useMemo(() => {
-    if (issueFilter === 'valid') return validRows
+    if (issueFilter === 'new') return newRows
+    if (issueFilter === 'update') return updateRows
+    if (issueFilter === 'conflict') return conflictRows
     if (issueFilter === 'error') return errorRows
     return rows
-  }, [issueFilter, rows, validRows, errorRows])
+  }, [issueFilter, rows, newRows, updateRows, conflictRows, errorRows])
+
+  const importButtonLabel = useMemo(() => {
+    if (importing) return 'Đang import...'
+    if (!hasMergeAnnotation) return `Xác nhận import ${validRows.length} dòng hợp lệ`
+    const parts: string[] = []
+    if (newRows.length > 0) parts.push(`${newRows.length} mới`)
+    if (updateRows.length > 0) parts.push(`cập nhật ${updateRows.length}`)
+    if (conflictRows.length > 0) parts.push(`${conflictRows.length} xung đột`)
+    return parts.length > 0 ? `Import: ${parts.join(' + ')}` : 'Không có dữ liệu hợp lệ'
+  }, [importing, hasMergeAnnotation, validRows.length, newRows.length, updateRows.length, conflictRows.length])
 
   const canImport = validRows.length > 0 && !importing && !parsing
 
@@ -114,10 +134,27 @@ export function CatalogImportModal({
               <span>Tổng dòng</span>
               <strong>{rows.length}</strong>
             </article>
-            <article>
-              <span>Hợp lệ</span>
-              <strong className="ok">{validRows.length}</strong>
-            </article>
+            {hasMergeAnnotation ? (
+              <>
+                <article>
+                  <span>Mới</span>
+                  <strong className="ok">{newRows.length}</strong>
+                </article>
+                <article>
+                  <span>Cập nhật</span>
+                  <strong style={{ color: '#0ea5e9' }}>{updateRows.length}</strong>
+                </article>
+                <article>
+                  <span>Xung đột</span>
+                  <strong style={{ color: '#f59e0b' }}>{conflictRows.length}</strong>
+                </article>
+              </>
+            ) : (
+              <article>
+                <span>Hợp lệ</span>
+                <strong className="ok">{validRows.length}</strong>
+              </article>
+            )}
             <article>
               <span>Lỗi</span>
               <strong className="danger">{errorRows.length}</strong>
@@ -128,13 +165,27 @@ export function CatalogImportModal({
         <section className="import-status">
           <div className="import-filter-tabs" role="tablist" aria-label="Lọc dòng import">
             <button type="button" className={issueFilter === 'all' ? 'active' : ''} onClick={() => setIssueFilter('all')}>
-              Tất cả
+              Tất cả ({rows.length})
             </button>
-            <button type="button" className={issueFilter === 'valid' ? 'active' : ''} onClick={() => setIssueFilter('valid')}>
-              Hợp lệ
-            </button>
+            {hasMergeAnnotation ? (
+              <>
+                <button type="button" className={issueFilter === 'new' ? 'active' : ''} onClick={() => setIssueFilter('new')}>
+                  Mới ({newRows.length})
+                </button>
+                <button type="button" className={issueFilter === 'update' ? 'active' : ''} onClick={() => setIssueFilter('update')}>
+                  Cập nhật ({updateRows.length})
+                </button>
+                <button type="button" className={issueFilter === 'conflict' ? 'active' : ''} onClick={() => setIssueFilter('conflict')}>
+                  Xung đột ({conflictRows.length})
+                </button>
+              </>
+            ) : (
+              <button type="button" className={issueFilter === 'new' ? 'active' : ''} onClick={() => setIssueFilter('new')}>
+                Hợp lệ ({validRows.length})
+              </button>
+            )}
             <button type="button" className={issueFilter === 'error' ? 'active' : ''} onClick={() => setIssueFilter('error')}>
-              Có lỗi
+              Có lỗi ({errorRows.length})
             </button>
           </div>
           {parseError ? <p className="import-error">{parseError}</p> : null}
@@ -153,6 +204,7 @@ export function CatalogImportModal({
                 <thead>
                   <tr>
                     <th>#</th>
+                    {hasMergeAnnotation && <th>Hành động</th>}
                     {parsedResult?.headers.map((header) => (
                       <th key={header}>{HEADER_LABELS[header] ?? header}</th>
                     ))}
@@ -162,12 +214,39 @@ export function CatalogImportModal({
                 <tbody>
                   {visibleRows.map((row) => {
                     const hasError = row.issues.some((issue) => issue.severity === 'error')
+                    const isUpdate = row.mergeAction === 'update'
+                    const isConflict = row.mergeAction === 'conflict'
+                    const rowClass = hasError ? 'error' : isConflict ? 'conflict' : isUpdate ? 'update' : 'valid'
                     return (
-                      <tr key={`row-${row.rowNumber}`} className={hasError ? 'error' : 'valid'}>
+                      <tr key={`row-${row.rowNumber}`} className={rowClass}>
                         <td>{row.rowNumber}</td>
-                        {parsedResult?.headers.map((header) => (
-                          <td key={`${row.rowNumber}-${header}`}>{row.values[header] || '-'}</td>
-                        ))}
+                        {hasMergeAnnotation && (
+                          <td>
+                            {isUpdate && (
+                              <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '2px 6px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                ✏ Cập nhật
+                              </span>
+                            )}
+                            {isConflict && (
+                              <span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                ⚠ Xung đột
+                              </span>
+                            )}
+                            {!isUpdate && !isConflict && !hasError && (
+                              <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                + Mới
+                              </span>
+                            )}
+                          </td>
+                        )}
+                        {parsedResult?.headers.map((header) => {
+                          const isDiff = isUpdate && (row.diffFields?.includes(header) ?? false)
+                          return (
+                            <td key={`${row.rowNumber}-${header}`} style={isDiff ? { background: '#fef9c3', fontWeight: 600 } : undefined}>
+                              {row.values[header] || '-'}
+                            </td>
+                          )
+                        })}
                         <td>
                           {hasError ? (
                             <ul>
@@ -175,6 +254,16 @@ export function CatalogImportModal({
                                 <li key={`${row.rowNumber}-${issue.field}-${index}`}>{issue.message}</li>
                               ))}
                             </ul>
+                          ) : isUpdate ? (
+                            <span>
+                              {row.diffFields && row.diffFields.length > 0
+                                ? `${row.diffFields.length} cột thay đổi`
+                                : 'Không có thay đổi'}
+                            </span>
+                          ) : isConflict ? (
+                            <span style={{ color: '#92400e' }}>
+                              Tên tương tự: <em>{row.conflictWith}</em>
+                            </span>
                           ) : (
                             <span className="valid-pill">Hợp lệ</span>
                           )}
@@ -198,7 +287,7 @@ export function CatalogImportModal({
             disabled={!canImport}
             onClick={() => onImport(validRows)}
           >
-            {importing ? 'Đang import...' : `Xác nhận import ${validRows.length} dòng hợp lệ`}
+            {importButtonLabel}
           </button>
         </footer>
       </div>

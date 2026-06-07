@@ -354,8 +354,11 @@ export function PurchaseOrderPage() {
 
   useEffect(() => {
     setShortagePage(1)
-    setSelectedShortageIds([])
   }, [search, shortageStatusFilter, shortagePageSize])
+
+  useEffect(() => {
+    setSelectedShortageIds([])
+  }, [shortageStatusFilter, shortagePageSize])
 
   useEffect(() => {
     let cancelled = false

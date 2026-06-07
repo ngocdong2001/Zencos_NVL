@@ -1,4 +1,5 @@
 ﻿import { useMemo, useState } from 'react'
+import { Dropdown } from 'primereact/dropdown'
 import type { OpeningStockImportParseResult } from './openingStockExcelImport'
 import type { CatalogSyncProduct, CatalogSyncSupplier } from '../../pages/OpeningStockPage'
 
@@ -42,6 +43,9 @@ type Props = {
   catalogSyncSuppliers: CatalogSyncSupplier[]
   syncingCatalog: boolean
   importStep: 1 | 2 | 3
+  locationOptions: { id: string; code: string; name: string }[]
+  importLocationId: string | null
+  onLocationChange: (locationId: string | null) => void
   onGoToStep: (step: 1 | 2 | 3) => void
   onUpdateSyncProducts: (items: CatalogSyncProduct[]) => void
   onUpdateSyncSuppliers: (items: CatalogSyncSupplier[]) => void
@@ -67,6 +71,9 @@ export function OpeningStockImportModal({
   catalogSyncSuppliers,
   syncingCatalog,
   importStep,
+  locationOptions,
+  importLocationId,
+  onLocationChange,
   onGoToStep,
   onUpdateSyncProducts,
   onUpdateSyncSuppliers,
@@ -220,6 +227,25 @@ export function OpeningStockImportModal({
                     }
                   </div>
                 </label>
+              </div>
+
+              <div className="import-location-row">
+                <label className="import-location-label" htmlFor="import-wizard-location-select">
+                  <i className="pi pi-building" />
+                  <span>Kho nhận hàng</span>
+                  <span className="import-location-required">*</span>
+                </label>
+                <Dropdown
+                  inputId="import-wizard-location-select"
+                  value={importLocationId}
+                  options={locationOptions.map((l) => ({ label: `${l.code} – ${l.name}`, value: l.id }))}
+                  optionLabel="label"
+                  optionValue="value"
+                  onChange={(e) => onLocationChange((e.value as string | null) ?? null)}
+                  placeholder="-- Chọn kho nhận hàng --"
+                  className="import-location-dropdown"
+                  appendTo={document.body}
+                />
               </div>
 
               {parseError && <p className="import-error">{parseError}</p>}
@@ -487,7 +513,18 @@ export function OpeningStockImportModal({
               <button type="button" className="btn btn-ghost" onClick={onClose} disabled={importing}>
                 Hủy
               </button>
-              <button type="button" className="btn btn-primary" disabled={!canImport} onClick={onImport}>
+              {!importLocationId && (
+                <span className="import-location-warn">
+                  <i className="pi pi-exclamation-triangle" /> Chưa chọn kho nhận hàng
+                </span>
+              )}
+              {importLocationId && (
+                <span className="import-location-badge">
+                  <i className="pi pi-building" />{' '}
+                  {locationOptions.find((l) => l.id === importLocationId)?.code ?? importLocationId}
+                </span>
+              )}
+              <button type="button" className="btn btn-primary" disabled={!canImport || !importLocationId} onClick={onImport}>
                 {importing ? 'Đang import...' : `Xác nhận import ${validRows.length} dòng hợp lệ`}
               </button>
             </footer>

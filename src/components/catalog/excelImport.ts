@@ -9,10 +9,16 @@ export type ImportIssue = {
   severity: ImportSeverity
 }
 
+export type MergeAction = 'new' | 'update' | 'conflict'
+
 export type ParsedImportRow = {
   rowNumber: number
   values: Record<string, string>
   issues: ImportIssue[]
+  mergeAction?: MergeAction
+  existingId?: string
+  conflictWith?: string
+  diffFields?: string[]
 }
 
 export type ParsedImportResult = {
