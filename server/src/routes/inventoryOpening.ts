@@ -83,6 +83,10 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     locationId: row.location_id == null ? null : String(row.location_id),
     locationCode: String(row.location_code ?? ''),
     locationName: String(row.location_name ?? ''),
+    docFilesMsds: String(row.doc_files_msds ?? ''),
+    docFilesCoa: String(row.doc_files_coa ?? ''),
+    docFilesInvoice: String(row.doc_files_invoice ?? ''),
+    docFilesOther: String(row.doc_files_other ?? ''),
   }
 }
 
@@ -395,7 +399,11 @@ router.get('/rows', async (_req, res) => {
           osi.has_document,
           osi.location_id,
           il.code AS location_code,
-          il.name AS location_name
+          il.name AS location_name,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'MSDS'), '') AS doc_files_msds,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'COA'), '') AS doc_files_coa,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'Invoice'), '') AS doc_files_invoice,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'Other'), '') AS doc_files_other
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id
@@ -426,7 +434,11 @@ router.get('/rows', async (_req, res) => {
           osi.has_document,
           osi.location_id,
           il.code AS location_code,
-          il.name AS location_name
+          il.name AS location_name,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'MSDS'), '') AS doc_files_msds,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'COA'), '') AS doc_files_coa,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'Invoice'), '') AS doc_files_invoice,
+          COALESCE((SELECT GROUP_CONCAT(original_name SEPARATOR '; ') FROM opening_stock_item_documents WHERE item_id = osi.id AND doc_type = 'Other'), '') AS doc_files_other
         FROM opening_stock_items osi
         JOIN products p ON p.id = osi.product_id
         LEFT JOIN suppliers s ON s.id = osi.supplier_id

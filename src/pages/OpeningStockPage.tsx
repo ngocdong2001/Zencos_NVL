@@ -775,7 +775,10 @@ export function OpeningStockPage() {
       'NGAY SX',
       'NGAY TD',
       'HAN SD',
-      'CHUNG TU',
+      'FILE MSDS',
+      'FILE COA',
+      'FILE HOA DON',
+      'FILE KHAC',
     ]
 
     const workbook = new ExcelJS.Workbook()
@@ -820,7 +823,10 @@ export function OpeningStockPage() {
         parseIsoDate(row.manufactureDate),
         parseIsoDate(row.openingDate),
         parseIsoDate(row.expiryDate),
-        row.hasCertificate ? 'CO' : 'KHONG',
+        row.docFilesMsds || '',
+        row.docFilesCoa || '',
+        row.docFilesInvoice || '',
+        row.docFilesOther || '',
       ])
     }
 

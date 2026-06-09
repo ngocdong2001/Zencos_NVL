@@ -29,6 +29,10 @@ export type OpeningStockRow = {
   locationId: string | null
   locationCode: string
   locationName: string
+  docFilesMsds: string
+  docFilesCoa: string
+  docFilesInvoice: string
+  docFilesOther: string
 }
 
 export type OpeningStockPriceUnit = {
