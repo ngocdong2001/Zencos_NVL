@@ -221,7 +221,7 @@ router.post('/', requireAuth, requirePermission('sales.write'), async (req: Auth
 
       for (const shortage of header.shortages) {
         const { productId, shortageQty, unitUsed } = shortage
-        const product = await tx.material.findUnique({
+        const product = await tx.product.findUnique({
           where: { id: BigInt(productId) },
           select: {
             orderUnitRef: { select: { unitName: true, conversionToBase: true } },
@@ -342,7 +342,7 @@ router.put('/:id', requireAuth, requirePermission('sales.write'), async (req: Au
 
         for (const shortage of header.shortages) {
           const { productId, shortageQty, unitUsed } = shortage
-          const product = await tx.material.findUnique({
+          const product = await tx.product.findUnique({
             where: { id: BigInt(productId) },
             select: {
               orderUnitRef: { select: { unitName: true, conversionToBase: true } },

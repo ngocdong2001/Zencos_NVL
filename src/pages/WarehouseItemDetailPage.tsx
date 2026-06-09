@@ -506,7 +506,7 @@ export function WarehouseItemDetailPage() {
               />
               <Column
                 header="Mã Lô"
-                style={{ width: '28%' }}
+                style={{ width: '22%' }}
                 body={(row: LotDetail) => (
                   row.receiptId ? (
                     <button
@@ -522,8 +522,13 @@ export function WarehouseItemDetailPage() {
                 )}
               />
               <Column
+                header="Lô nhà sản xuất"
+                style={{ width: '16%' }}
+                body={(row: LotDetail) => row.manufacturerLot ?? <span style={{ color: '#9ca3af' }}>—</span>}
+              />
+              <Column
                 header="Ngày hết hạn"
-                style={{ width: '20%' }}
+                style={{ width: '16%' }}
                 body={(row: LotDetail) => {
                   const isNear = row.status === 'near_expiration'
                   return (
@@ -545,7 +550,7 @@ export function WarehouseItemDetailPage() {
               />
               <Column
                 header="Nhà sản xuất"
-                style={{ width: '20%' }}
+                style={{ width: '18%' }}
                 body={(row: LotDetail) => row.manufacturerName ?? <span style={{ color: '#9ca3af' }}>—</span>}
               />
               <Column

@@ -79,6 +79,7 @@ type ItemsParams = {
   limit: string
   dateFrom: string | undefined
   dateTo: string | undefined
+  locationId: string | undefined
 }
 
 async function queryItems(p: ItemsParams) {
@@ -311,7 +312,7 @@ router.get('/items/:id/lots', async (req: Request, res: Response) => {
     where: { productId: id, deletedAt: null, currentQtyBase: { gt: 0 } },
     orderBy: { expiryDate: 'asc' },
     select: {
-      id: true, lotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
+      id: true, lotNo: true, manufacturerLotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
       invoiceNumber: true, invoiceDate: true, manufactureDate: true,
       inboundReceiptItemSource: { select: { inboundReceipt: { select: { id: true, receiptRef: true, receivedAt: true } } } },
     },
@@ -320,6 +321,7 @@ router.get('/items/:id/lots', async (req: Request, res: Response) => {
   const lots = batches.map((b) => ({
     id: String(b.id),
     lotNo: b.lotNo,
+    manufacturerLot: b.manufacturerLotNo ?? null,
     invoiceNumber: b.invoiceNumber ?? null,
     invoiceDate: b.invoiceDate ? b.invoiceDate.toISOString() : null,
     manufactureDate: b.manufactureDate ? b.manufactureDate.toISOString() : null,
@@ -369,7 +371,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
         batches: {
           where: { deletedAt: null, currentQtyBase: { gt: 0 } },
           orderBy: { expiryDate: 'asc' },
-          select: { id: true, lotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
+          select: { id: true, lotNo: true, manufacturerLotNo: true, expiryDate: true, unitPricePerKg: true, currentQtyBase: true,
             inboundReceiptItemSource: { select: { inboundReceipt: { select: { id: true, receiptRef: true } } } },
             manufacturer: { select: { id: true, name: true } },
             supplierId: true,
@@ -451,6 +453,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
   const lots = product.batches.map((b) => ({
     id:             String(b.id),
     lotNo:          b.lotNo,
+    manufacturerLot: b.manufacturerLotNo ?? null,
     expiryDate:     b.expiryDate ? b.expiryDate.toISOString() : null,
     unitPricePerKg: Number(b.unitPricePerKg),
     quantityGram:   Number(b.currentQtyBase),

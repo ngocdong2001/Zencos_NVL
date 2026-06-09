@@ -6,6 +6,7 @@ const http = apiFetch
 export type LotDetail = {
   id: string
   lotNo: string
+  manufacturerLot: string | null
   invoiceNumber: string | null
   invoiceDate: string | null
   manufactureDate: string | null

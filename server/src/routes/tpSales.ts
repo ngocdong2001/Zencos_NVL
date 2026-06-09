@@ -488,7 +488,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('outbound:write'), as
               type:                 'import_from_production', // positive = restore stock
               quantityBase:         qty,
               warehouseLocationId:  srcItem.warehouseLocationId,
-              batchLotNo:           srcItem.lotNo,
+              batchLotNo:           srcItem.lotNo ?? undefined,
               batchExpiryDate:      srcItem.expiryDate,
               userId:               actorId,
               notes:                `Void phiếu gốc ${order.sourceOrder.orderRef ?? `#${order.sourceOrder.id}`} do điều chỉnh ${order.orderRef ?? `#${order.id}`}`,
@@ -537,7 +537,7 @@ router.patch('/:id/fulfil', requireAuth, requirePermission('outbound:write'), as
             type:                'export_to_sale',
             quantityBase:        qty,
             warehouseLocationId: item.warehouseLocationId,
-            batchLotNo:          item.lotNo,
+            batchLotNo:          item.lotNo ?? undefined,
             batchExpiryDate:     item.expiryDate,
             userId:              actorId,
             notes:               order.orderRef ? `Xuất TP theo phiếu ${order.orderRef}` : undefined,

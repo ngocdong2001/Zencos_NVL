@@ -57,6 +57,7 @@ function toEditableNumberString(value: number): string {
 
 export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, onOpenDocs }: Props) {
   const [lot, setLot] = useState(row.lot)
+  const [manufacturerLot, setManufacturerLot] = useState(row.manufacturerLot ?? '')
   const [invoiceNo, setInvoiceNo] = useState(row.invoiceNo)
   const [invoiceDate, setInvoiceDate] = useState(row.invoiceDate ?? '')
   const [openingDate, setOpeningDate] = useState(row.openingDate ?? '')
@@ -127,6 +128,7 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
       const uPrice = parseDecimalInput(unitPriceValue || '0')
       const updated = await updateOpeningStockRow(row.id, {
         lot: lot.trim(),
+        manufacturerLot: manufacturerLot.trim() || undefined,
         invoiceNo: invoiceNo.trim() || undefined,
         invoiceDate: invoiceDate || null,
         openingDate: openingDate || null,
@@ -310,6 +312,17 @@ export function StockItemDetailModal({ row, supplierOptions, onClose, onSaved, o
                       onChange={(e) => setLot(e.target.value)}
                       placeholder="Số lô"
                       aria-label="Số lô"
+                    />
+                  </div>
+                  <div className="sdm-divider" />
+                  <div className="sdm-field-row">
+                    <span className="sdm-label">Lô nhà sản xuất:</span>
+                    <input
+                      className="sdm-input"
+                      value={manufacturerLot}
+                      onChange={(e) => setManufacturerLot(e.target.value)}
+                      placeholder="---"
+                      aria-label="Lô nhà sản xuất"
                     />
                   </div>
                   <div className="sdm-divider" />

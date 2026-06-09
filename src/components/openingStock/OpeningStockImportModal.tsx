@@ -43,6 +43,8 @@ type Props = {
   catalogSyncSuppliers: CatalogSyncSupplier[]
   syncingCatalog: boolean
   importStep: 1 | 2 | 3
+  mergeSelection: Set<string>
+  onMergeSelectionChange: (selection: Set<string>) => void
   locationOptions: { id: string; code: string; name: string }[]
   importLocationId: string | null
   onLocationChange: (locationId: string | null) => void
@@ -71,6 +73,8 @@ export function OpeningStockImportModal({
   catalogSyncSuppliers,
   syncingCatalog,
   importStep,
+  mergeSelection,
+  onMergeSelectionChange,
   locationOptions,
   importLocationId,
   onLocationChange,
@@ -139,13 +143,24 @@ export function OpeningStockImportModal({
     [rows, attachmentLookup],
   )
 
+  const mergeableRows = useMemo(
+    () => rows.filter((row) => row.mergeExistingId !== null && row.mergeExistingId !== undefined),
+    [rows],
+  )
+
+  const selectedMergeRows = useMemo(
+    () => mergeableRows.filter((row) => mergeSelection.has(String(row.rowNumber))),
+    [mergeableRows, mergeSelection],
+  )
+
   const visibleRows = useMemo(() => {
     if (issueFilter === 'valid') return validRows
     if (issueFilter === 'error') return errorRows
     return rows
   }, [errorRows, issueFilter, rows, validRows])
 
-  const canImport = validRows.length > 0 && !importing && !parsing
+  const importableRowCount = validRows.length + selectedMergeRows.length
+  const canImport = importableRowCount > 0 && !importing && !parsing
   const hasFile = parsedResult !== null || parseError !== null
   const canProceedFromStep1 = hasFile && !parsing
 
@@ -454,17 +469,19 @@ export function OpeningStockImportModal({
                     <thead>
                       <tr>
                         <th>#</th><th>Mã NVL</th><th>Tên TM</th><th>Tên INCI</th>
-                        <th>Số lô</th><th>Số HĐ</th><th>Ngày HĐ</th><th>NCC</th>
+                        <th>Số lô</th><th>Lô NhaSX</th><th>Số HĐ</th><th>Ngày HĐ</th><th>NCC</th>
                         <th>SL</th><th>Đơn giá</th><th>ĐV đơn giá</th><th>Thành tiền</th>
                         <th>Ngày TD</th><th>Ngày SX</th><th>Hạn SD</th>
                         <th>MSDS</th><th>COA</th><th>Hóa đơn</th><th>Khác</th><th>Chứng từ</th>
-                        <th>Trạng thái</th>
+                        <th>Hành động</th><th>Trạng thái</th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleRows.map((row) => {
                         const rowWarnings = getRowWarnings(row)
                         const hasError = rowWarnings.length > 0
+                        const isMergeable = row.mergeExistingId !== null && row.mergeExistingId !== undefined
+                        const isMergeSelected = mergeSelection.has(String(row.rowNumber))
                         return (
                           <tr key={`row-${row.rowNumber}`} className={hasError ? 'error' : 'valid'}>
                             <td>{row.rowNumber}</td>
@@ -472,6 +489,7 @@ export function OpeningStockImportModal({
                             <td>{row.lookupTradeName || '-'}</td>
                             <td>{row.lookupInciName || '-'}</td>
                             <td>{row.lot || '-'}</td>
+                            <td>{row.manufacturerLot || '-'}</td>
                             <td>{row.invoiceNo || '-'}</td>
                             <td>{formatDate(row.invoiceDate)}</td>
                             <td>{row.resolvedSupplierName || row.resolvedSupplierCode
@@ -490,7 +508,42 @@ export function OpeningStockImportModal({
                             <td>{row.docsByType.Other.join(', ') || '-'}</td>
                             <td>{row.hasAnyDocument ? 'Có' : 'Không'}</td>
                             <td>
-                              {hasError ? (
+                              {isMergeable ? (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isMergeSelected}
+                                    onChange={(e) => {
+                                      const newSelection = new Set(mergeSelection)
+                                      if (e.target.checked) {
+                                        newSelection.add(String(row.rowNumber))
+                                      } else {
+                                        newSelection.delete(String(row.rowNumber))
+                                      }
+                                      onMergeSelectionChange(newSelection)
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Cập nhật</span>
+                                </label>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: '#999' }}>-</span>
+                              )}
+                            </td>
+                            <td>
+                              {isMergeable ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <span style={{ backgroundColor: row.mergeHasChanges ? '#ff9999' : '#ffeaa7', padding: '2px 6px', borderRadius: '3px', fontSize: '11px', whiteSpace: 'nowrap', fontWeight: row.mergeHasChanges ? 'bold' : 'normal' }}>
+                                    {row.mergeHasChanges ? '⚠️ Có thay đổi' : 'Tồn tại'}
+                                  </span>
+                                  {row.mergeChanges && row.mergeChanges.length > 0 && (
+                                    <ul style={{ margin: '0', paddingLeft: '16px', fontSize: '10px', color: '#666' }}>
+                                      {row.mergeChanges.map((change, i) => (
+                                        <li key={i}>{change}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              ) : hasError ? (
                                 <ul>{rowWarnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
                               ) : (
                                 <span className="valid-pill">Hợp lệ</span>
@@ -525,7 +578,7 @@ export function OpeningStockImportModal({
                 </span>
               )}
               <button type="button" className="btn btn-primary" disabled={!canImport || !importLocationId} onClick={onImport}>
-                {importing ? 'Đang import...' : `Xác nhận import ${validRows.length} dòng hợp lệ`}
+                {importing ? 'Đang import...' : `Xác nhận import ${importableRowCount} dòng${selectedMergeRows.length > 0 ? ` (${validRows.length} mới + ${selectedMergeRows.length} cập nhật)` : ''}`}
               </button>
             </footer>
           </>

@@ -142,7 +142,9 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
       const adjustments = await getQtyAdjustmentsSince(batches.map((b) => b.id), afterDate)
       result = result.map((b) => ({
         ...b,
-        currentQtyBase: Number(b.currentQtyBase) - (adjustments.get(String(b.id)) ?? 0),
+        currentQtyBase: b.currentQtyBase instanceof Prisma.Decimal 
+          ? new Prisma.Decimal(b.currentQtyBase.toString()).minus(adjustments.get(String(b.id)) ?? 0)
+          : new Prisma.Decimal(b.currentQtyBase).minus(adjustments.get(String(b.id)) ?? 0),
       }))
     }
   }

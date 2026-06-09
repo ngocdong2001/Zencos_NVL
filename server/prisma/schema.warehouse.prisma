@@ -279,6 +279,7 @@ model Batch {
   supplierId       BigInt?     @map("supplier_id") @db.UnsignedBigInt
   inboundReceiptItemId BigInt? @map("inbound_receipt_item_id") @db.UnsignedBigInt
   lotNo            String      @map("lot_no") @db.VarChar(100)
+  manufacturerLotNo String?    @map("manufacturer_lot_no") @db.VarChar(100)
   invoiceNumber    String?     @map("invoice_number") @db.VarChar(100)
   invoiceDate      DateTime?   @map("invoice_date") @db.Date
   unitPricePerKg   Decimal     @default(0) @map("unit_price_per_kg") @db.Decimal(15, 2)
@@ -666,6 +667,7 @@ model OpeningStockItem {
   declarationId   BigInt                  @map("declaration_id") @db.UnsignedBigInt
   productId       BigInt                  @map("product_id") @db.UnsignedBigInt
   lotNo           String                  @map("lot_no") @db.VarChar(100)
+  manufacturerLotNo String?               @map("manufacturer_lot_no") @db.VarChar(100)
   openingDate     DateTime                @map("opening_date") @db.Date
   invoiceNo       String?                 @map("invoice_no") @db.VarChar(100)
   invoiceDate     DateTime?               @map("invoice_date") @db.Date
@@ -703,6 +705,7 @@ model OpeningStockItem {
   @@index([postedTxId])
   @@index([supplierId])
   @@index([unitPriceUnitId])
+  @@index([manufacturerLotNo])
   @@unique([declarationId, productId, lotNo])
   @@map("opening_stock_items")
 }

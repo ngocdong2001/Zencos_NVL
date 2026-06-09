@@ -11,6 +11,7 @@ export type OpeningStockImportRow = {
   lookupTradeName?: string
   lookupInciName?: string
   lot: string
+  manufacturerLot: string
   openingDate: string
   invoiceNo: string
   invoiceDate: string
@@ -30,6 +31,9 @@ export type OpeningStockImportRow = {
   docsByType: Record<ImportDocType, string[]>
   hasAnyDocument?: boolean
   warnings: string[]
+  mergeExistingId?: string | null
+  mergeHasChanges?: boolean
+  mergeChanges?: string[]
 }
 
 export type OpeningStockImportParseResult = {
@@ -42,6 +46,7 @@ const EXPECTED_HEADERS = [
   'ten thuong mai',
   'ten inci',
   'so lo',
+  'lo nha san xuat',
   'ngay td',
   'so hoa don',
   'ngay hoa don',
@@ -67,6 +72,7 @@ const HEADER_SYNONYMS: Record<ExpectedHeader, string[]> = {
   'ten thuong mai': ['tên thương mại', 'trade name', 'ten hang', 'ten nguyen lieu', 'tên nguyên liệu'],
   'ten inci': ['tên inci', 'inci name', 'inci'],
   'so lo': ['số lô', 'lot', 'lot no', 'lot_no'],
+  'lo nha san xuat': ['lô nhà sản xuất', 'lo nha san xuat', 'manufacturer lot', 'manufacturer_lot', 'mfg lot', 'producer lot'],
   'ngay td': ['ngày td', 'ngay ton dau', 'ngay ton dau ky', 'opening date'],
   'so hoa don': ['số hóa đơn', 'invoice no', 'invoice number'],
   'ngay hoa don': ['ngày hóa đơn', 'invoice date'],
@@ -270,6 +276,7 @@ export async function parseOpeningStockExcel(file: File): Promise<OpeningStockIm
     const excelInciName = getValue(rawRow, headerMap, 'ten inci')
     const excelPriceUnit = getValue(rawRow, headerMap, 'don vi gia').trim()
     const lot = getValue(rawRow, headerMap, 'so lo')
+    const manufacturerLot = getValue(rawRow, headerMap, 'lo nha san xuat')
     const openingDate = toIsoDate(getValue(rawRow, headerMap, 'ngay td')) || today
     const invoiceNo = getValue(rawRow, headerMap, 'so hoa don')
     const invoiceDate = toIsoDate(getValue(rawRow, headerMap, 'ngay hoa don'))
@@ -282,6 +289,7 @@ export async function parseOpeningStockExcel(file: File): Promise<OpeningStockIm
     const hasAnyContent = [
       code,
       lot,
+      manufacturerLot,
       invoiceNo,
       supplierText,
       quantityRaw,
@@ -314,6 +322,7 @@ export async function parseOpeningStockExcel(file: File): Promise<OpeningStockIm
       excelInciName,
       excelPriceUnit,
       lot,
+      manufacturerLot,
       openingDate,
       invoiceNo,
       invoiceDate,

@@ -63,6 +63,7 @@ function mapOpeningStockRow(row: OpeningStockRowRecord) {
     tradeName: String(row.trade_name ?? ''),
     inciName: String(row.inci_name ?? ''),
     lot: String(row.lot_no ?? ''),
+    manufacturerLot: String(row.manufacturer_lot_no ?? ''),
     openingDate: formatDateOnly(row.opening_date),
     invoiceNo: String(row.invoice_no ?? ''),
     invoiceDate: formatDateOnly(row.invoice_date),
@@ -178,6 +179,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
       product_id: bigint
       supplier_id: bigint | null
       lot_no: string
+      manufacturer_lot_no: string | null
       invoice_no: string | null
       invoice_date: Date | null
       opening_date: Date | null
@@ -196,6 +198,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
         product_id,
         supplier_id,
         lot_no,
+        manufacturer_lot_no,
         invoice_no,
         invoice_date,
         opening_date,
@@ -229,6 +232,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
         productId: item.product_id,
         supplierId: item.supplier_id ?? undefined,
         lotNo: item.lot_no,
+        manufacturerLotNo: item.manufacturer_lot_no ?? undefined,
         invoiceNumber: item.invoice_no ?? undefined,
         invoiceDate: item.invoice_date ?? undefined,
         unitPricePerKg: Number(item.unit_price_per_kg),
@@ -277,6 +281,7 @@ async function autoPostOpeningStockItem(itemId: number): Promise<void> {
 const addRowSchema = z.object({
   code: z.string().min(1),
   lot: z.string().optional().default(''),
+  manufacturerLot: z.string().optional().default(''),
   openingDate: z.string({ required_error: 'Ngày tồn đầu không được để trống.' }).min(1, 'Ngày tồn đầu không được để trống.'),
   invoiceNo: z.string().optional().default(''),
   invoiceDate: z.string().optional().nullable(),
@@ -293,6 +298,7 @@ const addRowSchema = z.object({
 
 const updateRowSchema = z.object({
   lot: z.string().optional(),
+  manufacturerLot: z.string().optional(),
   openingDate: z.string().optional().nullable(),
   invoiceNo: z.string().optional(),
   invoiceDate: z.string().optional().nullable(),
@@ -370,6 +376,7 @@ router.get('/rows', async (_req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,
@@ -405,6 +412,7 @@ router.get('/rows', async (_req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,
@@ -431,6 +439,173 @@ router.get('/rows', async (_req, res) => {
   const data = rows.map((row) => mapOpeningStockRow(row))
 
   return res.json(normalizeForJson(data))
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// POST /check-merge — kiểm tra các dòng có sẵn trong database + detect thay đổi
+// ──────────────────────────────────────────────────────────────────────
+router.post('/check-merge', async (req, res) => {
+  const rows = Array.isArray(req.body) ? req.body : []
+  if (rows.length === 0) {
+    return res.json([])
+  }
+
+  const results: Array<{
+    code: string
+    lot: string
+    existingId: string | null
+    hasChanges: boolean
+    changes: string[]
+  }> = []
+
+  for (const row of rows) {
+    const code = String(row.code ?? '').trim().toUpperCase()
+    const lot = String(row.lot ?? '').trim()
+
+    if (!code) {
+      results.push({ code, lot, existingId: null, hasChanges: false, changes: [] })
+      continue
+    }
+
+    try {
+      const existing = await prisma.$queryRaw<
+        Array<{
+          osi_id: bigint
+          quantity_base: string | null
+          unit_price_value: string | null
+          supplier_id: bigint | null
+          opening_date: string | null
+          manufacture_date: string | null
+          expiry_date: string | null
+        }>
+      >(Prisma.sql`
+        SELECT 
+          osi.id as osi_id,
+          osi.quantity_base,
+          osi.unit_price_value,
+          osi.supplier_id,
+          osi.opening_date,
+          osi.manufacture_date,
+          osi.expiry_date
+        FROM opening_stock_items osi
+        JOIN products p ON p.id = osi.product_id
+        WHERE p.code = ${code}
+          AND osi.lot_no = ${lot}
+          AND osi.declaration_id IN (
+            SELECT id FROM opening_stock_declarations WHERE status = 'draft'
+          )
+        LIMIT 1
+      `)
+
+      if (!existing[0]) {
+        results.push({ code, lot, existingId: null, hasChanges: false, changes: [] })
+        continue
+      }
+
+      const existingId = String(existing[0].osi_id)
+      const changes: string[] = []
+
+      // Detect changes in quantity
+      const existingQty = Number(existing[0].quantity_base ?? 0)
+      const newQty = Number(row.quantityBase ?? 0)
+      if (Math.abs(existingQty - newQty) > 0.001) {
+        changes.push(`SL: ${existingQty} → ${newQty}`)
+      }
+
+      // Detect changes in unit price
+      const existingPrice = Number(existing[0].unit_price_value ?? 0)
+      const newPrice = Number(row.unitPriceValue ?? 0)
+      if (Math.abs(existingPrice - newPrice) > 0.001) {
+        changes.push(`Đơn giá: ${existingPrice} → ${newPrice}`)
+      }
+
+      // Detect changes in supplier
+      const existingSupplierId = existing[0].supplier_id ? String(existing[0].supplier_id) : null
+      const newSupplierId = row.supplierId || null
+      if (existingSupplierId !== newSupplierId) {
+        changes.push('NCC: Thay đổi')
+      }
+
+      // Detect changes in dates (normalize to YYYY-MM-DD format for comparison)
+      const normalizeDateForComparison = (dateInput: string | null | undefined): string => {
+        if (!dateInput) return 'EMPTY'
+        let dateStr = String(dateInput).trim()
+        if (!dateStr) return 'EMPTY'
+        
+        // Extract just the date part (first 10 chars) in case MySQL returns datetime
+        if (dateStr.includes(' ')) {
+          dateStr = dateStr.substring(0, 10).trim()
+        }
+        
+        // If already in YYYY-MM-DD format, return as-is
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+        
+        // Parse other formats (DD/MM/YYYY, MM/DD/YYYY, YYYY/MM/DD, etc.)
+        const parts = dateStr.split(/[/-]/).map(p => p.trim()).filter(p => /^\d+$/.test(p))
+        if (parts.length !== 3) return 'INVALID'
+        
+        const nums = parts.map(p => parseInt(p, 10))
+        const [a, b, c] = nums
+        
+        // All parts must be reasonable numbers
+        if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) return 'INVALID'
+        
+        // Determine format by finding which part is the year (typically 4 digits or > 31)
+        if (a > 31 && a <= 9999) {
+          // a is year: YYYY-MM-DD or YYYY/MM/DD
+          // Validate: b should be 1-12 (month), c should be 1-31 (day)
+          if (b >= 1 && b <= 12 && c >= 1 && c <= 31) {
+            return `${String(a).padStart(4, '0')}-${String(b).padStart(2, '0')}-${String(c).padStart(2, '0')}`
+          }
+        } else if (c > 31 && c <= 9999) {
+          // c is year: DD/MM/YYYY or MM/DD/YYYY
+          // If a > 12, then a is definitely day, so format is DD/MM/YYYY
+          if (a >= 1 && a <= 31 && b >= 1 && b <= 12) {
+            return `${String(c).padStart(4, '0')}-${String(b).padStart(2, '0')}-${String(a).padStart(2, '0')}`
+          }
+        } else if (b > 31 && b <= 9999) {
+          // b is year (less common)
+          if (a >= 1 && a <= 31 && c >= 1 && c <= 12) {
+            return `${String(b).padStart(4, '0')}-${String(c).padStart(2, '0')}-${String(a).padStart(2, '0')}`
+          }
+        }
+        
+        // Can't determine format with confidence, return invalid marker
+        return 'INVALID'
+      }
+
+      // Only report date changes if both dates are validly parsed and actually different
+      const existingOpenDate = normalizeDateForComparison(existing[0].opening_date)
+      const newOpenDate = normalizeDateForComparison(row.openingDate)
+      if (existingOpenDate !== 'INVALID' && newOpenDate !== 'INVALID' && existingOpenDate !== newOpenDate && existingOpenDate !== 'EMPTY' && newOpenDate !== 'EMPTY') {
+        changes.push('Ngày TD: Thay đổi')
+      }
+
+      const existingMfgDate = normalizeDateForComparison(existing[0].manufacture_date)
+      const newMfgDate = normalizeDateForComparison(row.manufactureDate)
+      if (existingMfgDate !== 'INVALID' && newMfgDate !== 'INVALID' && existingMfgDate !== newMfgDate && existingMfgDate !== 'EMPTY' && newMfgDate !== 'EMPTY') {
+        changes.push('Ngày SX: Thay đổi')
+      }
+
+      const existingExpDate = normalizeDateForComparison(existing[0].expiry_date)
+      const newExpDate = normalizeDateForComparison(row.expiryDate)
+      if (existingExpDate !== 'INVALID' && newExpDate !== 'INVALID' && existingExpDate !== newExpDate && existingExpDate !== 'EMPTY' && newExpDate !== 'EMPTY') {
+        changes.push('Hạn SD: Thay đổi')
+      }
+
+      results.push({
+        code,
+        lot,
+        existingId,
+        hasChanges: changes.length > 0,
+        changes,
+      })
+    } catch (error) {
+      results.push({ code, lot, existingId: null, hasChanges: false, changes: [] })
+    }
+  }
+
+  return res.json(results)
 })
 
 // ──────────────────────────────────────────────────────────────────────
@@ -545,6 +720,7 @@ router.post('/rows', async (req, res) => {
   const lineAmount = (quantityBase / unitPriceConversionToBase) * unitPriceValue
   const invoiceNo = data.invoiceNo?.trim() || null
   const invoiceDate = data.invoiceDate?.trim() || null
+  const manufacturerLot = data.manufacturerLot?.trim() || null
   const supplierId = typeof data.supplierId === 'bigint' ? data.supplierId : null
   const locationId = typeof data.locationId === 'bigint' ? data.locationId : null
   const supplier = await ensureSupplierExists(supplierId)
@@ -579,14 +755,14 @@ router.post('/rows', async (req, res) => {
   if (hasAmountFields) {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
-        (declaration_id, product_id, lot_no, opening_date, manufacture_date, expiry_date,
+        (declaration_id, product_id, lot_no, manufacturer_lot_no, opening_date, manufacture_date, expiry_date,
          invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg,
          unit_price_value, unit_price_unit_id, unit_price_conversion_to_base, line_amount,
          has_document, location_id,
          created_at, updated_at)
       VALUES
-        (${declarationId}, ${productId}, ${lotNo},
+        (${declarationId}, ${productId}, ${lotNo}, ${manufacturerLot},
          ${openingDate ? new Date(openingDate) : null},
          ${manufactureDate ? new Date(manufactureDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
@@ -600,12 +776,12 @@ router.post('/rows', async (req, res) => {
   } else {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO opening_stock_items
-        (declaration_id, product_id, lot_no, opening_date, manufacture_date, expiry_date,
+        (declaration_id, product_id, lot_no, manufacturer_lot_no, opening_date, manufacture_date, expiry_date,
          invoice_no, invoice_date, supplier_id,
          quantity_base, unit_used, quantity_display, unit_price_per_kg, has_document, location_id,
          created_at, updated_at)
       VALUES
-        (${declarationId}, ${productId}, ${lotNo},
+        (${declarationId}, ${productId}, ${lotNo}, ${manufacturerLot},
          ${openingDate ? new Date(openingDate) : null},
          ${manufactureDate ? new Date(manufactureDate) : null},
          ${expiryDate ? new Date(expiryDate) : null},
@@ -623,6 +799,7 @@ router.post('/rows', async (req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,
@@ -656,6 +833,7 @@ router.post('/rows', async (req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,
@@ -726,6 +904,7 @@ router.put('/rows/:id', async (req, res) => {
       osi.unit_price_per_kg,
       osi.unit_price_conversion_to_base,
       osi.lot_no,
+      osi.manufacturer_lot_no,
       osi.opening_date,
       osi.invoice_no,
       osi.invoice_date,
@@ -754,6 +933,7 @@ router.put('/rows/:id', async (req, res) => {
   const conversionToBase = Number(current.unit_price_conversion_to_base ?? 1000)
   const lineAmount = conversionToBase > 0 ? (quantityBase / conversionToBase) * unitPriceValue : 0
   const lotNo = (data.lot ?? String(current.lot_no ?? '')).trim()
+  const manufacturerLot = data.manufacturerLot === undefined ? current.manufacturer_lot_no : (data.manufacturerLot?.trim() || null)
   const openingDate = data.openingDate === undefined ? current.opening_date : (data.openingDate?.trim() || null)
   const invoiceNo = data.invoiceNo === undefined ? String(current.invoice_no ?? '') : data.invoiceNo.trim()
   const invoiceDate = data.invoiceDate === undefined ? current.invoice_date : (data.invoiceDate?.trim() || null)
@@ -788,6 +968,7 @@ router.put('/rows/:id', async (req, res) => {
           UPDATE opening_stock_items
           SET
             lot_no = ${lotNo},
+            manufacturer_lot_no = ${manufacturerLot},
             opening_date = ${openingDateValue},
             invoice_no = ${invoiceNo || null},
             invoice_date = ${invoiceDateValue},
@@ -807,6 +988,7 @@ router.put('/rows/:id', async (req, res) => {
           UPDATE opening_stock_items
           SET
             lot_no = ${lotNo},
+            manufacturer_lot_no = ${manufacturerLot},
             opening_date = ${openingDateValue},
             invoice_no = ${invoiceNo || null},
             invoice_date = ${invoiceDateValue},
@@ -843,6 +1025,7 @@ router.put('/rows/:id', async (req, res) => {
         where: { id: postedBatchId },
         data: {
           lotNo,
+          manufacturerLotNo: manufacturerLot,
           invoiceNumber: invoiceNo || null,
           invoiceDate: invoiceDateValue,
           supplierId,
@@ -894,6 +1077,7 @@ router.put('/rows/:id', async (req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,
@@ -928,6 +1112,7 @@ router.put('/rows/:id', async (req, res) => {
           p.name        AS trade_name,
           (SELECT GROUP_CONCAT(pin.inci_name ORDER BY pin.id ASC SEPARATOR ', ') FROM product_inci_names pin WHERE pin.product_id = p.id) AS inci_name,
           osi.lot_no,
+          osi.manufacturer_lot_no,
           osi.opening_date,
           osi.invoice_no,
           osi.invoice_date,

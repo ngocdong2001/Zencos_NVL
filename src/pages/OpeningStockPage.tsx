@@ -24,6 +24,7 @@ import {
   fetchOpeningStockPriceUnits,
   fetchOpeningStockRows,
   updateOpeningStockRow,
+  checkMergeRows,
 } from '../lib/openingStockApi'
 import type { OpeningStockRow } from '../lib/openingStockApi'
 import { uploadItemDocument } from '../lib/openingStockDocApi'
@@ -118,6 +119,7 @@ type DraftRow = {
   tradeName: string
   inciName: string
   lot: string
+  manufacturerLot: string
   openingDate: string
   invoiceNo: string
   invoiceDate: string
@@ -136,6 +138,7 @@ const emptyDraft = (): DraftRow => ({
   tradeName: '',
   inciName: '',
   lot: '',
+  manufacturerLot: '',
   openingDate: new Date().toISOString().slice(0, 10),
   invoiceNo: '',
   invoiceDate: '',
@@ -274,6 +277,7 @@ export function OpeningStockPage() {
   const [parsedImportResult, setParsedImportResult] = useState<OpeningStockImportParseResult | null>(null)
   const [importSummary, setImportSummary] = useState<string | null>(null)
   const [importAttachmentFiles, setImportAttachmentFiles] = useState<File[]>([])
+  const [importMergeSelection, setImportMergeSelection] = useState<Set<string>>(new Set()) // Set of rowNumber values to merge
   const [catalogSyncProducts, setCatalogSyncProducts] = useState<CatalogSyncProduct[]>([])
   const [catalogSyncSuppliers, setCatalogSyncSuppliers] = useState<CatalogSyncSupplier[]>([])
   const [syncingCatalog, setSyncingCatalog] = useState(false)
@@ -662,12 +666,13 @@ export function OpeningStockPage() {
 
   const handleCellEditComplete = (event: ColumnEvent) => {
     const rowData = event.rowData as OpeningStockRow
-    const field = String(event.field ?? '') as 'lot' | 'openingDate' | 'invoiceNo' | 'invoiceDate' | 'supplierId' | 'quantityGram' | 'unitPriceValue' | 'expiryDate' | 'manufactureDate'
+    const field = String(event.field ?? '') as 'lot' | 'manufacturerLot' | 'openingDate' | 'invoiceNo' | 'invoiceDate' | 'supplierId' | 'quantityGram' | 'unitPriceValue' | 'expiryDate' | 'manufactureDate'
     if (!field || rowData.id === NEW_ROW_ID) return
 
     const raw = event.newValue
     const next: {
       lot?: string
+      manufacturerLot?: string
       openingDate?: string | null
       invoiceNo?: string
       invoiceDate?: string | null
@@ -680,6 +685,10 @@ export function OpeningStockPage() {
 
     if (field === 'lot') {
       next.lot = String(raw ?? '').trim()
+    }
+
+    if (field === 'manufacturerLot') {
+      next.manufacturerLot = String(raw ?? '').trim()
     }
 
     if (field === 'openingDate') {
@@ -755,6 +764,7 @@ export function OpeningStockPage() {
       'TEN THUONG MAI',
       'TEN INCI',
       'SO LO',
+      'LO NHA SAN XUAT',
       'SO HOA DON',
       'NGAY HOA DON',
       'NHA CUNG CAP',
@@ -799,6 +809,7 @@ export function OpeningStockPage() {
         row.tradeName,
         row.inciName,
         row.lot,
+        row.manufacturerLot || '',
         row.invoiceNo,
         parseIsoDate(row.invoiceDate),
         row.supplierName || row.supplierCode,
@@ -819,13 +830,13 @@ export function OpeningStockPage() {
     }
 
     for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
-      worksheet.getCell(`F${rowNumber}`).numFmt = 'dd/mm/yyyy'
-      worksheet.getCell(`H${rowNumber}`).numFmt = '#,##0.###'
+      worksheet.getCell(`G${rowNumber}`).numFmt = 'dd/mm/yyyy'
       worksheet.getCell(`I${rowNumber}`).numFmt = '#,##0.###'
-      worksheet.getCell(`K${rowNumber}`).numFmt = '#,##0.###'
-      worksheet.getCell(`L${rowNumber}`).numFmt = 'dd/mm/yyyy'
+      worksheet.getCell(`J${rowNumber}`).numFmt = '#,##0.###'
+      worksheet.getCell(`L${rowNumber}`).numFmt = '#,##0.###'
       worksheet.getCell(`M${rowNumber}`).numFmt = 'dd/mm/yyyy'
       worksheet.getCell(`N${rowNumber}`).numFmt = 'dd/mm/yyyy'
+      worksheet.getCell(`O${rowNumber}`).numFmt = 'dd/mm/yyyy'
     }
 
     worksheet.columns.forEach((column) => {
@@ -869,7 +880,7 @@ export function OpeningStockPage() {
 
   const handleDownloadTemplate = () => {
     downloadExcelTemplate(
-      ['MA NVL', 'SO LO', 'SO HOA DON', 'NGAY HOA DON', 'NHA CUNG CAP', 'SL (gr/ml)', 'DON GIA', 'NGAY TD', 'NGAY SX', 'HAN SD', 'FILE MSDS', 'FILE COA', 'FILE HOA DON', 'FILE KHAC'],
+      ['MA NVL', 'SO LO', 'LO NHA SAN XUAT', 'SO HOA DON', 'NGAY HOA DON', 'NHA CUNG CAP', 'SL (gr/ml)', 'DON GIA', 'NGAY TD', 'NGAY SX', 'HAN SD', 'FILE MSDS', 'FILE COA', 'FILE HOA DON', 'FILE KHAC'],
       'mau-khai-bao-ton-kho-dau-ky.xlsx',
     )
   }
@@ -889,6 +900,7 @@ export function OpeningStockPage() {
     setParsedImportResult(null)
     setImportSummary(null)
     setImportAttachmentFiles([])
+    setImportMergeSelection(new Set())
     setCatalogSyncProducts([])
     setCatalogSyncSuppliers([])
     setImportStep(1)
@@ -1052,11 +1064,46 @@ export function OpeningStockPage() {
       setSelectedImportFileName(file.name)
       const parsed = await parseOpeningStockExcel(file)
       const enrichedRows = await enrichImportPreviewRows(parsed.rows)
-      setParsedImportResult({
-        ...parsed,
-        rows: enrichedRows,
-      })
-      detectMissingCatalogItems(enrichedRows)
+      
+      // Check for existing rows (merge detection with change detection)
+      try {
+        const mergeChecks = await checkMergeRows(
+          enrichedRows.map(r => ({
+            code: r.code,
+            lot: r.lot,
+            quantityBase: r.convertedQuantityBase ?? r.quantityBase,
+            unitPriceValue: r.unitPriceValue,
+            supplierId: enrichedRows.length > 0 ? (resolveSupplierIdByImportValue(r.supplierText) ?? null) : null,
+            openingDate: r.openingDate,
+            manufactureDate: r.manufactureDate,
+            expiryDate: r.expiryDate,
+          }))
+        )
+        const mergeMap = new Map(
+          mergeChecks.map(m => ([`${m.code}|${m.lot}`, { existingId: m.existingId, hasChanges: m.hasChanges, changes: m.changes }]))
+        )
+        const rowsWithMerge = enrichedRows.map(r => {
+          const mergeInfo = mergeMap.get(`${r.code}|${r.lot}`)
+          return {
+            ...r,
+            mergeExistingId: mergeInfo?.existingId || null,
+            mergeHasChanges: mergeInfo?.hasChanges || false,
+            mergeChanges: mergeInfo?.changes || [],
+          }
+        })
+        setParsedImportResult({
+          ...parsed,
+          rows: rowsWithMerge,
+        })
+        detectMissingCatalogItems(rowsWithMerge)
+      } catch (mergeError) {
+        // If merge check fails, continue without merge info
+        setParsedImportResult({
+          ...parsed,
+          rows: enrichedRows,
+        })
+        detectMissingCatalogItems(enrichedRows)
+      }
     } catch (error) {
       setImportParseError(parseApiErrorMessage(error, 'Không thể đọc file import.'))
       setParsedImportResult(null)
@@ -1252,8 +1299,15 @@ export function OpeningStockPage() {
       return
     }
 
+    // Include both valid rows and selected merge rows
     const validRows = parsedImportResult.rows.filter((row) => row.warnings.length === 0)
-    if (validRows.length === 0) {
+    const selectedMergeRows = parsedImportResult.rows.filter(
+      (row) => row.mergeExistingId !== null && row.mergeExistingId !== undefined && importMergeSelection.has(String(row.rowNumber))
+    )
+    
+    const rowsToImport = [...new Set([...validRows, ...selectedMergeRows])]
+    
+    if (rowsToImport.length === 0) {
       setImportParseError('Không có dòng hợp lệ để import.')
       return
     }
@@ -1268,22 +1322,45 @@ export function OpeningStockPage() {
       const errors: string[] = []
       const missingFiles: string[] = []
 
-      for (const row of validRows) {
+      for (const row of rowsToImport) {
         try {
-          const created = await createOpeningStockRow({
-            code: row.code,
-            lot: row.lot,
-            openingDate: row.openingDate,
-            invoiceNo: row.invoiceNo || undefined,
-            invoiceDate: row.invoiceDate || undefined,
-            supplierId: resolveSupplierIdByImportValue(row.supplierText),
-            locationId: importLocationId || null,
-            quantityBase: row.convertedQuantityBase ?? row.quantityBase,
-            unitPriceValue: row.unitPriceValue,
-            unitPriceUnitId: row.lookupUnitPriceUnitId,
-            expiryDate: row.expiryDate || undefined,
-            manufactureDate: row.manufactureDate || undefined,
-          })
+          const shouldMerge = importMergeSelection.has(String(row.rowNumber)) && row.mergeExistingId
+          let rowId: string
+
+          if (shouldMerge && row.mergeExistingId) {
+            // Merge: update existing row
+            await updateOpeningStockRow(row.mergeExistingId, {
+              lot: row.lot,
+              manufacturerLot: row.manufacturerLot || undefined,
+              openingDate: row.openingDate,
+              invoiceNo: row.invoiceNo || undefined,
+              invoiceDate: row.invoiceDate || undefined,
+              supplierId: resolveSupplierIdByImportValue(row.supplierText),
+              quantityBase: row.convertedQuantityBase ?? row.quantityBase,
+              unitPriceValue: row.unitPriceValue,
+              expiryDate: row.expiryDate || undefined,
+              manufactureDate: row.manufactureDate || undefined,
+            })
+            rowId = row.mergeExistingId
+          } else {
+            // Create: insert new row
+            const created = await createOpeningStockRow({
+              code: row.code,
+              lot: row.lot,
+              manufacturerLot: row.manufacturerLot || undefined,
+              openingDate: row.openingDate,
+              invoiceNo: row.invoiceNo || undefined,
+              invoiceDate: row.invoiceDate || undefined,
+              supplierId: resolveSupplierIdByImportValue(row.supplierText),
+              locationId: importLocationId || null,
+              quantityBase: row.convertedQuantityBase ?? row.quantityBase,
+              unitPriceValue: row.unitPriceValue,
+              unitPriceUnitId: row.lookupUnitPriceUnitId,
+              expiryDate: row.expiryDate || undefined,
+              manufactureDate: row.manufactureDate || undefined,
+            })
+            rowId = created.id
+          }
 
           createdRows += 1
 
@@ -1297,7 +1374,7 @@ export function OpeningStockPage() {
               }
 
               try {
-                await uploadItemDocument(created.id, matched, docType)
+                await uploadItemDocument(rowId, matched, docType)
                 uploadedDocs += 1
               } catch (error) {
                 const message = parseApiErrorMessage(error, 'Upload chứng từ thất bại.')
@@ -1311,7 +1388,7 @@ export function OpeningStockPage() {
         }
       }
 
-      skippedRows += parsedImportResult.rows.length - validRows.length
+      skippedRows += parsedImportResult.rows.length - rowsToImport.length
 
       await loadRows()
 
@@ -1399,6 +1476,7 @@ export function OpeningStockPage() {
       const newRow = await createOpeningStockRow({
         code,
         lot: normalizedLot,
+        manufacturerLot: draft.manufacturerLot || undefined,
         openingDate: draft.openingDate || undefined,
         invoiceNo: draft.invoiceNo || undefined,
         invoiceDate: draft.invoiceDate || undefined,
@@ -1748,6 +1826,32 @@ export function OpeningStockPage() {
                       onChange={(event) => handleDraftChange('lot', event.target.value)}
                       placeholder="Số lô"
                       aria-label="Số lô"
+                    />
+                  )
+              )}
+            />
+            <Column
+              field="manufacturerLot"
+              header="LÔ NHÀ SẢN XUẤT"
+              style={{ width: '130px' }}
+              onBeforeCellEditShow={preventEditOnNewRow}
+              onCellEditComplete={handleCellEditComplete}
+              editor={(options) => (
+                <input
+                  value={String(options.value ?? '')}
+                  onChange={(e) => options.editorCallback?.(e.target.value)}
+                  aria-label="Lô nhà sản xuất"
+                />
+              )}
+              body={(rowData: OpeningStockRow) => (
+                rowData.id !== NEW_ROW_ID
+                  ? (rowData.manufacturerLot || '---')
+                  : (
+                    <input
+                      value={draft.manufacturerLot}
+                      onChange={(event) => handleDraftChange('manufacturerLot', event.target.value)}
+                      placeholder="Lô nhà sản xuất"
+                      aria-label="Lô nhà sản xuất"
                     />
                   )
               )}
@@ -2163,6 +2267,8 @@ export function OpeningStockPage() {
         catalogSyncSuppliers={catalogSyncSuppliers}
         syncingCatalog={syncingCatalog}
         importStep={importStep}
+        mergeSelection={importMergeSelection}
+        onMergeSelectionChange={setImportMergeSelection}
         onGoToStep={setImportStep}
         onUpdateSyncProducts={setCatalogSyncProducts}
         onUpdateSyncSuppliers={setCatalogSyncSuppliers}

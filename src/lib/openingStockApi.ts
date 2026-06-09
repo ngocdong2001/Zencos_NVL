@@ -9,6 +9,7 @@ export type OpeningStockRow = {
   tradeName: string
   inciName: string
   lot: string
+  manufacturerLot: string
   openingDate: string
   invoiceNo: string
   invoiceDate: string
@@ -57,6 +58,7 @@ export async function fetchOpeningStockRows(): Promise<OpeningStockRow[]> {
 export async function createOpeningStockRow(payload: {
   code: string
   lot: string
+  manufacturerLot?: string
   openingDate?: string
   invoiceNo?: string
   invoiceDate?: string
@@ -76,6 +78,7 @@ export async function createOpeningStockRow(payload: {
 
 export async function updateOpeningStockRow(id: string, payload: {
   lot?: string
+  manufacturerLot?: string
   openingDate?: string | null
   invoiceNo?: string
   invoiceDate?: string | null
@@ -97,4 +100,11 @@ export async function fetchOpeningStockPriceUnits(code: string): Promise<Opening
 
 export async function deleteOpeningStockRow(id: string): Promise<OpeningStockDeleteResult> {
   return http<OpeningStockDeleteResult>(`/api/inventory-opening/rows/${id}`, { method: 'DELETE' })
+}
+
+export async function checkMergeRows(rows: Array<{ code: string; lot: string; quantityBase: number; unitPriceValue: number; supplierId: string | null; openingDate: string; manufactureDate: string; expiryDate: string }>): Promise<Array<{ code: string; lot: string; existingId: string | null; hasChanges: boolean; changes: string[] }>> {
+  return http('/api/inventory-opening/check-merge', {
+    method: 'POST',
+    body: JSON.stringify(rows),
+  })
 }

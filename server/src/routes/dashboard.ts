@@ -367,7 +367,7 @@ router.get('/', async (_req: Request, res: Response) => {
   const purchaseTxs: RawTx[] = recentPurchaseRequests.map((r) => {
     const totalQty = r.items.reduce((s, i) => s + Number(i.quantityNeededBase), 0)
     return {
-      dbId: r.id,
+      dbId: String(r.id),
       id: r.requestRef,
       type: 'Mua hàng',
       material: r.items[0]?.product?.name ?? '---',

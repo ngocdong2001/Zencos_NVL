@@ -138,6 +138,7 @@ export function InventoryTable({
           <thead>
             <tr>
               <th>LOT NO</th>
+              <th>LÔ NHÀ SẢN XUẤT</th>
               <th>NGÀY HÓA ĐƠN NHẬP</th>
               <th>SỐ HÓA ĐƠN</th>
               <th>NGÀY SẢN XUẤT</th>
@@ -151,7 +152,7 @@ export function InventoryTable({
           <tbody>
             {isLoadingLots && (
               <tr>
-                <td colSpan={9} className="lot-empty">
+                <td colSpan={10} className="lot-empty">
                   <i className="pi pi-spin pi-spinner" style={{ marginRight: 6 }}></i>
                   Đang tải...
                 </td>
@@ -160,6 +161,7 @@ export function InventoryTable({
             {!isLoadingLots && lots && lots.map((lot) => (
               <tr key={lot.id}>
                 <td className="lot-no">{lot.lotNo}</td>
+                <td>{lot.manufacturerLot ?? <span className="lot-empty-cell">—</span>}</td>
                 <td>{lot.invoiceDate ? formatDate(lot.invoiceDate) : <span className="lot-empty-cell">—</span>}</td>
                 <td>{lot.invoiceNumber ?? <span className="lot-empty-cell">—</span>}</td>
                 <td>{lot.manufactureDate ? formatDate(lot.manufactureDate) : <span className="lot-empty-cell">—</span>}</td>
@@ -176,7 +178,7 @@ export function InventoryTable({
             ))}
             {!isLoadingLots && lots && lots.length === 0 && (
               <tr>
-                <td colSpan={9} className="lot-empty">Chưa có lô hàng nào</td>
+                <td colSpan={10} className="lot-empty">Chưa có lô hàng nào</td>
               </tr>
             )}
           </tbody>
