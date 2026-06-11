@@ -23,6 +23,7 @@ export const initialMaterialRows: MaterialRow[] = [
   {
     id: 'nvl-001',
     code: 'NVL-001',
+    internalName: '',
     inciName: 'Glycerin',
     materialName: 'Glycerin 99.5%',
     category: 'Chất giữ ẩm',
@@ -34,6 +35,7 @@ export const initialMaterialRows: MaterialRow[] = [
   {
     id: 'nvl-002',
     code: 'NVL-002',
+    internalName: '',
     inciName: 'Phenoxyethanol',
     materialName: 'Phenoxyethanol',
     category: 'Chất bảo quản',
@@ -45,6 +47,7 @@ export const initialMaterialRows: MaterialRow[] = [
   {
     id: 'nvl-003',
     code: 'NVL-003',
+    internalName: '',
     inciName: 'Sodium Laureth Sulfate',
     materialName: 'SLES 70%',
     category: 'Chất hoạt động bề mặt',
@@ -56,6 +59,7 @@ export const initialMaterialRows: MaterialRow[] = [
   {
     id: 'nvl-004',
     code: 'NVL-004',
+    internalName: '',
     inciName: 'Fragrance',
     materialName: 'Hương Lavender',
     category: 'Hương liệu',
@@ -67,6 +71,7 @@ export const initialMaterialRows: MaterialRow[] = [
   {
     id: 'nvl-005',
     code: 'NVL-005',
+    internalName: '',
     inciName: 'Purified Water',
     materialName: 'Nước cất hai lần',
     category: 'Dung môi',
@@ -102,6 +107,7 @@ export const initialBasicRows: CatalogState = {
 
 export const emptyMaterialForm: QuickMaterialForm = {
   code: '',
+  internalName: '',
   inciName: '',
   materialName: '',
   category: '',

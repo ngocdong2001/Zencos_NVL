@@ -27,7 +27,7 @@ export type ProductionBom = {
   bomName: string
   bomVersion: string | null
   outputProductId: string | null
-  outputProduct: { id: string; code: string; name: string; outputType: string; unit: string } | null
+  outputProduct: { id: string; code: string; name: string; internalName?: string; outputType: string; unit: string } | null
   baseQty: number
   version: number
   status: ProductionBomStatus

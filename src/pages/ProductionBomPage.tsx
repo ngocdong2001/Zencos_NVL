@@ -127,6 +127,7 @@ export default function ProductionBomPage() {
             id: data.outputProduct.id,
             code: data.outputProduct.code,
             name: data.outputProduct.name,
+            internalName: data.outputProduct.internalName || '',
             outputType: data.outputProduct.outputType as 'finished' | 'semi_finished',
             unit: data.outputProduct.unit,
             notes: '',
