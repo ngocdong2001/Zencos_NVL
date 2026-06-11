@@ -86,6 +86,7 @@ export async function fetchNextMaterialCode(): Promise<string> {
 export async function createMaterial(payload: {
   code: string
   name: string
+  internalName?: string
   inciName: string
   productType: string | number
   baseUnit: string
@@ -104,6 +105,7 @@ export async function createMaterial(payload: {
 export async function updateMaterial(id: string, payload: Partial<{
   code: string
   name: string
+  internalName: string
   inciName: string
   productType: string | number
   baseUnit: string

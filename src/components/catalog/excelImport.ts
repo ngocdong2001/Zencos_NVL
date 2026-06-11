@@ -28,7 +28,7 @@ export type ParsedImportResult = {
 
 const TAB_HEADERS: Record<TabId, string[]> = {
   materials: ['ma nvl', 'inci name', 'ten nguyen lieu', 'phan loai', 'don vi', 'don vi dat hang', 'trang thai'],
-  product_outputs: ['ma', 'ten', 'phan loai', 'don vi', 'trang thai'],
+  product_outputs: ['ma', 'ten', 'ten noi bo', 'phan loai', 'don vi', 'trang thai'],
   classifications: ['ma', 'ten', 'ghi chu', 'trang thai'],
   locations: ['ma', 'ten', 'ghi chu', 'trang thai'],
   suppliers: ['ma', 'ten', 'sdt', 'lien he', 'dia chi', 'ghi chu', 'trang thai'],
@@ -40,6 +40,7 @@ const HEADER_SYNONYMS: Record<string, string[]> = {
   'ma nvl': ['mã nvl', 'ma nguyen lieu', 'mã nguyên liệu', 'code'],
   'inci name': ['inci', 'inci_name'],
   'ten nguyen lieu': ['ten', 'tên nguyên liệu', 'material name'],
+  'ten noi bo': ['tên nội bộ', 'internal name', 'internal_name', 'ten noi bo'],
   'phan loai': ['phanloai', 'classification', 'category'],
   'don vi': ['đơn vị', 'don vi tinh', 'unit'],
   'don vi dat hang': ['don vi order', 'order unit', 'purchase unit', 'don vi tinh tien'],

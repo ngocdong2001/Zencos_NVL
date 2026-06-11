@@ -8,6 +8,7 @@ export type ProductOutputRow = {
   id: string
   code: string
   name: string
+  internalName: string
   outputType: ProductOutputType
   unit: string
   notes: string
@@ -16,6 +17,7 @@ export type ProductOutputRow = {
 export type MaterialRow = {
   id: string
   code: string
+  internalName: string
   inciName: string
   materialName: string
   category: string
@@ -44,6 +46,7 @@ export type BasicRow = {
 
 export type QuickMaterialForm = {
   code: string
+  internalName: string
   inciName: string
   materialName: string
   category: string

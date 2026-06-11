@@ -14,7 +14,7 @@ import {
 
 const rootDir = process.cwd()
 const guideDir = path.join(rootDir, 'docs', 'quick-guide')
-const screenshotSubDir = process.env.GUIDE_SCREENSHOT_DIR || 'screenshots'
+const screenshotSubDir = process.env.GUIDE_SCREENSHOT_DIR || 'screenshots-annotated'
 const shotDir = path.join(guideDir, screenshotSubDir)
 const highlightFile = path.join(guideDir, 'screenshot-highlights.json')
 const outFile = path.join(guideDir, 'Quick-Guide-ZencosMS.docx')
@@ -137,7 +137,19 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 13. Danh mục (Catalogs)',
+    title: 'Bước 13. Lập phiếu xuất kho TP',
+    images: [
+      { file: '07-tp-outbound-step1.png', caption: 'Biểu mẫu phiếu xuất kho thành phẩm hoàn chỉnh' },
+    ],
+    bullets: [
+      'Tạo phiếu xuất mới, chọn khách hàng và nhập hình thức thanh toán.',
+      'Khai báo ngày xuất, người giao hàng, phương thức vận chuyển và số vận đơn.',
+      'Chọn sản phẩm, nhập số lô, số lượng và đơn giá. Hệ thống tự động tính thành tiền.',
+      'Xác nhận toàn bộ phiếu khi dữ liệu đã chính xác, hệ thống sẽ cập nhật tồn kho TP tương ứng.',
+    ],
+  },
+  {
+    title: 'Bước 15. Danh mục (Catalogs)',
     image: '12-catalog.png',
     bullets: [
       'Quản lý mã NVL, danh mục cơ bản và sản phẩm đầu ra.',
@@ -146,7 +158,7 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 14. Khai báo tồn kho đầu kỳ',
+    title: 'Bước 16. Khai báo tồn kho đầu kỳ',
     image: '13-opening-stock.png',
     bullets: [
       'Nhập thông tin lô, số lượng, đơn giá, nhà cung cấp và ngày liên quan.',
@@ -155,7 +167,7 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 15. Chuyển kho nội bộ',
+    title: 'Bước 17. Chuyển kho nội bộ',
     image: '14-stock-transfer.png',
     bullets: [
       'Tạo phiếu chuyển, bổ sung hàng hóa và số lượng cần luân chuyển.',
@@ -164,7 +176,7 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 16. Quản lý người dùng',
+    title: 'Bước 18. Quản lý người dùng',
     image: '15-users.png',
     bullets: [
       'Tạo tài khoản mới, cấp vai trò và trạng thái hoạt động.',
@@ -173,7 +185,7 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 17. Ma trận phân quyền vai trò',
+    title: 'Bước 19. Ma trận phân quyền vai trò',
     image: '16-role-permissions.png',
     bullets: [
       'Tra cứu nhanh vai trò nào có quyền xem/ghi/xóa theo từng phân hệ.',
@@ -181,7 +193,7 @@ const steps = [
     ],
   },
   {
-    title: 'Bước 18. Tài khoản của tôi',
+    title: 'Bước 20. Tài khoản của tôi',
     image: '17-profile.png',
     bullets: [
       'Cập nhật họ tên/email cho tài khoản đang đăng nhập.',

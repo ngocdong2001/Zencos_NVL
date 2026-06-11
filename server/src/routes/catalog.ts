@@ -101,6 +101,7 @@ async function getNextCustomerCode(): Promise<string> {
 const materialSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
+  internalName: z.string().optional().nullable().default(''),
   inciName: z.string().optional().default(''),
   productType: z.union([z.string(), z.coerce.number().int().positive()]).optional().nullable(),
   baseUnit: z.union([z.string().min(1), z.coerce.number().int().positive()]),
@@ -217,6 +218,7 @@ router.get('/materials', async (req, res) => {
       p.id,
       p.code,
       p.name,
+      p.internal_name,
       p.min_stock_level,
       p.product_type,
       pc.code AS product_type_code,
@@ -253,6 +255,7 @@ router.get('/materials', async (req, res) => {
   const data = rows.map((row) => ({
     id: String(row.id),
     code: String(row.code ?? ''),
+    internalName: String(row.internal_name ?? ''),
     inciName: String(row.inci_name ?? ''),
     materialName: String(row.name ?? ''),
     category: String(row.product_type_code ?? row.product_type ?? ''),
@@ -528,9 +531,9 @@ router.post('/materials', async (req, res) => {
   try {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO products
-        (code, name, product_type, has_expiry, use_fefo, base_unit, order_unit, min_stock_level, notes, created_at, updated_at)
+        (code, name, internal_name, product_type, has_expiry, use_fefo, base_unit, order_unit, min_stock_level, notes, created_at, updated_at)
       VALUES
-        (${codeToInsert}, ${data.name}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${orderUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
+        (${codeToInsert}, ${data.name}, ${data.internalName ?? null}, ${productTypeId}, ${data.hasExpiry}, ${data.useFefo}, ${baseUnitId}, ${orderUnitId}, ${data.minStockLevel}, ${data.notes ?? null}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (!isDuplicateCodeError(error)) throw error
@@ -545,6 +548,7 @@ router.post('/materials', async (req, res) => {
         UPDATE products
         SET
           name        = ${data.name},
+          internal_name = ${data.internalName ?? null},
           product_type = ${productTypeId},
           has_expiry  = ${data.hasExpiry},
           use_fefo    = ${data.useFefo},
@@ -672,6 +676,7 @@ router.put('/materials/:id', async (req, res) => {
       SET
         code = COALESCE(${data.code ?? null}, code),
         name = COALESCE(${data.name ?? null}, name),
+        internal_name = CASE WHEN ${data.internalName !== undefined ? 1 : 0} = 1 THEN ${data.internalName ?? null} ELSE internal_name END,
         product_type = CASE WHEN ${clearProductType} = 1 THEN NULL ELSE COALESCE(${productTypeId}, product_type) END,
         has_expiry = COALESCE(${data.hasExpiry ?? null}, has_expiry),
         use_fefo = COALESCE(${data.useFefo ?? null}, use_fefo),
@@ -1424,6 +1429,7 @@ router.delete('/locations/:id', async (req, res) => {
 const productOutputSchema = z.object({
   code:       z.string().min(1).max(100),
   name:       z.string().min(1).max(255),
+  internalName: z.string().max(255).optional().nullable().default(''),
   outputType: z.enum(['finished', 'semi_finished']),
   unit:       z.string().min(1).max(50),
   notes:      z.string().optional().nullable(),
@@ -1432,11 +1438,11 @@ const productOutputSchema = z.object({
 router.get('/products-outputs', async (req, res) => {
   const { q, outputType } = req.query as Record<string, string>
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, output_type, unit, notes, deleted_at
+    SELECT id, code, name, internal_name, output_type, unit, notes, deleted_at
     FROM products_outputs
     WHERE deleted_at IS NULL
       ${outputType && outputType !== 'all' ? Prisma.sql`AND output_type = ${outputType}` : Prisma.sql``}
-      ${q?.trim() ? Prisma.sql`AND (code LIKE ${'%' + q.trim() + '%'} OR name LIKE ${'%' + q.trim() + '%'})` : Prisma.sql``}
+      ${q?.trim() ? Prisma.sql`AND (code LIKE ${'%' + q.trim() + '%'} OR name LIKE ${'%' + q.trim() + '%'} OR internal_name LIKE ${'%' + q.trim() + '%'})` : Prisma.sql``}
     ORDER BY output_type, code ASC
   `)
 
@@ -1444,6 +1450,7 @@ router.get('/products-outputs', async (req, res) => {
     id:         String(row.id),
     code:       String(row.code ?? ''),
     name:       String(row.name ?? ''),
+    internalName: String(row.internal_name ?? ''),
     outputType: String(row.output_type ?? ''),
     unit:       String(row.unit ?? ''),
     notes:      row.notes != null ? String(row.notes) : null,
@@ -1457,7 +1464,7 @@ router.get('/products-outputs/:id', async (req, res) => {
   if (!Number.isFinite(id)) return res.status(400).json({ message: 'Invalid id' })
 
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, output_type, unit, notes, deleted_at
+    SELECT id, code, name, internal_name, output_type, unit, notes, deleted_at
     FROM products_outputs
     WHERE id = ${id} AND deleted_at IS NULL
     LIMIT 1
@@ -1469,6 +1476,7 @@ router.get('/products-outputs/:id', async (req, res) => {
     id:         String(row.id),
     code:       String(row.code ?? ''),
     name:       String(row.name ?? ''),
+    internalName: String(row.internal_name ?? ''),
     outputType: String(row.output_type ?? ''),
     unit:       String(row.unit ?? ''),
     notes:      row.notes != null ? String(row.notes) : null,
@@ -1482,8 +1490,8 @@ router.post('/products-outputs', async (req, res) => {
   const d = parsed.data
   try {
     await prisma.$executeRaw(Prisma.sql`
-      INSERT INTO products_outputs (code, name, output_type, unit, notes, created_at, updated_at)
-      VALUES (${d.code}, ${d.name}, ${d.outputType}, ${d.unit}, ${d.notes ?? null}, NOW(3), NOW(3))
+      INSERT INTO products_outputs (code, name, internal_name, output_type, unit, notes, created_at, updated_at)
+      VALUES (${d.code}, ${d.name}, ${d.internalName ?? null}, ${d.outputType}, ${d.unit}, ${d.notes ?? null}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (isDuplicateCodeError(error)) return res.status(409).json({ message: 'Mã sản phẩm đầu ra đã tồn tại.', code: d.code })
@@ -1506,6 +1514,7 @@ router.put('/products-outputs/:id', async (req, res) => {
       SET
         code        = COALESCE(${d.code ?? null}, code),
         name        = COALESCE(${d.name ?? null}, name),
+        internal_name = CASE WHEN ${d.internalName !== undefined ? 1 : 0} = 1 THEN ${d.internalName ?? null} ELSE internal_name END,
         output_type = COALESCE(${d.outputType ?? null}, output_type),
         unit        = COALESCE(${d.unit ?? null}, unit),
         notes       = COALESCE(${d.notes ?? null}, notes),

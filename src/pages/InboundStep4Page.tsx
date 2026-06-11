@@ -10,6 +10,7 @@ import { WizardStepBar } from '../components/inbound/WizardStepBar'
 import { PurchaseOrderLineSummarySection } from '../components/purchaseOrder/PurchaseOrderLineSummarySection'
 import { getInboundStatusMeta } from '../components/inbound/statusMeta'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
+import { MaterialQrDialog } from '../components/catalog/MaterialQrDialog'
 import type { InboundWizardState } from '../components/inbound/types'
 import { getInboundDraftDocumentFileUrl } from '../lib/inboundDraftDocApi'
 import { exportInboundReceiptDoc } from '../lib/inboundDocExport'
@@ -216,6 +217,7 @@ export function InboundStep4Page() {
   const [cancelBusy, setCancelBusy] = useState(false)
   const [draftSaving, setDraftSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [lotQrVisible, setLotQrVisible] = useState(false)
 
   useEffect(() => {
     if (!dbDetail) return
@@ -657,7 +659,20 @@ export function InboundStep4Page() {
                 </div>
                 <div className="inbound-step4-banner-right">
                   <span className="inbound-step4-lot-label">LOT NUMBER</span>
-                  <span className="inbound-step4-lot-pill">{lotDisplay}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="inbound-step4-lot-pill">{lotDisplay}</span>
+                    {lotDisplay && lotDisplay !== '—' ? (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Xem mã QR số lot"
+                        onClick={() => setLotQrVisible(true)}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <i className="pi pi-qrcode" />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -941,6 +956,13 @@ export function InboundStep4Page() {
           ) : null}
         </div>
       </footer>
+
+      <MaterialQrDialog
+        material={lotQrVisible && lotDisplay && lotDisplay !== '—'
+          ? { code: lotDisplay, materialName: materialNameDisplay !== '—' ? `${materialCodeDisplay} – ${materialNameDisplay}` : materialCodeDisplay }
+          : null}
+        onHide={() => setLotQrVisible(false)}
+      />
 
       <Dialog
         visible={cancelDialogVisible}

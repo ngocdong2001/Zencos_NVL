@@ -181,7 +181,7 @@ export function CatalogPage() {
   const filteredMaterials = useMemo(() => {
     const q = search.trim()
     return materials.filter((row) => {
-      const searchable = [row.code, row.inciName, row.materialName, row.category, row.unit, row.orderUnit, row.status].join(' ')
+      const searchable = [row.code, row.inciName, row.internalName, row.materialName, row.category, row.unit, row.orderUnit, row.status].join(' ')
       const passesSearch = !q || containsInsensitive(searchable, q)
       const passesStatus = !onlyActive || row.status.toLocaleLowerCase() === 'active'
       return passesSearch && passesStatus
@@ -203,7 +203,7 @@ export function CatalogPage() {
     if (activeTab !== 'product_outputs') return []
     const q = search.trim()
     return productOutputs.filter((row) => {
-      const searchable = [row.code, row.name, row.outputType, row.unit, row.notes].join(' ')
+      const searchable = [row.code, row.name, row.internalName, row.outputType, row.unit, row.notes].join(' ')
       return !q || containsInsensitive(searchable, q)
     })
   }, [activeTab, productOutputs, search])
@@ -305,6 +305,10 @@ export function CatalogPage() {
         if (importedInci && normalizeLookupKey(importedInci) !== normalizeLookupKey(byCode.inciName)) {
           diffFields.push('inci name')
         }
+        const importedInternalName = (row.values['ten noi bo'] ?? '').trim()
+        if (importedInternalName && normalizeLookupKey(importedInternalName) !== normalizeLookupKey(byCode.internalName || '')) {
+          diffFields.push('ten noi bo')
+        }
         if (importedUnit && importedUnit.toLowerCase() !== byCode.unit.toLowerCase()) {
           diffFields.push('don vi')
         }
@@ -359,6 +363,7 @@ export function CatalogPage() {
     const payload = {
       code: row.code,
       name: row.materialName,
+      internalName: row.internalName || '',
       inciName: row.inciName,
       productType: resolvedProductType,
       baseUnit: row.unit,
@@ -444,6 +449,7 @@ export function CatalogPage() {
         await updateProductOutput(row.id, {
           code: row.code,
           name: row.name,
+          internalName: row.internalName || '',
           outputType: row.outputType,
           unit: row.unit,
           notes: row.notes,
@@ -452,6 +458,7 @@ export function CatalogPage() {
         await createProductOutput({
           code: row.code,
           name: row.name,
+          internalName: row.internalName || '',
           outputType: row.outputType,
           unit: row.unit,
           notes: row.notes,
@@ -532,12 +539,12 @@ export function CatalogPage() {
   const exportCurrent = () => {
     if (activeTab === 'materials') {
       const rows = [
-        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái'],
+        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Tên nội bộ', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng', 'Trạng thái'],
         ...filteredMaterials.map((r) => {
           const byId = classificationById.get(r.category)
           const byCode = classificationByCodeLookup.get(r.category.toLowerCase())
           const categoryLabel = byId?.name ?? byCode?.name ?? r.category
-          return [r.code, r.inciName, r.materialName, categoryLabel, r.unit, r.orderUnit || r.unit, r.status]
+          return [r.code, r.inciName, r.materialName, r.internalName || '', categoryLabel, r.unit, r.orderUnit || r.unit, r.status]
         }),
       ]
       downloadExcelFile(rows, 'catalog-nguyen-lieu.xlsx')
@@ -546,8 +553,8 @@ export function CatalogPage() {
 
     if (activeTab === 'product_outputs') {
       const rows = [
-        ['Mã', 'Tên', 'Phân loại', 'Đơn vị', 'Ghi chú'],
-        ...filteredProductOutputs.map((r) => [r.code, r.name, r.outputType, r.unit, r.notes]),
+        ['Mã', 'Tên', 'Tên nội bộ', 'Phân loại', 'Đơn vị', 'Ghi chú'],
+        ...filteredProductOutputs.map((r) => [r.code, r.name, r.internalName || '', r.outputType, r.unit, r.notes]),
       ]
       downloadExcelFile(rows, 'catalog-product_outputs.xlsx')
       return
@@ -586,8 +593,8 @@ export function CatalogPage() {
 
   const downloadTemplate = () => {
     const headersMap: Record<string, string[]> = {
-      materials:        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng'],
-      product_outputs:  ['Mã', 'Tên', 'Phân loại (Thành phẩm / Bán thành phẩm)', 'Đơn vị'],
+      materials:        ['MÃ NVL', 'INCI NAME', 'Tên Nguyên liệu', 'Tên nội bộ', 'Phân loại', 'Đơn vị', 'Đơn vị đặt hàng'],
+      product_outputs:  ['Mã', 'Tên', 'Tên nội bộ', 'Phân loại (Thành phẩm / Bán thành phẩm)', 'Đơn vị'],
       units:            ['Mã', 'Tên', 'Ghi chú', 'Parent Unit ID', 'Tỷ lệ quy đổi', 'ĐV mua hàng', 'Hiển thị mặc định'],
       suppliers:        ['Mã', 'Tên', 'SĐT', 'Liên hệ', 'Địa chỉ', 'Ghi chú'],
       customers:        ['Mã', 'Tên', 'SĐT', 'Email', 'Địa chỉ', 'Ghi chú'],
@@ -749,6 +756,7 @@ export function CatalogPage() {
       const payload = {
         code: values['ma nvl'],
         name: values['ten nguyen lieu'],
+        internalName: values['ten noi bo'] || '',
         inciName: values['inci name'],
         productType: resolvedProductType,
         baseUnit: values['don vi'],
@@ -843,6 +851,7 @@ export function CatalogPage() {
         await createProductOutput({
           code: values['ma'],
           name: values['ten'],
+          internalName: values['ten noi bo'] || '',
           outputType,
           unit: values['don vi'],
           notes: values['ghi chu'] ?? '',

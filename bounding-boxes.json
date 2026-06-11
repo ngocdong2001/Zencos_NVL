@@ -1,0 +1,64 @@
+[
+  {
+    "n": 1,
+    "box": {
+      "x": 288,
+      "y": 163,
+      "width": 713,
+      "height": 320.796875,
+      "top": 163,
+      "right": 1001,
+      "bottom": 483.796875,
+      "left": 288
+    },
+    "note": "THÔNG TIN KHÁCH HÀNG: Nhập mã khách hàng, tên khách hàng, hình thức thanh toán"
+  },
+  {
+    "n": 2,
+    "box": {
+      "x": 1015,
+      "y": 163,
+      "width": 713,
+      "height": 320.796875,
+      "top": 163,
+      "right": 1728,
+      "bottom": 483.796875,
+      "left": 1015
+    },
+    "note": "THÔNG TIN XUẤT KHO & VẬN CHUYỂN: Chọn ngày xuất, nhập người giao, phương thức vận chuyển"
+  },
+  {
+    "n": 4,
+    "box": {
+      "x": 289,
+      "y": 498.796875,
+      "width": 1438,
+      "height": 57,
+      "top": 498.796875,
+      "right": 1727,
+      "bottom": 555.796875,
+      "left": 289
+    },
+    "note": "BẢNG CHI TIẾT HÀNG HÓA: Chọn sản phẩm, nhập số lô, số lượng, đơn giá"
+  },
+  {
+    "n": 6,
+    "box": {
+      "x": 307,
+      "y": 790.59375,
+      "width": 130.6875,
+      "height": 47
+    },
+    "note": "LƯU NHÁP: Lưu phiếu ở trạng thái nháp để sửa sau"
+  },
+  {
+    "n": 7,
+    "box": {
+      "x": 1514.125,
+      "y": 794.59375,
+      "width": 194.875,
+      "height": 39
+    },
+    "note": "XÁC NHẬN XUẤT KHO: Hoàn tất phiếu xuất kho"
+  }
+]

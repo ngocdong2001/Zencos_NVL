@@ -7,6 +7,7 @@ import { Dropdown } from 'primereact/dropdown'
 import type { ColumnEvent } from 'primereact/column'
 import type { BasicRow, MaterialRow, ProductOutputRow, TabId } from './types'
 import { MaterialRowExpansion } from './MaterialRowExpansion'
+import { MaterialQrDialog } from './MaterialQrDialog'
 import { getNextCode, getNextMaterialCode, resolveMaterialCodePrefix } from './utils'
 
 const NEW_ID = '__new__'
@@ -69,6 +70,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
     const [isNewMaterialMinStockFocused, setIsNewMaterialMinStockFocused] = useState(false)
     const [savingNewRow, setSavingNewRow] = useState(false)
     const [expandedMaterialIds, setExpandedMaterialIds] = useState<Set<string>>(new Set())
+    const [qrMaterial, setQrMaterial] = useState<{ code: string; materialName: string } | null>(null)
     const newMaterialCodeRef = useRef<HTMLInputElement>(null)
     const newBasicCodeRef = useRef<HTMLInputElement>(null)
     const isMat = activeTab === 'materials'
@@ -203,6 +205,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       const newRow: MaterialRow = {
         id: NEW_ID,
         code: pendingNewMat.code ?? '',
+        internalName: pendingNewMat.internalName ?? '',
         inciName: pendingNewMat.inciName ?? '',
         materialName: pendingNewMat.materialName ?? '',
         category: pendingNewMat.category ?? '',
@@ -258,6 +261,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         id: NEW_ID,
         code: pendingNewProductOutput.code ?? '',
         name: pendingNewProductOutput.name ?? '',
+        internalName: pendingNewProductOutput.internalName ?? '',
         outputType: pendingNewProductOutput.outputType ?? 'finished',
         unit: pendingNewProductOutput.unit ?? '',
         notes: pendingNewProductOutput.notes ?? '',
@@ -285,6 +289,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           id: `po-${Date.now()}`,
           code: pendingNewProductOutput.code?.trim() || nextProductOutputCode,
           name: pendingNewProductOutput.name!.trim(),
+          internalName: pendingNewProductOutput.internalName?.trim() || '',
           outputType: pendingNewProductOutput.outputType ?? 'finished',
           unit: pendingNewProductOutput.unit!.trim(),
           notes: pendingNewProductOutput.notes?.trim() || '',
@@ -365,6 +370,20 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       )
     }
 
+    function productOutputInternalNameBody(rowData: ProductOutputRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewProductOutput.internalName ?? ''}
+            onChange={(e) => setPendingNewProductOutput((prev) => ({ ...prev, internalName: e.target.value }))}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Tên nội bộ"
+          />
+        )
+      }
+      return rowData.internalName || ''
+    }
+
     function productOutputUnitBody(rowData: ProductOutputRow) {
       if (rowData.id === NEW_ID) {
         return (
@@ -431,6 +450,10 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           placeholder="-- Chọn --"
         />
       )
+    }
+
+    function productOutputInternalNameEditor(options: any) {
+      return <InputText value={options.value || ''} onChange={(e) => options.editorCallback?.(e.target.value)} placeholder="Tên nội bộ" />
     }
 
     function productOutputUnitEditor(options: any) {
@@ -573,6 +596,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         const candidate: MaterialRow = {
           id: `nvl-${Date.now()}`,
           code: pendingNewMat.code?.trim() || nextMaterialCode,
+          internalName: pendingNewMat.internalName?.trim() || '',
           inciName: pendingNewMat.inciName!.trim(),
           materialName: pendingNewMat.materialName!.trim(),
           category: pendingNewMat.category!.trim(),
@@ -647,6 +671,16 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           value={options.value || ''}
           onChange={(e) => options.editorCallback?.(e.target.value)}
           placeholder="INCI name *"
+        />
+      )
+    }
+
+    function materialInternalNameEditor(options: any) {
+      return (
+        <InputText
+          value={options.value || ''}
+          onChange={(e) => options.editorCallback?.(e.target.value)}
+          placeholder="Tên nội bộ"
         />
       )
     }
@@ -754,6 +788,20 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
         )
       }
       return rowData.inciName
+    }
+
+    function materialInternalNameBody(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) {
+        return (
+          <InputText
+            value={pendingNewMat.internalName ?? ''}
+            onChange={(e) => setNewMaterialField('internalName', e.target.value)}
+            onKeyDown={handleNewRowKeyDown}
+            placeholder="Tên nội bộ"
+          />
+        )
+      }
+      return rowData.internalName || ''
     }
 
     function materialNameBody(rowData: MaterialRow) {
@@ -904,6 +952,20 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             <i className="pi pi-trash" />
           </button>
         </div>
+      )
+    }
+
+    function materialQrButton(rowData: MaterialRow) {
+      if (rowData.id === NEW_ID) return null
+      return (
+        <button
+          type="button"
+          className="icon-btn"
+          title="Xem mã QR"
+          onClick={() => setQrMaterial({ code: rowData.code, materialName: rowData.materialName })}
+        >
+          <i className="pi pi-qrcode" />
+        </button>
       )
     }
 
@@ -1286,12 +1348,14 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               <Column selectionMode="multiple" headerStyle={{ width: '42px' }} />
               <Column field="code" header="MÃ NVL" body={materialCodeBody} editor={(options) => materialCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="inciName" header="INCI NAME" body={materialInciBody} editor={(options) => materialInciEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
+              <Column field="internalName" header="Tên nội bộ" body={materialInternalNameBody} editor={(options) => materialInternalNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="materialName" header="Tên Nguyên liệu" body={materialNameBody} editor={(options) => materialNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="category" header="Phân loại" body={materialCategoryBody} editor={(options) => materialCategoryEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="unit" header="Đơn vị" body={materialUnitBody} editor={(options) => materialUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="orderUnit" header="Đơn vị đặt hàng" body={materialOrderUnitBody} editor={(options) => materialOrderUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="minStockLevel" header="SL tối thiểu" bodyClassName="cell-number" body={materialMinStockBody} editor={(options) => materialMinStockEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
               <Column field="status" header="Trạng thái" body={materialStatusBody} editor={(options) => materialStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleMaterialCellEditComplete} sortable />
+              <Column header="QR" body={materialQrButton} style={{ width: '52px', textAlign: 'center' }} />
               <Column header="Xử lý" body={materialDeleteButton} style={{ width: '88px' }} />
             </DataTable>
           </>
@@ -1313,6 +1377,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             >
               <Column field="code" header="Mã" body={productOutputCodeBody} editor={(options) => productOutputCodeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
               <Column field="name" header="Tên sản phẩm" body={productOutputNameBody} editor={(options) => productOutputNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
+              <Column field="internalName" header="Tên nội bộ" body={productOutputInternalNameBody} editor={(options) => productOutputInternalNameEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
               <Column field="outputType" header="Loại" body={productOutputTypeBody} editor={(options) => productOutputTypeEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
               <Column field="unit" header="Đơn vị" body={productOutputUnitBody} editor={(options) => productOutputUnitEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
               <Column field="notes" header="Ghi chú" body={productOutputNotesBody} editor={(options) => productOutputNotesEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleProductOutputCellEditComplete} sortable />
@@ -1359,6 +1424,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
             </DataTable>
           </>
         )}
+        <MaterialQrDialog material={qrMaterial} onHide={() => setQrMaterial(null)} />
       </section>
     )
   },

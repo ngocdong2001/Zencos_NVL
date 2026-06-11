@@ -369,88 +369,130 @@
       "note": "Chi tiết Lô hàng"
     },
     {
-      "x": 300,
-      "y": 268,
-      "w": 400,
-      "h": 201,
+      "x": 318,
+      "y": 590,
+      "w": 916,
+      "h": 345,
       "n": 2,
       "note": "Nhập LOT, đơn giá, số lượng"
     },
     {
-      "x": 300,
-      "y": 509,
-      "w": 400,
-      "h": 161,
+      "x": 318,
+      "y": 974,
+      "w": 916,
+      "h": 263,
       "n": 3,
       "note": "Thông tin hóa đơn, MFG/EXP"
     },
     {
-      "x": 1677,
-      "y": 1266,
-      "w": 185,
-      "h": 75,
+      "x": 1680,
+      "y": 1320,
+      "w": 182,
+      "h": 55,
       "n": 4,
       "note": "Tiếp tục bước 3"
     }
   ],
   "06-inbound-step3.png": [
     {
-      "x": 197,
-      "y": 59,
-      "w": 297,
-      "h": 32,
+      "x": 323,
+      "y": 102,
+      "w": 520,
+      "h": 78,
       "n": 1,
       "note": "Số lượng & Chứng từ"
     },
     {
-      "x": 211,
-      "y": 132,
-      "w": 281,
-      "h": 73,
+      "x": 784,
+      "y": 347,
+      "w": 384,
+      "h": 338,
       "n": 2,
       "note": "Xác nhận số lượng"
     },
     {
-      "x": 211,
-      "y": 235,
-      "w": 562,
-      "h": 220,
+      "x": 352,
+      "y": 347,
+      "w": 404,
+      "h": 746,
       "n": 3,
       "note": "Đính kèm COA, MSDS"
     },
     {
-      "x": 1178,
-      "y": 694,
-      "w": 130,
-      "h": 41,
+      "x": 1176,
+      "y": 1308,
+      "w": 338,
+      "h": 152,
       "n": 4,
       "note": "Tiếp tục bước 4"
     }
   ],
   "06-inbound-step4.png": [
     {
-      "x": 126,
-      "y": 64,
-      "w": 190,
-      "h": 35,
+      "x": 362,
+      "y": 122,
+      "w": 560,
+      "h": 78,
       "n": 1,
       "note": "Xác nhận dữ liệu"
     },
     {
-      "x": 135,
-      "y": 160,
-      "w": 360,
-      "h": 320,
+      "x": 362,
+      "y": 303,
+      "w": 683,
+      "h": 1183,
       "n": 2,
       "note": "Tóm tắt thông tin phiếu"
     },
     {
-      "x": 630,
-      "y": 756,
-      "w": 83,
-      "h": 45,
+      "x": 1072,
+      "y": 1866,
+      "w": 246,
+      "h": 94,
       "n": 3,
       "note": "Xác nhận hoàn tất"
+    }
+  ],
+  "07-tp-outbound-step1.png": [
+    {
+      "x": 288,
+      "y": 163,
+      "w": 713,
+      "h": 321,
+      "n": 1,
+      "note": "THÔNG TIN KHÁCH HÀNG: Nhập mã khách hàng, tên khách hàng, hình thức thanh toán"
+    },
+    {
+      "x": 1015,
+      "y": 163,
+      "w": 713,
+      "h": 321,
+      "n": 2,
+      "note": "THÔNG TIN XUẤT KHO & VẬN CHUYỂN: Chọn ngày xuất, nhập người giao, phương thức vận chuyển"
+    },
+    {
+      "x": 289,
+      "y": 499,
+      "w": 1438,
+      "h": 180,
+      "n": 4,
+      "note": "BẢNG CHI TIẾT HÀNG HÓA: Chọn sản phẩm, nhập số lô, số lượng, đơn giá"
+    },
+    {
+      "x": 307,
+      "y": 791,
+      "w": 131,
+      "h": 47,
+      "n": 6,
+      "note": "LƯU NHÁP: Lưu phiếu ở trạng thái nháp để sửa sau"
+    },
+    {
+      "x": 1514,
+      "y": 795,
+      "w": 195,
+      "h": 39,
+      "n": 7,
+      "note": "XÁC NHẬN XUẤT KHO: Hoàn tất phiếu xuất kho"
     }
   ]
 }

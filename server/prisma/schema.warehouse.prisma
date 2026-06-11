@@ -164,6 +164,7 @@ model Product {
   id             BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
   code           String           @unique @db.VarChar(100)
   name           String           @db.VarChar(255)
+  internalName   String?          @map("internal_name") @db.VarChar(255)
   inciName       String?          @map("inci_name") @db.VarChar(255)
   productType    BigInt?          @map("product_type") @db.UnsignedBigInt
   hasExpiry      Boolean          @default(true) @map("has_expiry")
@@ -783,6 +784,7 @@ model ProductOutput {
   id         BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
   code       String            @unique @db.VarChar(100)
   name       String            @db.VarChar(255)
+  internalName String?         @map("internal_name") @db.VarChar(255)
   outputType ProductOutputType @map("output_type")
   unit       String            @db.VarChar(50)
   notes      String?           @db.Text
