@@ -172,6 +172,10 @@ function normalizeCode(value: string): string {
   return value.trim().toUpperCase().replace(/\s+/g, '-')
 }
 
+function buildCodeLotKey(code: string, lot: string): string {
+  return `${normalizeCode(code)}|||${lot.trim().toLowerCase()}`
+}
+
 function normalizeLookup(value: string): string {
   return value
     .trim()
@@ -985,14 +989,12 @@ export function OpeningStockPage() {
     }
 
     // Build set of (code, lot) pairs already in the database
-    const existingDbKeys = new Set(
-      rows.map((r) => `${normalizeCode(r.code)}|||${r.lot.trim().toLowerCase()}`),
-    )
+    const existingDbKeys = new Set(rows.map((r) => buildCodeLotKey(r.code, r.lot)))
 
     // Build set of (code, lot) pairs that appear more than once in the import file
     const importKeyCount = new Map<string, number>()
     for (const r of sourceRows) {
-      const k = `${normalizeCode(r.code)}|||${r.lot.trim().toLowerCase()}`
+      const k = buildCodeLotKey(r.code, r.lot)
       importKeyCount.set(k, (importKeyCount.get(k) ?? 0) + 1)
     }
 
@@ -1019,7 +1021,7 @@ export function OpeningStockPage() {
         nextWarnings.push('Không lookup được nhà cung cấp từ dữ liệu import.')
       }
       // Duplicate detection against existing database rows
-      const importKey = `${normalizeCode(row.code)}|||${row.lot.trim().toLowerCase()}`
+      const importKey = buildCodeLotKey(row.code, row.lot)
       if (row.code && existingDbKeys.has(importKey)) {
         nextWarnings.push(`Trùng với dữ liệu đã có trong database: Mã NVL ${row.code} - Số lô "${row.lot || '(trống)'}".`)
       }
@@ -1075,8 +1077,8 @@ export function OpeningStockPage() {
       try {
         const mergeChecks = await checkMergeRows(
           enrichedRows.map(r => ({
-            code: r.code,
-            lot: r.lot,
+            code: normalizeCode(r.code),
+            lot: r.lot.trim(),
             quantityBase: r.convertedQuantityBase ?? r.quantityBase,
             unitPriceValue: r.unitPriceValue,
             supplierId: enrichedRows.length > 0 ? (resolveSupplierIdByImportValue(r.supplierText) ?? null) : null,
@@ -1086,10 +1088,10 @@ export function OpeningStockPage() {
           }))
         )
         const mergeMap = new Map(
-          mergeChecks.map(m => ([`${m.code}|${m.lot}`, { existingId: m.existingId, hasChanges: m.hasChanges, changes: m.changes }]))
+          mergeChecks.map(m => ([buildCodeLotKey(m.code, m.lot), { existingId: m.existingId, hasChanges: m.hasChanges, changes: m.changes }]))
         )
         const rowsWithMerge = enrichedRows.map(r => {
-          const mergeInfo = mergeMap.get(`${r.code}|${r.lot}`)
+          const mergeInfo = mergeMap.get(buildCodeLotKey(r.code, r.lot))
           return {
             ...r,
             mergeExistingId: mergeInfo?.existingId || null,

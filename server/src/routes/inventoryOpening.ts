@@ -911,6 +911,7 @@ router.put('/rows/:id', async (req, res) => {
       osi.id,
       osi.declaration_id,
       osi.product_id,
+      p.code AS product_code,
       osi.quantity_base,
       osi.unit_price_value,
       osi.unit_price_per_kg,
@@ -927,6 +928,7 @@ router.put('/rows/:id', async (req, res) => {
       osi.posted_batch_id,
       osi.location_id
     FROM opening_stock_items osi
+    JOIN products p ON p.id = osi.product_id
     JOIN opening_stock_declarations osd ON osd.id = osi.declaration_id
     WHERE osi.id = ${id} AND osd.status = 'draft'
     LIMIT 1
@@ -945,6 +947,7 @@ router.put('/rows/:id', async (req, res) => {
   const conversionToBase = Number(current.unit_price_conversion_to_base ?? 1000)
   const lineAmount = conversionToBase > 0 ? (quantityBase / conversionToBase) * unitPriceValue : 0
   const lotNo = (data.lot ?? String(current.lot_no ?? '')).trim()
+  const productCode = String(current.product_code ?? '').trim().toUpperCase()
   const manufacturerLot = data.manufacturerLot === undefined ? current.manufacturer_lot_no : (data.manufacturerLot?.trim() || null)
   const openingDate = data.openingDate === undefined ? current.opening_date : (data.openingDate?.trim() || null)
   const invoiceNo = data.invoiceNo === undefined ? String(current.invoice_no ?? '') : data.invoiceNo.trim()
@@ -958,6 +961,30 @@ router.put('/rows/:id', async (req, res) => {
   const supplier = await ensureSupplierExists(supplierId)
   if (supplierId !== null && !supplier) {
     return res.status(400).json({ message: 'Nhà cung cấp không hợp lệ.' })
+  }
+
+  const declarationId = toBigInt(current.declaration_id)
+  const productId = toBigInt(current.product_id)
+  if (declarationId === null || productId === null) {
+    return res.status(500).json({ message: 'Không thể xác định declaration/product cho dòng cần cập nhật.' })
+  }
+
+  const duplicate = await prisma.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
+    SELECT id
+    FROM opening_stock_items
+    WHERE declaration_id = ${declarationId}
+      AND product_id = ${productId}
+      AND lot_no = ${lotNo}
+      AND id <> ${id}
+    LIMIT 1
+  `)
+
+  if (duplicate[0]) {
+    return res.status(409).json({
+      message: `Mã NVL "${productCode}" + Lô "${lotNo}" đã tồn tại trong phiếu khai báo.`,
+      code: productCode,
+      lot: lotNo,
+    })
   }
 
   if (!Number.isFinite(quantityBase) || quantityBase < 0 || !Number.isFinite(unitPriceValue) || unitPriceValue < 0) {
