@@ -20,6 +20,7 @@ import {
   type InboundReceiptHistoryRowResponse,
 } from '../lib/inboundApi'
 import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
+import { exportStockCard } from '../lib/warehouseStockCardExport'
 import './WarehouseItemDetailPage.css'
 
 // ── Formatters ────────────────────────────────────────────────────────
@@ -327,6 +328,19 @@ export function WarehouseItemDetailPage() {
     })
     return rows
   })()
+
+  async function handleExportStockCard() {
+    if (!detail) {
+      alert('Không thể xuất thẻ kho. Dữ liệu không sẵn sàng.')
+      return
+    }
+    try {
+      await exportStockCard(detail)
+    } catch (e) {
+      console.error('Export error:', e)
+      alert('Không thể xuất thẻ kho. Vui lòng thử lại.')
+    }
+  }
 
   return (
     <>
@@ -694,103 +708,18 @@ export function WarehouseItemDetailPage() {
         {/* ── Sidebar ── */}
         <div className="idb-body-side">
 
-          {/* Documents */}
-          <div className="idb-section">
-            <div className="idb-section-hdr">
-              <div className="idb-section-hdr-left">
-                <span className="idb-section-title">Tài liệu đính kèm</span>
-              </div>
-            </div>
-            {detail.documents.length === 0 ? (
-              <div className="idb-empty-state">
-                <i className="pi pi-file-o" style={{ fontSize: 28, color: '#d1d5db' }} />
-                <span>Chưa có tài liệu đính kèm</span>
-              </div>
-            ) : (
-              <div className="idb-doc-list">
-                {detail.documents.map((doc) => (
-                  <div key={doc.id} className="idb-doc-row">
-                    <div className="idb-doc-icon">
-                      <i className="pi pi-file-pdf" />
-                    </div>
-                    <div className="idb-doc-info">
-                      <div className="idb-doc-name">{doc.originalName}</div>
-                      <div className="idb-doc-meta">
-                        {getDocTypeLabel(doc.docType)}
-                        {doc.fileSize ? ` • ${(doc.fileSize / 1024).toFixed(0)} KB` : ''}
-                        {` • ${formatDate(doc.createdAt)}`}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="idb-section-footer">
-              <button className="idb-upload-btn">
-                <i className="pi pi-plus" />
-                Tải lên tài liệu mới
-              </button>
-            </div>
-          </div>
-
-          {/* Notifications */}
-          <div className="idb-section">
-            <div className="idb-section-hdr">
-              <div className="idb-section-hdr-left">
-                <i className="pi pi-bell idb-section-icon" />
-                <span className="idb-section-title">Thông báo vật tư</span>
-              </div>
-            </div>
-            <div className="idb-alerts-list">
-              {nearExpLots.length > 0 && (
-                <div className="idb-alert idb-alert--warn">
-                  <div className="idb-alert-dot idb-alert-dot--warn" />
-                  <div>
-                    <div className="idb-alert-title">Sắp hết hạn sử dụng</div>
-                    <div className="idb-alert-body">
-                      {nearExpLots.length} lô sắp hết hạn trong vòng 45 ngày.
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!stockOk && (
-                <div className="idb-alert idb-alert--danger">
-                  <div className="idb-alert-dot idb-alert-dot--danger" />
-                  <div>
-                    <div className="idb-alert-title">Dưới định mức tối thiểu</div>
-                    <div className="idb-alert-body">
-                      Tồn kho hiện tại thấp hơn định mức an toàn ({formatGram(detail.minStockLevel, unit)}).
-                    </div>
-                  </div>
-                </div>
-              )}
-              {nearExpLots.length === 0 && stockOk && (
-                <div className="idb-alert idb-alert--ok">
-                  <div className="idb-alert-dot idb-alert-dot--ok" />
-                  <div>
-                    <div className="idb-alert-title">Không có cảnh báo</div>
-                    <div className="idb-alert-body">Vật tư đang ở trạng thái bình thường.</div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="idb-section-footer">
-              <button className="idb-text-btn">Cấu hình cảnh báo</button>
-            </div>
-          </div>
-
-          {/* Barcode print */}
+          {/* Stock card export */}
           <div className="idb-barcode-card">
             <div className="idb-barcode-icon">
-              <i className="pi pi-box" />
+              <i className="pi pi-file-export" />
             </div>
-            <div className="idb-barcode-title">In nhãn mã vạch</div>
+            <div className="idb-barcode-title">Xuất thẻ kho NVL</div>
             <div className="idb-barcode-desc">
-              Tạo nhãn mã vạch cho tất cả các lô hàng có thể kiểm kê kho.
+              Xuất tài liệu thẻ kho ghi nhận lịch sử giao dịch theo từng ngày.
             </div>
-            <button className="idb-export-btn">
+            <button className="idb-export-btn" onClick={handleExportStockCard}>
               <i className="pi pi-download" />
-              Xuất file in nhãn
+              Xuất thẻ kho
             </button>
           </div>
         </div>

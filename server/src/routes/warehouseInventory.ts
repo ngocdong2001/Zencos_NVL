@@ -404,6 +404,32 @@ router.get('/items/:id', async (req: Request, res: Response) => {
       include: {
         user:  { select: { fullName: true } },
         batch: { select: { lotNo: true } },
+        inboundReceiptItemSource: {
+          select: {
+            inboundReceipt: {
+              select: {
+                receiptRef: true,
+                supplier: { select: { name: true } },
+              },
+            },
+          },
+        },
+        exportOrderItem: {
+          select: {
+            exportOrder: {
+              select: {
+                orderRef: true,
+                customer: { select: { name: true } },
+              },
+            },
+          },
+        },
+        productionOrder: {
+          select: {
+            orderRef: true,
+            skuName: true,
+          },
+        },
       },
     }),
   ])
@@ -463,15 +489,39 @@ router.get('/items/:id', async (req: Request, res: Response) => {
     manufacturerName: b.manufacturer?.name ?? null,
   }))
 
-  const transactions = recentTx.map((tx) => ({
-    id:              String(tx.id),
-    type:            tx.type as string,
-    quantityBase:    Math.abs(Number(tx.quantityBase)),
-    transactionDate: tx.transactionDate.toISOString(),
-    userName:        tx.user?.fullName ?? 'Hệ thống',
-    lotNo:           tx.batch.lotNo,
-    notes:           tx.notes ?? '',
-  }))
+  const transactions = recentTx.map((tx) => {
+    // Số chứng từ: lấy từ phiếu nhập / lệnh xuất / lệnh sản xuất
+    let refNo = ''
+    if (tx.inboundReceiptItemSource?.inboundReceipt?.receiptRef) {
+      refNo = tx.inboundReceiptItemSource.inboundReceipt.receiptRef
+    } else if (tx.exportOrderItem?.exportOrder?.orderRef) {
+      refNo = tx.exportOrderItem.exportOrder.orderRef
+    } else if (tx.productionOrder?.orderRef) {
+      refNo = tx.productionOrder.orderRef
+    }
+
+    // Nhập từ / xuất cho: tên nhà cung cấp / khách hàng / lệnh sản xuất
+    let entityName = ''
+    if (tx.inboundReceiptItemSource?.inboundReceipt?.supplier?.name) {
+      entityName = tx.inboundReceiptItemSource.inboundReceipt.supplier.name
+    } else if (tx.exportOrderItem?.exportOrder?.customer?.name) {
+      entityName = tx.exportOrderItem.exportOrder.customer.name
+    } else if (tx.productionOrder) {
+      entityName = tx.productionOrder.skuName ?? tx.productionOrder.orderRef ?? 'Sản xuất'
+    }
+
+    return {
+      id:              String(tx.id),
+      type:            tx.type as string,
+      quantityBase:    Math.abs(Number(tx.quantityBase)),
+      transactionDate: tx.transactionDate.toISOString(),
+      userName:        tx.user?.fullName ?? 'Hệ thống',
+      lotNo:           tx.batch.lotNo,
+      notes:           tx.notes ?? '',
+      refNo,
+      entityName,
+    }
+  })
 
   res.json({
     id:             String(product.id),

@@ -2,6 +2,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { prisma } from '../lib/prisma.js'
+import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js'
 
 const router = Router()
 const INBOUND_STATUSES = ['draft', 'pending_qc', 'posted', 'cancelled'] as const
@@ -47,6 +48,19 @@ async function getFirstActiveUserId(): Promise<bigint> {
   }
 
   return user.id
+}
+
+/**
+ * Lấy user ID từ request (từ JWT token), hoặc fallback sang user đầu tiên (admin).
+ * Nếu request không có auth, dùng user đầu tiên để tương thích ngược.
+ */
+async function getCurrentUserIdFromRequest(req: AuthenticatedRequest): Promise<bigint> {
+  if (req.auth?.sub) {
+    const userId = BigInt(req.auth.sub)
+    return userId
+  }
+  // Fallback: lấy user đầu tiên
+  return getFirstActiveUserId()
 }
 
 router.get('/receipts', async (req, res) => {
@@ -562,7 +576,7 @@ async function upsertDraftItem(
   })
 }
 
-router.post('/receipts', async (req, res) => {
+router.post('/receipts', requireAuth, async (req: AuthenticatedRequest, res) => {
   const body = req.body as SaveDraftBody
 
   if (!body.receiptRef || typeof body.receiptRef !== 'string' || !body.receiptRef.trim()) {
@@ -587,7 +601,7 @@ router.post('/receipts', async (req, res) => {
 
   const parsedExpectedDate = typeof body.expectedDate === 'string' ? parseYmdDate(body.expectedDate) : null
   const parsedCurrentStep = parseDraftStep(body.currentStep)
-  const creatorId = await getFirstActiveUserId()
+  const creatorId = await getCurrentUserIdFromRequest(req)
 
   const receipt = await prisma.$transaction(async (tx) => {
     const created = await tx.inboundReceipt.create({
@@ -624,7 +638,7 @@ router.post('/receipts', async (req, res) => {
   res.status(201).json({ id: receipt.id.toString(), receiptRef: receipt.receiptRef, currentStep: parsedCurrentStep ?? 2 })
 })
 
-router.delete('/receipts/:id', async (req, res) => {
+router.delete('/receipts/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
@@ -657,7 +671,7 @@ router.delete('/receipts/:id', async (req, res) => {
     },
   })
 
-  const actorId = await getFirstActiveUserId()
+  const actorId = await getCurrentUserIdFromRequest(req)
 
   await prisma.$transaction(async (tx) => {
     if (receipt.sourceReceiptId) {
@@ -712,7 +726,7 @@ router.delete('/receipts/:id', async (req, res) => {
   res.status(204).end()
 })
 
-router.patch('/receipts/:id', async (req, res) => {
+router.patch('/receipts/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
@@ -764,7 +778,7 @@ router.patch('/receipts/:id', async (req, res) => {
 
   const parsedExpectedDate = typeof body.expectedDate === 'string' ? parseYmdDate(body.expectedDate) : null
   const parsedCurrentStep = parseDraftStep(body.currentStep)
-  const actorId = await getFirstActiveUserId()
+  const actorId = await getCurrentUserIdFromRequest(req)
   const effectiveStep = parsedCurrentStep ?? readDraftStep(receipt.currentStep)
 
   await prisma.inboundReceipt.update({
@@ -808,7 +822,7 @@ type SubmitInboundQcBody = {
   }>
 }
 
-router.patch('/receipts/:id/qc', async (req, res) => {
+router.patch('/receipts/:id/qc', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
@@ -867,7 +881,7 @@ router.patch('/receipts/:id/qc', async (req, res) => {
     return
   }
 
-  const actorId = await getFirstActiveUserId()
+  const actorId = await getCurrentUserIdFromRequest(req)
   const qcCheckedAt = new Date()
 
   await prisma.$transaction(async (tx) => {
@@ -908,7 +922,7 @@ router.patch('/receipts/:id/qc', async (req, res) => {
   })
 })
 
-router.post('/receipts/:id/post', async (req, res) => {
+router.post('/receipts/:id/post', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
@@ -971,7 +985,7 @@ router.post('/receipts/:id/post', async (req, res) => {
     }
   }
 
-  const actorId = await getFirstActiveUserId()
+  const actorId = await getCurrentUserIdFromRequest(req)
   const postedAt = new Date()
   const receivingLocationId = receipt.receivingLocationId
 
@@ -1250,7 +1264,7 @@ router.post('/receipts/:id/post', async (req, res) => {
   })
 })
 
-router.post('/receipts/:id/void-rereceive', async (req, res) => {
+router.post('/receipts/:id/void-rereceive', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
@@ -1339,7 +1353,7 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
     return
   }
 
-  const actorId = await getFirstActiveUserId()
+  const actorId = await getCurrentUserIdFromRequest(req)
   const nextReceiptRef = await buildAdjustmentReceiptRef(sourceReceipt.receiptRef)
 
   const adjustmentReceipt = await prisma.$transaction(async (tx) => {
@@ -1432,7 +1446,7 @@ router.post('/receipts/:id/void-rereceive', async (req, res) => {
   })
 })
 
-router.get('/receipts/:id/history', async (req, res) => {
+router.get('/receipts/:id/history', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {
     res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })

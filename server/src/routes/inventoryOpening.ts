@@ -948,7 +948,9 @@ router.put('/rows/:id', async (req, res) => {
   const lineAmount = conversionToBase > 0 ? (quantityBase / conversionToBase) * unitPriceValue : 0
   const lotNo = (data.lot ?? String(current.lot_no ?? '')).trim()
   const productCode = String(current.product_code ?? '').trim().toUpperCase()
-  const manufacturerLot = data.manufacturerLot === undefined ? current.manufacturer_lot_no : (data.manufacturerLot?.trim() || null)
+  const manufacturerLot: string | null = data.manufacturerLot === undefined 
+    ? (current.manufacturer_lot_no as string | null) 
+    : (String(data.manufacturerLot ?? '').trim() || null)
   const openingDate = data.openingDate === undefined ? current.opening_date : (data.openingDate?.trim() || null)
   const invoiceNo = data.invoiceNo === undefined ? String(current.invoice_no ?? '') : data.invoiceNo.trim()
   const invoiceDate = data.invoiceDate === undefined ? current.invoice_date : (data.invoiceDate?.trim() || null)

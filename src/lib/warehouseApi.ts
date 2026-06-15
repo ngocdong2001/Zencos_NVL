@@ -57,6 +57,8 @@ export type ItemTransaction = {
   userName: string
   lotNo: string
   notes: string
+  refNo: string
+  entityName: string
 }
 
 export type MonthlyStats = {
