@@ -56,11 +56,6 @@ function formatGram(gram: number, unit: string): string {
   return `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 }).format(gram)} ${unit}`
 }
 
-function getDocTypeLabel(docType: string) {
-  const m: Record<string, string> = { pdf: 'PDF', docx: 'DOCX', xlsx: 'XLSX', doc: 'DOC', xls: 'XLS' }
-  return m[docType.toLowerCase()] ?? docType.toUpperCase()
-}
-
 // ── Lot status badge ──────────────────────────────────────────────────
 
 function LotStatusBadge({ lot }: { lot: LotDetail }) {
