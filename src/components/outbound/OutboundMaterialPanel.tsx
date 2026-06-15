@@ -43,6 +43,7 @@ export type MaterialLine = {
   materialCode: string
   materialName: string
   materialUnit: string
+  locationId?: string
   requestedQtyValue: number
   requestedQtyInput: string
   requestedQtyFocused: boolean
@@ -62,6 +63,7 @@ function createEmptyLine(): MaterialLine {
     materialCode: '',
     materialName: '',
     materialUnit: '',
+    locationId: undefined,
     requestedQtyValue: 0,
     requestedQtyInput: '',
     requestedQtyFocused: false,
@@ -127,15 +129,17 @@ type Props = {
   onLinesChange?: (lines: MaterialLine[]) => void
   /** Pre-populate lines (e.g. from saved data) – applied once on mount */
   initialLines?: MaterialLine[]
-  /** Filter stock/FEFO by warehouse location */
+  /** Global fallback location for stock queries (used when per-line location not set) */
   locationId?: string
+  /** List of warehouse locations for per-line selection */
+  locations?: { label: string; value: string }[]
   /** Report stock as-of this date (ISO string); used in production to match processedAt */
   asOfDate?: string
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines, locationId, asOfDate }: Props) {
+export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines, locationId, locations, asOfDate }: Props) {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
   const linesRef = useRef<MaterialLine[]>([])
@@ -162,10 +166,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       // Load stock for each pre-populated line that has a materialId but no stock data yet
       initialLines.forEach((line) => {
         if (!line.materialId || line.stockRows.length > 0) return
+        const lineLocId = line.locationId ?? locationId
         setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
         Promise.all([
-          fetchInventoryStock(line.materialId, locationId, asOfDate),
-          fetchFefoSuggestions(line.materialId, 6, locationId, asOfDate),
+          fetchInventoryStock(line.materialId, lineLocId, asOfDate),
+          fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
         ])
           .then(([stock, fefo]) => {
             setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
@@ -180,7 +185,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
   // Keep ref in sync with latest lines (used by location/date-change reload effect)
   useEffect(() => { linesRef.current = lines }, [lines])
 
-  // Reload stock when locationId or asOfDate changes
+  // Reload stock when global locationId or asOfDate changes (for lines without per-line location)
   const prevLocationIdRef = useRef<string | undefined>(undefined)
   const prevAsOfDateRef = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -188,12 +193,13 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     const prevDate = prevAsOfDateRef.current
     prevLocationIdRef.current = locationId
     prevAsOfDateRef.current = asOfDate
-    // Skip initial mount (both undefined → same as initial)
     if (prevLoc === undefined && prevDate === undefined) return
     if (prevLoc === locationId && prevDate === asOfDate) return
     const currentLines = linesRef.current
     currentLines.forEach((line, idx) => {
       if (!line.materialId) return
+      // Only reload lines that haven't set their own per-line location
+      if (line.locationId) return
       setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: true } : l))
       void Promise.all([
         fetchInventoryStock(line.materialId, locationId, asOfDate),
@@ -287,6 +293,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
   const handleLineMaterialChange = async (idx: number, newMaterialId: string) => {
     if (disabled) return
     const mat = materials.find((m) => m.id === newMaterialId)
+    const lineLocId = lines[idx]?.locationId ?? locationId
     updateLine(idx, (l) => ({
       ...l,
       materialId: newMaterialId,
@@ -306,8 +313,31 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     if (!newMaterialId) return
     try {
       const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(newMaterialId, locationId, asOfDate),
-        fetchFefoSuggestions(newMaterialId, 6, locationId, asOfDate),
+        fetchInventoryStock(newMaterialId, lineLocId, asOfDate),
+        fetchFefoSuggestions(newMaterialId, 6, lineLocId, asOfDate),
+      ])
+      updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
+    } catch {
+      updateLine(idx, (l) => ({ ...l, stockLoading: false }))
+    }
+  }
+
+  const handleLineLocationChange = async (idx: number, newLocationId: string | null) => {
+    if (disabled) return
+    const line = lines[idx]
+    if (!line) return
+    updateLine(idx, (l) => ({
+      ...l,
+      locationId: newLocationId ?? undefined,
+      stockRows: [],
+      fefoSuggestions: [],
+      stockLoading: Boolean(l.materialId),
+    }))
+    if (!line.materialId) return
+    try {
+      const [stock, fefo] = await Promise.all([
+        fetchInventoryStock(line.materialId, newLocationId ?? undefined, asOfDate),
+        fetchFefoSuggestions(line.materialId, 6, newLocationId ?? undefined, asOfDate),
       ])
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
     } catch {
@@ -486,7 +516,6 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
             const allocPercent = line.requestedQtyValue > 0
               ? Math.min(100, Math.round((d.allocatedQty / line.requestedQtyValue) * 100))
               : 0
-            const statusLabel = allocPercent >= 100 ? 'Đủ' : (allocPercent > 0 ? 'Một phần' : 'Chưa phân bổ')
 
             return (
               <div key={line.key} className={`ob-drill-node${isExpanded ? ' expanded' : ''}${isActive ? ' active-node' : ''}`}>
@@ -500,30 +529,46 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                   </div>
 
                   <div className="po-drill-node-main">
-                    <div className="ob-drill-mat-select">
-                      <Dropdown
-                        value={line.materialId}
-                        options={materialOptions}
-                        onChange={(e) => { void handleLineMaterialChange(idx, String(e.value ?? '')) }}
-                        placeholder="Chọn nguyên liệu..."
-                        className="ob-drill-dropdown"
-                        filter
-                        showClear
-                        disabled={loading || isLineDisabled(line.key)}
-                      />
+                    <div className="ob-drill-mat-row">
+                      <div className="ob-drill-mat-select">
+                        <Dropdown
+                          value={line.materialId}
+                          options={materialOptions}
+                          onChange={(e) => { void handleLineMaterialChange(idx, String(e.value ?? '')) }}
+                          placeholder="Chọn nguyên liệu..."
+                          className="ob-drill-dropdown"
+                          filter
+                          showClear
+                          disabled={loading || isLineDisabled(line.key)}
+                        />
+                      </div>
+
+                      {locations && locations.length > 0 && (
+                        <div className="ob-drill-mat-select">
+                          <Dropdown
+                            value={line.locationId ?? null}
+                            options={locations}
+                            onChange={(e) => { void handleLineLocationChange(idx, e.value as string | null) }}
+                            placeholder="Kho xuất..."
+                            className="ob-drill-dropdown"
+                            filter
+                            showClear
+                            disabled={isLineDisabled(line.key)}
+                          />
+                          {!line.locationId && line.materialId && (
+                            <small style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2, fontSize: 10 }}>
+                              <i className="pi pi-exclamation-triangle" />Đang dùng kho mặc định
+                            </small>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {lineMat && (
-                      <div className="ob-drill-mat-meta">
-                        <span>{lineMat.code}</span>
-                        <span className={`po-drill-node-chip ${statusLabel === 'Đủ' ? 'done' : statusLabel === 'Một phần' ? 'partial' : 'none'}`}>{statusLabel}</span>
-                      </div>
-                    )}
 
-                    {lineMat && (
-                      <div className="ob-drill-qty-row">
+                      <div className="ob-drill-qty-combined-row">
                         <div className="ob-drill-qty-input-wrap">
-                          <small>SL yêu cầu ({lineMat.unit})</small>
+                          <small>Yêu cầu ({lineMat.unit})</small>
                           <InputText
                             value={line.requestedQtyInput}
                             onChange={(e) => handleLineQtyChange(idx, e.target.value)}
@@ -538,6 +583,29 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                           <small>Tồn kho</small>
                           <strong>{formatQuantity(d.totalStockQty)} {lineMat.unit}</strong>
                         </div>
+                        {line.requestedQtyValue > 0 && (
+                          <div className="ob-drill-progress-inline">
+                            <div className="ob-drill-progress-track">
+                              <div
+                                className="ob-drill-progress-bar"
+                                style={{
+                                  width: `${allocPercent}%`,
+                                  background: allocPercent >= 100
+                                    ? (d.hasShortage ? '#ef4444' : '#16a34a')
+                                    : allocPercent > 0 ? '#f59e0b' : '#5269e0',
+                                }}
+                              />
+                            </div>
+                            <span
+                              className="ob-drill-progress-pct"
+                              style={{
+                                color: allocPercent >= 100
+                                  ? (d.hasShortage ? '#ef4444' : '#16a34a')
+                                  : allocPercent > 0 ? '#f59e0b' : '#5269e0',
+                              }}
+                            >{allocPercent}%</span>
+                          </div>
+                        )}
                         <Button
                           icon="pi pi-bolt"
                           className="ob-fefo-icon-btn"
@@ -549,39 +617,6 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                           tooltip="Tự phân bổ FEFO"
                           tooltipOptions={{ position: 'top' }}
                         />
-                      </div>
-                    )}
-
-                    {lineMat && d.suggestedLots.length > 0 && (
-                      <div className="ob-drill-fefo-hints">
-                        <small>Gợi ý FEFO:</small>
-                        {d.suggestedLots.slice(0, 3).map((lot) => {
-                          const expTag = calculateExpTag(lot.expiryDate)
-                          return (
-                            <button
-                              key={lot.id}
-                              type="button"
-                              className="ob-drill-fefo-hint-btn"
-                              onClick={() => addLotToLine(idx, lot)}
-                              disabled={isLineDisabled(line.key)}
-                              title={`${lot.lotNo} – Tồn: ${formatQuantity(toNumeric(lot.currentQtyBase))} – HSD: ${formatDateVi(lot.expiryDate)}${lot.location ? ` – Kho: ${lot.location.name}` : ''}`}
-                            >
-                              <Tag value={lot.lotNo} severity={expTag.severity === 'danger' ? 'danger' : expTag.severity === 'warning' ? 'warning' : 'success'} />
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-
-                    {lineMat && line.requestedQtyValue > 0 && (
-                      <div className="po-drill-node-progress-wrap">
-                        <div className="po-drill-node-progress-head">
-                          <span>Phân bổ: <strong>{formatQuantity(d.allocatedQty)} / {formatQuantity(line.requestedQtyValue)} {lineMat.unit}</strong></span>
-                          <strong className="po-drill-node-progress-percent">{allocPercent}%</strong>
-                        </div>
-                        <div className="po-drill-node-progress-track">
-                          <div className="po-drill-node-progress-bar" style={{ width: `${allocPercent}%` }} />
-                        </div>
                       </div>
                     )}
 

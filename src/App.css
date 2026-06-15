@@ -3628,7 +3628,7 @@ input {
 /* ── Outbound drill-down flow (mirrors PO drilldown) ── */
 .ob-drill-flow {
   display: grid;
-  gap: 20px;
+  gap: 8px;
 }
 
 .ob-drill-node {
@@ -3643,45 +3643,42 @@ input {
   display: none;
 }
 
-/* Vertical tree connector: bridges material card to first lot-card connector */
+/* Vertical tree connector from parent card down to first child item */
 .ob-drill-node > .po-drill-branch-list::before {
   content: '';
   position: absolute;
-  left: 24px;
-  top: -12px;
-  height: calc(12px + 31px);
+  left: 0;
+  top: -6px;
+  height: calc(6px + 31px);
   width: 0;
-  border-left: 2px dotted rgba(82, 105, 224, 0.3);
+  border-left: 2px dotted rgba(82, 105, 224, 0.45);
   pointer-events: none;
   z-index: 0;
 }
 
 .ob-drill-node.active-node > .po-drill-node-card {
   border-color: #7d8ff0;
-  box-shadow: 0 0 0 1px rgba(82, 105, 224, 0.18), 0 4px 12px rgba(82, 105, 224, 0.16);
+  box-shadow: 0 0 0 1px rgba(82, 105, 224, 0.18), 0 2px 8px rgba(82, 105, 224, 0.12);
 }
 
-/* Left card uses existing po-drill-node-card — compact top-left corner */
+/* Compact card: no icon column */
 .ob-drill-node > .po-drill-node-card {
-  grid-template-columns: 48px minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 28px;
   cursor: pointer;
   align-items: start;
-  padding: 10px 12px;
+  padding: 8px 10px;
   position: relative;
   z-index: 1;
   width: 100%;
 }
 
 .ob-drill-node > .po-drill-node-card .po-drill-node-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  font-size: 0.95rem;
+  display: none;
 }
 
 .ob-drill-node > .po-drill-node-card .po-drill-node-main {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .ob-drill-node > .po-drill-node-card .po-drill-node-progress-wrap {
@@ -3695,13 +3692,36 @@ input {
 
 .ob-drill-dropdown {
   width: 100%;
+  font-size: 0.8rem !important;
+}
+
+.ob-drill-dropdown .p-dropdown-label {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.ob-drill-dropdown.p-dropdown {
+  height: 30px;
+  min-height: 30px;
+}
+
+.ob-drill-dropdown .p-dropdown-trigger {
+  width: 1.8rem;
+}
+
+/* Material + location on same row */
+.ob-drill-mat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
 }
 
 .ob-drill-mat-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: #565d6d;
   font-weight: 600;
 }
@@ -3709,17 +3729,55 @@ input {
 .ob-drill-qty-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
+  gap: 6px;
   align-items: end;
+}
+
+/* Combined row: input | tồn | progress bar | FEFO btn */
+.ob-drill-qty-combined-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(60px, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.ob-drill-progress-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: flex-end;
+  padding-bottom: 2px;
+}
+
+.ob-drill-progress-track {
+  height: 5px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ob-drill-progress-bar {
+  height: 100%;
+  background: #5269e0;
+  border-radius: 3px;
+  transition: width 0.2s;
+}
+
+.ob-drill-progress-pct {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #5269e0;
+  text-align: right;
+  line-height: 1;
 }
 
 .ob-drill-qty-input-wrap {
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .ob-drill-qty-input-wrap small {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: #6b7280;
   font-weight: 700;
   text-transform: uppercase;
@@ -3727,41 +3785,44 @@ input {
 
 .ob-drill-qty-input {
   width: 100%;
-  font-size: 0.85rem;
-  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.28rem 0.45rem;
+  height: 30px;
 }
 
 .ob-drill-stock-info {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   text-align: right;
 }
 
 .ob-drill-stock-info small {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: #6b7280;
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .ob-drill-stock-info strong {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: #16181d;
 }
 
 .ob-drill-shortage {
   border: 1px solid #fde68a;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #fffbeb;
-  padding: 6px 8px;
-  display: grid;
-  gap: 4px;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ob-drill-shortage-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .ob-drill-shortage-head i {
@@ -3784,40 +3845,43 @@ input {
 }
 
 .ob-drill-node-actions {
-  display: grid;
-  gap: 4px;
-  align-self: start;
+  display: flex;
+  align-items: flex-start;
   padding-top: 2px;
 }
 
 /* ── Branch items below the material card ── */
 .ob-drill-node > .po-drill-branch-list {
-  padding-left: 48px;
+  padding-left: 0;
   padding-top: 0;
-  padding-bottom: 4px;
-  margin-top: 12px;
+  padding-bottom: 2px;
+  margin-top: 4px;
   position: relative;
   z-index: 1;
 }
 
 .ob-drill-node > .po-drill-branch-list > .po-drill-branch-item {
   grid-template-columns: minmax(0, 1fr);
-  width: min(100%, 600px);
-  gap: 10px;
-  padding: 12px 14px;
+  width: calc(100% - 24px);
+  gap: 6px;
+  padding: 7px 10px;
+  margin-left: 24px;
+  justify-self: unset;
+  min-height: unset;
 }
 
 .ob-drill-branch-lot-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  font-size: 0.8rem;
 }
 
 .ob-drill-branch-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr 140px auto;
-  gap: 10px;
+  grid-template-columns: 90px 1fr 130px auto;
+  gap: 8px;
   align-items: end;
 }
 

@@ -16,7 +16,7 @@ import { fetchProductionBoms, fetchProductionBom } from '../lib/productionBomApi
 import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity } from '../components/purchaseOrder/format'
 import { safeRandomId } from '../lib/uuid'
-import { HistoryTimeline, type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
+import { type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -48,9 +48,8 @@ export function ProductionStep1Page() {
   const currentLinesRef = useRef<MaterialLine[]>([])
   const [initialPanelLines, setInitialPanelLines] = useState<MaterialLine[] | undefined>(undefined)
 
-  // Warehouse location for step-1 NVL export
+  // Warehouse locations for per-line NVL export dropdown
   const [locations, setLocations] = useState<BasicRow[]>([])
-  const [sourceLocationId, setSourceLocationId] = useState<string | null>(null)
 
   // BOM (định mức sản xuất) selection
   const [boms, setBoms] = useState<{ id: string; bomCode: string | null; bomName: string; baseQty: number; outputProductId: string | null }[]>([])
@@ -178,6 +177,7 @@ export function ProductionStep1Page() {
               materialCode: first.productCode ?? '',
               materialName: first.productName ?? '',
               materialUnit: first.unit ?? '',
+              locationId: first.locationId ?? undefined,
               requestedQtyValue: first.plannedQty,
               requestedQtyInput: formatQuantity(first.plannedQty),
               requestedQtyFocused: false,
@@ -191,9 +191,7 @@ export function ProductionStep1Page() {
           setInitialPanelLines(restored)
           currentLinesRef.current = restored
         }
-        // Restore source warehouse from first step-1 out line
-        const savedLocationId = step1Lines[0]?.locationId ?? null
-        if (savedLocationId) setSourceLocationId(savedLocationId)
+        // Remove old global sourceLocationId restore — location is now per-line
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu'))
       .finally(() => setLoading(false))
@@ -257,7 +255,7 @@ export function ProductionStep1Page() {
               wasteQty: 0,
               unit: line.materialUnit || 'g',
               direction: 'out' as const,
-              locationId: sourceLocationId || null,
+              locationId: line.locationId || null,
             }))
           } else {
             // Draft-only: persist material intent + locationId + plannedQty with actualQty=0
@@ -273,7 +271,7 @@ export function ProductionStep1Page() {
               wasteQty: 0,
               unit: line.materialUnit || 'g',
               direction: 'out' as const,
-              locationId: sourceLocationId || null,
+              locationId: line.locationId || null,
             }]
           }
         })
@@ -394,10 +392,6 @@ export function ProductionStep1Page() {
       setError('Vui lòng chọn Ngày xử lý (Bước 1) trước khi lưu.')
       return
     }
-    if (!sourceLocationId) {
-      setError('Vui lòng chọn Kho xuất NVL trước khi lưu.')
-      return
-    }
 
     const lines = currentLinesRef.current
     const payloads = lines.flatMap((line) =>
@@ -415,7 +409,7 @@ export function ProductionStep1Page() {
           wasteQty: 0,
           unit: line.materialUnit || 'g',
           direction: 'out' as const,
-          locationId: sourceLocationId || null,
+          locationId: line.locationId || null,
         }))
     )
     if (payloads.length === 0) {
@@ -518,7 +512,7 @@ export function ProductionStep1Page() {
         </div>
       )}
 
-      <div style={{ margin: '16px 24px 0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 260px', gap: 16, alignItems: 'start' }}>
+      <div style={{ margin: '16px 24px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* Main content column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
@@ -555,19 +549,6 @@ export function ProductionStep1Page() {
                 placeholder="Chọn ngày xử lý"
                 showIcon
                 disabled={!orderId || isLocked}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div className="prod-form-field">
-              <label>KHO XUẤT NVL</label>
-              <Dropdown
-                value={sourceLocationId}
-                options={locations.map(l => ({ label: `[${l.code}] ${l.name}`, value: l.id }))}
-                onChange={(e) => setSourceLocationId(e.value as string | null)}
-                placeholder="Chọn kho xuất NVL..."
-                filter
-                showClear
-                disabled={isLocked}
                 style={{ width: '100%' }}
               />
             </div>
@@ -702,37 +683,54 @@ export function ProductionStep1Page() {
               onLinesChange={(lines) => { currentLinesRef.current = lines }}
               disabled={isLocked}
               lockExistingLines={nvlExported && !isLocked}
-              locationId={sourceLocationId ?? undefined}
+              locations={locations.map(l => ({ label: `[${l.code}] ${l.name}`, value: l.id }))}
               asOfDate={processedAt ? `${processedAt.getFullYear()}-${String(processedAt.getMonth() + 1).padStart(2, '0')}-${String(processedAt.getDate()).padStart(2, '0')}` : undefined}
             />
           </div>
         )}
 
-        </div>{/* end main content column */}
-
-        {/* History sidebar */}
-        {orderId ? (
-          <aside className="outbound-history-panel">
-            <div className="outbound-history-panel-header">
-              <i className="pi pi-history" />
-              <span>LỊCH SỬ THAO TÁC</span>
+        {/* Nhật ký giao dịch */}
+        {orderId && (
+          <div className="prod-card">
+            <div className="prod-card__title-row">
+              <div className="prod-card__title-left">
+                <i className="pi pi-history" style={{ color: '#64748b' }} />
+                <span className="prod-card__title">Nhật ký giao dịch</span>
+              </div>
             </div>
-            <HistoryTimeline
-              events={historyEvents}
-              loading={historyLoading}
-              error={historyError}
-              emptyMessage="Chưa có lịch sử thao tác cho phiếu sản xuất này."
-            />
-          </aside>
-        ) : (
-          <aside className="outbound-history-panel outbound-history-panel-placeholder">
-            <div className="outbound-history-panel-header">
-              <i className="pi pi-history" />
-              <span>LỊCH SỬ THAO TÁC</span>
+            <div className="prod-txlog">
+              {historyLoading && (
+                <div style={{ padding: '12px 0', color: '#94a3b8', fontSize: 13 }}>
+                  <i className="pi pi-spin pi-spinner" /> Đang tải...
+                </div>
+              )}
+              {historyError && (
+                <div style={{ padding: '8px 0', color: '#ef4444', fontSize: 13 }}>{historyError}</div>
+              )}
+              {!historyLoading && historyEvents.length === 0 && (
+                <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>Chưa có lịch sử thao tác cho phiếu sản xuất này.</p>
+              )}
+              {historyEvents.map(evt => (
+                <div key={evt.id} className="prod-txlog__row">
+                  <div className="prod-txlog__avatar">
+                    <i className="pi pi-user" />
+                  </div>
+                  <div className="prod-txlog__content">
+                    <div className="prod-txlog__user-row">
+                      <span className="prod-txlog__user">{evt.actorName}</span>
+                    </div>
+                    <p className="prod-txlog__action">{evt.action}</p>
+                  </div>
+                  <span className="prod-txlog__time">
+                    {new Date(evt.at).toLocaleString('vi-VN')}
+                  </span>
+                </div>
+              ))}
             </div>
-            <p className="outbound-history-placeholder-copy">Lịch sử thao tác sẽ hiển thị sau khi lưu phiếu.</p>
-          </aside>
+          </div>
         )}
+
+        </div>{/* end main content column */}
 
       </div>{/* end row */}
 
