@@ -1697,6 +1697,10 @@ export function OpeningStockPage() {
             emptyMessage="Chưa có dữ liệu tồn kho đầu kỳ."
             className="catalog-table opening-stock-table prime-catalog-table"
             rowClassName={(rowData) => (rowData.id === NEW_ROW_ID ? 'new-row opening-stock-add-row' : 'data-row')}
+            resizableColumns
+            columnResizeMode="expand"
+            stateStorage="local"
+            stateKey="opening-stock-table"
           >
             <Column
               selectionMode="multiple"
@@ -1715,6 +1719,7 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-readonly-column"
+              sortable
               body={(rowData: OpeningStockRow) => {
                 if (rowData.id !== NEW_ROW_ID) return (
                   <button
@@ -1765,6 +1770,7 @@ export function OpeningStockPage() {
               onBeforeCellEditShow={preventEditOnNewRow}
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-readonly-column"
+              sortable
               body={(rowData: OpeningStockRow) => {
                 if (rowData.id !== NEW_ROW_ID) return rowData.tradeName
                 return (
@@ -1805,6 +1811,7 @@ export function OpeningStockPage() {
               header="TÊN INCI *"
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-readonly-column"
+              sortable
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? <span className="opening-stock-inci">{rowData.inciName}</span>
@@ -1817,6 +1824,7 @@ export function OpeningStockPage() {
               style={{ width: '110px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <input
                   value={String(options.value ?? '')}
@@ -1844,6 +1852,7 @@ export function OpeningStockPage() {
               style={{ width: '130px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <input
                   value={String(options.value ?? '')}
@@ -1870,6 +1879,7 @@ export function OpeningStockPage() {
               style={{ width: '130px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <input
                   value={String(options.value ?? '')}
@@ -1896,6 +1906,7 @@ export function OpeningStockPage() {
               style={{ width: '130px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                   <Calendar
@@ -1931,6 +1942,7 @@ export function OpeningStockPage() {
               style={{ width: '220px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <SupplierEditorCell
                   initialId={String(options.value ?? '')}
@@ -1975,6 +1987,7 @@ export function OpeningStockPage() {
               bodyClassName="opening-stock-number-col"
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <input
                   value={String(options.value ?? '')}
@@ -2005,6 +2018,7 @@ export function OpeningStockPage() {
               bodyClassName="opening-stock-number-col"
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <input
                   value={String(options.value ?? '')}
@@ -2033,6 +2047,7 @@ export function OpeningStockPage() {
               style={{ width: '130px' }}
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-readonly-column"
+              sortable
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? (rowData.unitPriceUnitCode || '---')
@@ -2059,6 +2074,7 @@ export function OpeningStockPage() {
               align="right"
               headerClassName="opening-stock-readonly-column-header"
               bodyClassName="opening-stock-number-col opening-stock-readonly-column"
+              sortable
               body={(rowData: OpeningStockRow) => (
                 rowData.id !== NEW_ROW_ID
                   ? <span className="num-r">{formatNumber(roundAmountForDisplay(rowData.lineAmount))}</span>
@@ -2071,6 +2087,7 @@ export function OpeningStockPage() {
               style={{ width: '120px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <div onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                   <Calendar
@@ -2106,6 +2123,7 @@ export function OpeningStockPage() {
               style={{ width: '120px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <Calendar
@@ -2141,6 +2159,7 @@ export function OpeningStockPage() {
               style={{ width: '120px' }}
               onBeforeCellEditShow={preventEditOnNewRow}
               onCellEditComplete={handleCellEditComplete}
+              sortable
               editor={(options) => (
                 <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <Calendar
