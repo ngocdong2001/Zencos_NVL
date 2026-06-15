@@ -41,6 +41,7 @@ type Props = {
   quickRequestType: 'normal' | 'urgent' | null
   onQuickRequestTypeChange: (value: 'normal' | 'urgent' | null) => void
   selectedQuickItems: PurchaseShortageRow[]
+  quickItemUnits: Record<string, string>
   quickItemQuantities: Record<string, string>
   quickQuantityErrors: Record<string, string>
   onQuickQuantityChange: (itemId: string, value: string) => void
@@ -86,6 +87,7 @@ export function PurchaseShortageScreen({
   quickRequestType,
   onQuickRequestTypeChange,
   selectedQuickItems,
+  quickItemUnits,
   quickItemQuantities,
   quickQuantityErrors,
   onQuickQuantityChange,
@@ -325,7 +327,7 @@ export function PurchaseShortageScreen({
                       inputMode="decimal"
                       placeholder="Nhập số lượng"
                     />
-                    <span>{item.unit}</span>
+                    <span>{quickItemUnits[item.id] || item.unit}</span>
                   </label>
                   {quickQuantityErrors[item.id] ? <small className="po-field-error">{quickQuantityErrors[item.id]}</small> : null}
                 </article>

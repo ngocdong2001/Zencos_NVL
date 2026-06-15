@@ -209,7 +209,9 @@ export function InboundStep4Page() {
   const totalAmount = dbDetail
     ? Math.round(dbDetail.items.reduce((sum, item) => sum + Number(item.lineAmount), 0))
     : (quantity != null && unitPrice != null 
-        ? Math.round((quantity * orderUnitConversionToBase / priceUnitConversionToBase) * unitPrice)
+        ? Math.round(quantityUnitLabel === priceUnitLabel
+            ? quantity * unitPrice
+            : (quantity * orderUnitConversionToBase / priceUnitConversionToBase) * unitPrice)
         : null)
 
   const [confirmed, setConfirmed] = useState(false)
@@ -279,7 +281,9 @@ export function InboundStep4Page() {
               unitUsed: step2.selectedUnitDisplay || 'kg',
               unitPricePerKg: step2.unitPrice ?? 0,
               lineAmount: step2.unitPrice && step2.quantity 
-                ? Math.round((step2.quantity * orderUnitConversionToBase / priceUnitConversionToBase) * step2.unitPrice)
+                ? Math.round(quantityUnitLabel === priceUnitLabel
+                    ? step2.quantity * step2.unitPrice
+                    : (step2.quantity * orderUnitConversionToBase / priceUnitConversionToBase) * step2.unitPrice)
                 : 0,
               invoiceNumber: step2.invoiceNumber || undefined,
               invoiceDate: step2.invoiceDate || undefined,

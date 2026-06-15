@@ -36,6 +36,7 @@ type PoMaterialOption = {
   value: string
   code: string
   name: string
+  baseUnitDisplay: string
   unitDisplay: string
   orderUnit: string
   priceUnit: string
@@ -186,9 +187,14 @@ export function InboundStep2Page() {
     const orderUnitConv = selectedMaterial?.conversionToBase ?? 1
     const priceUnitConv = selectedMaterial?.priceUnitConversionToBase ?? 1
     // Công thức: lineAmount = (quantity × orderUnitConversionToBase / priceUnitConversionToBase) × unitPrice
-    const result = (quantity * orderUnitConv / priceUnitConv) * unitPrice
+    // Khi đơn vị và đơn vị tính giá giống nhau, dùng cùng hệ số quy đổi để tránh tính sai
+    const quantityUnitLabel = (selectedMaterial?.unitDisplay || wizState.step2.selectedUnitDisplay || '').trim() || 'đơn vị cơ sở'
+    const priceUnitLabel = (selectedMaterial?.priceUnit || wizState.step2.selectedPriceUnit || '').trim() || 'đơn vị tính đơn giá'
+    const result = quantityUnitLabel === priceUnitLabel
+      ? quantity * unitPrice
+      : (quantity * orderUnitConv / priceUnitConv) * unitPrice
     return Math.round(result)
-  }, [quantity, unitPrice, selectedMaterial?.conversionToBase, selectedMaterial?.priceUnitConversionToBase])
+  }, [quantity, unitPrice, selectedMaterial?.conversionToBase, selectedMaterial?.priceUnitConversionToBase, selectedMaterial?.unitDisplay, selectedMaterial?.priceUnit, wizState.step2.selectedUnitDisplay, wizState.step2.selectedPriceUnit])
 
   useEffect(() => {
     const suggested = buildLotSuggestion(selectedMaterial?.code ?? '', step1.expectedDate)
@@ -207,13 +213,14 @@ export function InboundStep2Page() {
   // Auto-fill unitPrice and quantity from PO when selected material changes
   useEffect(() => {
     if (!selectedMaterial) return
-    if (selectedMaterial.poUnitPrice != null && selectedMaterial.poUnitPrice > 0) {
+    if (selectedMaterial.poUnitPrice != null && selectedMaterial.poUnitPrice >= 0) {
       setUnitPrice(selectedMaterial.poUnitPrice)
     }
-    if (selectedMaterial.poQuantity != null && selectedMaterial.poQuantity > 0) {
+    // Always sync quantity from selected PO line (including 0) to avoid stale value from previous material.
+    if (selectedMaterial.poQuantity != null && selectedMaterial.poQuantity >= 0) {
       setQuantity(selectedMaterial.poQuantity)
     }
-  }, [selectedMaterial?.value])
+  }, [selectedMaterial?.value, selectedMaterial?.poUnitPrice, selectedMaterial?.poQuantity])
 
   // Fetch manufacturers when selected material changes
   useEffect(() => {
@@ -302,30 +309,33 @@ export function InboundStep2Page() {
         const detail = await fetchPurchaseRequestDetail(matched.id)
         if (cancelled) return
         const options: PoMaterialOption[] = detail.items.map((item) => {
-          // quantityNeededBase là đơn vị cơ sở, nên số lượng thực nhập ở Step 2 dùng đơn vị cơ sở.
+          // Step 2 nhập số lượng theo đơn vị đặt hàng để khớp nghiệp vụ PO.
           const baseUnit = item.product.baseUnitRef?.unitCodeName || item.product.baseUnitRef?.unitName || item.unitDisplay || ''
           const orderUnitFromPo = item.unitDisplay || item.product.orderUnitRef?.unitCodeName || item.product.orderUnitRef?.unitName || baseUnit
           const orderUnit = item.product.orderUnitRef
           const priceUnitName = orderUnit?.unitCodeName || orderUnit?.unitName || 'đơn vị'
-          // Vì quantity nhập theo đơn vị cơ sở nên hệ số quy đổi của quantity về base là 1.
-          const conversionFactor = 1
-          // Bắt buộc dùng hệ số quy đổi từ orderUnitRef.
+          // Quantity nhập theo đơn vị đặt hàng, nên conversionToBase dùng hệ số của order unit.
           const orderUnitPriceConversion = Number(orderUnit?.conversionToBase ?? 1)
-          const priceUnitConversionFactor = Number.isFinite(orderUnitPriceConversion) && orderUnitPriceConversion > 0
+          const orderUnitConversionFactor = Number.isFinite(orderUnitPriceConversion) && orderUnitPriceConversion > 0
             ? orderUnitPriceConversion
             : 1
+          const poQuantityDisplayRaw = item.quantityDisplay ?? (item.quantityNeededBase / orderUnitConversionFactor)
+          const poQuantityDisplay = Number(poQuantityDisplayRaw)
+          const poUnitPriceRaw = item.unitPrice
+          const poUnitPrice = poUnitPriceRaw == null ? null : Number(poUnitPriceRaw)
           
           return {
-            conversionToBase: conversionFactor,
+            baseUnitDisplay: baseUnit,
+            conversionToBase: orderUnitConversionFactor,
             value: String(item.product.id),
             code: item.product.code,
             name: item.product.name,
-            unitDisplay: baseUnit,
+            unitDisplay: orderUnitFromPo,
             orderUnit: orderUnitFromPo,
             priceUnit: priceUnitName, // Đơn vị đơn giá từ DB
-            priceUnitConversionToBase: priceUnitConversionFactor,
-            poUnitPrice: item.unitPrice ?? null,
-            poQuantity: item.quantityNeededBase ?? null,
+            priceUnitConversionToBase: orderUnitConversionFactor,
+            poUnitPrice: poUnitPrice != null && Number.isFinite(poUnitPrice) ? poUnitPrice : null,
+            poQuantity: Number.isFinite(poQuantityDisplay) ? poQuantityDisplay : null,
             label: `${item.product.code} - ${item.product.name}`,
           }
         })
@@ -363,9 +373,10 @@ export function InboundStep2Page() {
   const selectedConversionToBase = Number.isFinite(selectedConversionToBaseRaw) && selectedConversionToBaseRaw > 0
     ? selectedConversionToBaseRaw
     : 1
+  const baseUnitLabel = (selectedMaterial?.baseUnitDisplay || '').trim() || 'đơn vị cơ sở'
   const selectedUnitLabel = (selectedMaterial?.unitDisplay || wizState.step2.selectedUnitDisplay || '').trim()
-  const quantityUnitLabel = selectedUnitLabel || 'đơn vị cơ sở'
-  const orderUnitLabel = (selectedMaterial?.orderUnit || '').trim() || 'đơn vị đặt hàng'
+  const quantityUnitLabel = selectedUnitLabel || 'đơn vị đặt hàng'
+  const orderUnitLabel = (selectedMaterial?.orderUnit || '').trim() || quantityUnitLabel
   const priceUnitLabel = (selectedMaterial?.priceUnit || wizState.step2.selectedPriceUnit || '').trim() || 'đơn vị tính đơn giá'
 
   async function handleSaveDraft() {
@@ -658,7 +669,7 @@ export function InboundStep2Page() {
                 <p className="inbound-step2-info-sub">Mã NCC: {supplierCodeDisplay}</p>
               </div>
             </div>
-            <div className="inbound-step2-dvt-tag">ĐV cơ sở: {quantityUnitLabel} · ĐV đặt hàng: {orderUnitLabel} · ĐV đơn giá: {priceUnitLabel}</div>
+            <div className="inbound-step2-dvt-tag">ĐV cơ sở: {baseUnitLabel} · ĐV đặt hàng: {orderUnitLabel} · ĐV đơn giá: {priceUnitLabel}</div>
           </div>
           {poSummaryLoading ? <p className="inbound-step2-info-sub">Đang tải dữ liệu PO...</p> : null}
           {poSummaryError ? <p className="inbound-step2-info-sub">{poSummaryError}</p> : null}
@@ -844,7 +855,7 @@ export function InboundStep2Page() {
                 <div className="inbound-step2-guidance-item">
                   <p className="inbound-guidance-title">Đơn giá nhập / 1 {priceUnitLabel}:</p>
                   <p className="inbound-guidance-text">
-                    Số lượng nhập được ghi nhận theo đơn vị cơ sở: {quantityUnitLabel}.
+                    Số lượng nhập được ghi nhận theo đơn vị đặt hàng: {quantityUnitLabel}.
                     Đơn giá được tính theo đơn vị đơn giá: {priceUnitLabel}.
                   </p>
                 </div>

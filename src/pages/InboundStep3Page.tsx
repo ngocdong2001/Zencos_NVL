@@ -167,8 +167,10 @@ export function InboundStep3Page() {
               quantityDisplay: step2.quantity,
               unitUsed: step2.selectedUnitDisplay || 'kg',
               unitPricePerKg: step2.unitPrice ?? 0,
-              lineAmount: step2.unitPrice && step2.quantity 
-                ? Math.round((step2.quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1)) * step2.unitPrice)
+              lineAmount: step2.unitPrice && step2.quantity
+                ? Math.round(quantityUnitLabel === priceUnitLabel
+                    ? step2.quantity * step2.unitPrice
+                    : (step2.quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1)) * step2.unitPrice)
                 : 0,
               invoiceNumber: step2.invoiceNumber || undefined,
               invoiceDate: step2.invoiceDate || undefined,
@@ -256,7 +258,9 @@ export function InboundStep3Page() {
               unitUsed: step2.selectedUnitDisplay || 'kg',
               unitPricePerKg: step2.unitPrice ?? 0,
               lineAmount: step2.unitPrice && step2.quantity
-                ? Math.round((step2.quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1)) * step2.unitPrice)
+                ? Math.round(quantityUnitLabel === priceUnitLabel
+                    ? step2.quantity * step2.unitPrice
+                    : (step2.quantity * (step2.selectedUnitConversionToBase ?? 1) / (step2.selectedPriceUnitConversionToBase ?? 1)) * step2.unitPrice)
                 : 0,
               invoiceNumber: step2.invoiceNumber || undefined,
               invoiceDate: step2.invoiceDate || undefined,

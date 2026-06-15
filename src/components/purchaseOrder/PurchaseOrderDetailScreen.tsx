@@ -170,12 +170,10 @@ export function PurchaseOrderDetailScreen({
   }
 
   const calculateLineAmount = (line: Pick<PurchaseDraftLine, 'quantity' | 'unitPrice' | 'orderUnitConversionToBase'>) => {
-    const quantityBase = Number(line.quantity)
+    const quantityOrder = Number(line.quantity)
     const unitPrice = Number(line.unitPrice)
-    const conversion = Number(line.orderUnitConversionToBase)
-    if (!Number.isFinite(quantityBase) || !Number.isFinite(unitPrice)) return 0
-    const safeConversion = Number.isFinite(conversion) && conversion > 0 ? conversion : 1
-    return (quantityBase / safeConversion) * unitPrice
+    if (!Number.isFinite(quantityOrder) || !Number.isFinite(unitPrice)) return 0
+    return quantityOrder * unitPrice
   }
 
   const focusNewRowControlByTabIndex = (tabIndex: number) => {
@@ -374,7 +372,7 @@ export function PurchaseOrderDetailScreen({
       return
     }
 
-    if (!materialCode || !materialName || !unit || !orderUnit || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
+    if (!materialCode || !materialName || !orderUnit || !Number.isFinite(quantity) || !Number.isFinite(unitPrice)) {
       setNewLineError('Vui lòng nhập đủ mã, tên, ĐVT và số liệu hợp lệ trước khi thêm dòng.')
       return
     }
@@ -1018,12 +1016,12 @@ export function PurchaseOrderDetailScreen({
                   style={{ width: '120px' }}
                 />
                 <Column
-                  field="unit"
-                  header="ĐVT cơ sở"
+                  field="orderUnit"
+                  header="ĐVT đặt hàng"
                   body={(line: PurchaseDraftLine) => (
                     line.id === NEW_LINE_ID
-                      ? <span tabIndex={-1}>{newLineDraft.unit || '---'}</span>
-                      : <span>{line.unit || '---'}</span>
+                      ? <span tabIndex={-1}>{newLineDraft.orderUnit || '---'}</span>
+                      : <span>{line.orderUnit || '---'}</span>
                   )}
                   style={{ width: '90px' }}
                 />

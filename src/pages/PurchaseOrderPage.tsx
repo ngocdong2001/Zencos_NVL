@@ -88,11 +88,10 @@ function normalizeOrderUnitConversion(value: number | null | undefined): number 
 }
 
 function calculatePurchaseLineAmount(line: Pick<PurchaseDraftLine, 'quantity' | 'unitPrice' | 'orderUnitConversionToBase'>): number {
-  const quantityBase = Number(line.quantity)
+  const quantityOrder = Number(line.quantity)
   const unitPrice = Number(line.unitPrice)
-  if (!Number.isFinite(quantityBase) || !Number.isFinite(unitPrice)) return 0
-  const conversion = normalizeOrderUnitConversion(line.orderUnitConversionToBase)
-  return (quantityBase / conversion) * unitPrice
+  if (!Number.isFinite(quantityOrder) || !Number.isFinite(unitPrice)) return 0
+  return quantityOrder * unitPrice
 }
 
 function toPoStatus(value: string | null | undefined): PoStatus {
@@ -161,6 +160,7 @@ export function PurchaseOrderPage() {
   const [quickSubmitError, setQuickSubmitError] = useState<string | null>(null)
   const [quickSubmitSuccess, setQuickSubmitSuccess] = useState<string | null>(null)
   const [quickSaving, setQuickSaving] = useState(false)
+  const [materialMetaById, setMaterialMetaById] = useState<Record<string, { baseUnit: string; orderUnit: string; orderUnitConversionToBase: number }>>({})
   const [detailLines, setDetailLines] = useState<PurchaseDraftLine[]>(DRAFT_LINES)
   const [detailPurchaseId, setDetailPurchaseId] = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -236,6 +236,35 @@ export function PurchaseOrderPage() {
 
     void loadSuppliers()
 
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadMaterialsMeta = async () => {
+      try {
+        const materials = await fetchMaterials()
+        if (cancelled) return
+        const next: Record<string, { baseUnit: string; orderUnit: string; orderUnitConversionToBase: number }> = {}
+        for (const material of materials) {
+          const conversion = normalizeOrderUnitConversion(material.orderUnitConversionToBase)
+          next[material.id] = {
+            baseUnit: material.unit || 'base',
+            orderUnit: material.orderUnit || material.unit || 'base',
+            orderUnitConversionToBase: conversion,
+          }
+        }
+        setMaterialMetaById(next)
+      } catch {
+        if (cancelled) return
+        setMaterialMetaById({})
+      }
+    }
+
+    void loadMaterialsMeta()
     return () => {
       cancelled = true
     }
@@ -412,7 +441,8 @@ export function PurchaseOrderPage() {
           continue
         }
         const row = selectedShortageMap[id]
-        const defaultQty = row && row.stockShort > 0 ? formatQuantity(row.stockShort) : ''
+        const conversion = normalizeOrderUnitConversion(materialMetaById[id]?.orderUnitConversionToBase)
+        const defaultQty = row && row.stockShort > 0 ? formatQuantity(row.stockShort / conversion) : ''
         next[id] = defaultQty
       }
       return next
@@ -425,7 +455,16 @@ export function PurchaseOrderPage() {
       }
       return next
     })
-  }, [selectedShortageIds, selectedShortageMap])
+  }, [selectedShortageIds, selectedShortageMap, materialMetaById])
+
+  const quickItemUnits = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const id of selectedShortageIds) {
+      const row = selectedShortageMap[id]
+      map[id] = materialMetaById[id]?.orderUnit || row?.unit || 'base'
+    }
+    return map
+  }, [selectedShortageIds, selectedShortageMap, materialMetaById])
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / poPageSize))
   const safePage = Math.min(page, totalPages)
@@ -584,10 +623,13 @@ export function PurchaseOrderPage() {
         nextErrors[row.id] = 'Số lượng yêu cầu phải là số > 0.'
       }
 
+      const conversion = normalizeOrderUnitConversion(materialMetaById[row.id]?.orderUnitConversionToBase)
+      const orderUnit = materialMetaById[row.id]?.orderUnit || row.unit || 'base'
+
       return {
         productId: row.id,
-        quantityNeededBase: parsed,
-        unitDisplay: row.unit || 'base',
+        quantityNeededBase: parsed * conversion,
+        unitDisplay: orderUnit,
         quantityDisplay: parsed,
         unitPrice: 0,
       }
@@ -657,7 +699,7 @@ export function PurchaseOrderPage() {
         inciName: '',
         manufacturerName: '',
         quantity: Number.isFinite(parsed) ? parsed : 0,
-        unit: item.unit || 'base',
+        unit: materialById.get(item.id)?.unit || item.unit || 'base',
         orderUnit: materialById.get(item.id)?.orderUnit || item.unit || 'base',
         orderUnitConversionToBase: normalizeOrderUnitConversion(materialById.get(item.id)?.orderUnitConversionToBase),
         unitPrice: 0,
@@ -702,7 +744,7 @@ export function PurchaseOrderPage() {
           materialName: item.product.name,
           inciName: item.product.inciNames?.[0]?.inciName ?? '',
           manufacturerName: item.product.manufacturers?.[0]?.name ?? '',
-          quantity: quantityNeededBase,
+          quantity: quantityDisplay,
           unit: item.product.baseUnitRef?.unitCodeName || item.product.baseUnitRef?.unitName || 'base',
           // Keep pricing unit from saved line snapshot to avoid historical drift when unit config changes.
           orderUnit: item.unitDisplay || item.product.orderUnitRef?.unitCodeName || item.product.orderUnitRef?.unitName || 'base',
@@ -849,9 +891,9 @@ export function PurchaseOrderPage() {
     const items = detailLines
       .map((line) => ({
         productId: line.productId,
-        quantityNeededBase: line.quantity,
+        quantityNeededBase: line.quantity * normalizeOrderUnitConversion(line.orderUnitConversionToBase),
         unitDisplay: line.orderUnit || line.unit || 'base',
-        quantityDisplay: line.quantity / normalizeOrderUnitConversion(line.orderUnitConversionToBase),
+        quantityDisplay: line.quantity,
         unitPrice: line.unitPrice,
       }))
 
@@ -1166,6 +1208,7 @@ export function PurchaseOrderPage() {
           quickRequestType={quickRequestType}
           onQuickRequestTypeChange={setQuickRequestType}
           selectedQuickItems={selectedQuickItems}
+          quickItemUnits={quickItemUnits}
           quickItemQuantities={quickItemQuantities}
           quickQuantityErrors={quickQuantityErrors}
           onQuickQuantityChange={handleQuickQuantityChange}
