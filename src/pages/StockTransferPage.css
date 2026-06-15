@@ -189,10 +189,10 @@
   font-family: 'Inter', sans-serif;
 }
 
-.stp-field :global(.p-inputtext),
-.stp-field :global(.p-inputtextarea),
-.stp-field :global(.p-dropdown),
-.stp-field :global(.p-calendar .p-inputtext) {
+.stp-field .p-inputtext,
+.stp-field .p-inputtextarea,
+.stp-field .p-dropdown,
+.stp-field .p-calendar .p-inputtext {
   background: #f9fafb !important;
   border: 1px solid #dee1e6 !important;
   border-radius: 8px !important;
@@ -203,39 +203,39 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.stp-field :global(.p-dropdown) {
+.stp-field .p-dropdown {
   height: 40px !important;
   display: flex;
   align-items: center;
 }
 
-.stp-field :global(.p-inputtextarea) {
+.stp-field .p-inputtextarea {
   height: auto !important;
   min-height: 72px;
   padding-top: 10px !important;
 }
 
-.stp-field :global(.p-inputtext:focus),
-.stp-field :global(.p-dropdown:not(.p-disabled):hover),
-.stp-field :global(.p-dropdown.p-focus) {
+.stp-field .p-inputtext:focus,
+.stp-field .p-dropdown:not(.p-disabled):hover,
+.stp-field .p-dropdown.p-focus {
   border-color: #258cf4 !important;
   box-shadow: 0 0 0 3px rgba(37, 140, 244, 0.12) !important;
   background: #fff !important;
 }
 
-.stp-field :global(.p-inputtext:disabled),
-.stp-field :global(.p-inputtext.p-disabled),
-.stp-field :global(.p-dropdown.p-disabled) {
+.stp-field .p-inputtext:disabled,
+.stp-field .p-inputtext.p-disabled,
+.stp-field .p-dropdown.p-disabled {
   background: #f3f4f6 !important;
   color: #9ca3af !important;
   cursor: not-allowed;
   opacity: 1 !important;
 }
 
-.stp-field :global(.p-calendar) {
+.stp-field .p-calendar {
   width: 100%;
 }
-.stp-field :global(.p-calendar .p-inputtext) {
+.stp-field .p-calendar .p-inputtext {
   width: 100%;
 }
 
@@ -273,7 +273,7 @@
   height: 38px !important;
   padding: 0 !important;
 }
-.stp-wh-dropdown :global(.p-dropdown-trigger) { width: 28px; }
+.stp-wh-dropdown .p-dropdown-trigger { width: 28px; }
 
 .stp-wh-arrow {
   display: flex;
@@ -318,7 +318,7 @@
 .stp-btn-add:hover { background: rgba(37, 140, 244, 0.06); }
 
 /* ── DataTable ──────────────────────────────────────────────────── */
-.stp-datatable :global(.p-datatable-thead > tr > th) {
+.stp-datatable .p-datatable-thead > tr > th {
   background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
   border-top: none;
@@ -330,17 +330,17 @@
   letter-spacing: 0.4px;
   padding: 10px 14px;
 }
-.stp-datatable :global(.p-datatable-tbody > tr > td) {
+.stp-datatable .p-datatable-tbody > tr > td {
   border-bottom: 1px solid #f3f4f6;
   padding: 12px 14px;
   color: #374151;
   font-size: 13.5px;
   font-family: 'Inter', sans-serif;
 }
-.stp-datatable :global(.p-datatable-tbody > tr:hover > td) {
+.stp-datatable .p-datatable-tbody > tr:hover > td {
   background: #f9fafb;
 }
-.stp-datatable :global(.p-datatable-tbody > tr:last-child > td) {
+.stp-datatable .p-datatable-tbody > tr:last-child > td {
   border-bottom: none;
 }
 
@@ -467,9 +467,9 @@
   gap: 7px;
   margin-bottom: 20px;
 }
-.stp-dialog-field :global(.p-dropdown),
-.stp-dialog-field :global(.p-inputnumber),
-.stp-dialog-field :global(.p-inputnumber .p-inputtext) {
+.stp-dialog-field .p-dropdown,
+.stp-dialog-field .p-inputnumber,
+.stp-dialog-field .p-inputnumber .p-inputtext {
   width: 100%;
   border: 1px solid #dee1e6;
   border-radius: 8px;
@@ -478,7 +478,7 @@
   font-size: 14px;
   font-family: 'Inter', sans-serif;
 }
-.stp-dialog-field :global(.p-inputnumber) { height: auto; }
+.stp-dialog-field .p-inputnumber { height: auto; }
 
 .stp-product-hint {
   display: flex;
