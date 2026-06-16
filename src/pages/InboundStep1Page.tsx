@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Calendar } from 'primereact/calendar'
@@ -98,6 +98,7 @@ export function InboundStep1Page() {
   const [warehouseOptions, setWarehouseOptions] = useState<SelectOption[]>([])
   const [warehouseLoading, setWarehouseLoading] = useState(false)
   const [warehouseError, setWarehouseError] = useState<string | null>(null)
+  const lastAutoFilledPoRef = useRef<string>(step1Init?.poNumber ?? '')
   const [poOptions, setPoOptions] = useState<SelectOption[]>([])
   const [poLoading, setPoLoading] = useState(false)
   const [poError, setPoError] = useState<string | null>(null)
@@ -334,26 +335,22 @@ export function InboundStep1Page() {
 
   useEffect(() => {
     if (!selectedPoOption) return
+    // Skip if this is the same PO that was already loaded on mount (back-navigation restore)
+    if (selectedPoOption.value === lastAutoFilledPoRef.current) return
 
-    if (selectedPoOption.supplierName && selectedPoOption.supplierName !== supplierKeyword) {
-      setSupplierKeyword(selectedPoOption.supplierName)
-    }
-
-    if (selectedPoOption.warehouseId && selectedPoOption.warehouseId !== receivingWarehouseId) {
-      setReceivingWarehouseId(selectedPoOption.warehouseId)
-    }
-
-    if (selectedPoOption.warehouseName && selectedPoOption.warehouseName !== receivingWarehouseName) {
-      setReceivingWarehouseName(selectedPoOption.warehouseName)
-    }
-
-    if (selectedPoOption.expectedDate && selectedPoOption.expectedDate !== expectedDate) {
-      setExpectedDate(selectedPoOption.expectedDate)
-    }
-  }, [expectedDate, receivingWarehouseId, receivingWarehouseName, selectedPoOption, supplierKeyword])
+    // Mark immediately so detail-fetch effect can also proceed (same render tick)
+    lastAutoFilledPoRef.current = selectedPoOption.value
+    if (selectedPoOption.supplierName) setSupplierKeyword(selectedPoOption.supplierName)
+    if (selectedPoOption.warehouseId) setReceivingWarehouseId(selectedPoOption.warehouseId)
+    if (selectedPoOption.warehouseName) setReceivingWarehouseName(selectedPoOption.warehouseName)
+    if (selectedPoOption.expectedDate) setExpectedDate(selectedPoOption.expectedDate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPoOption])
 
   useEffect(() => {
     if (!selectedPoOption?.purchaseId) return
+    // Skip if this is the same PO that was already loaded on mount (back-navigation restore)
+    if (selectedPoOption.value === lastAutoFilledPoRef.current) return
 
     let cancelled = false
 
@@ -362,23 +359,11 @@ export function InboundStep1Page() {
         const detail = await fetchPurchaseRequestDetail(selectedPoOption.purchaseId as string)
         if (cancelled) return
 
-        if (detail.supplier?.name && detail.supplier.name !== supplierKeyword) {
-          setSupplierKeyword(detail.supplier.name)
-        }
-
-        if (detail.receivingLocation?.id) {
-          const nextWarehouseId = String(detail.receivingLocation.id)
-          if (nextWarehouseId !== receivingWarehouseId) setReceivingWarehouseId(nextWarehouseId)
-        }
-
-        if (detail.receivingLocation?.name && detail.receivingLocation.name !== receivingWarehouseName) {
-          setReceivingWarehouseName(detail.receivingLocation.name)
-        }
-
+        if (detail.supplier?.name) setSupplierKeyword(detail.supplier.name)
+        if (detail.receivingLocation?.id) setReceivingWarehouseId(String(detail.receivingLocation.id))
+        if (detail.receivingLocation?.name) setReceivingWarehouseName(detail.receivingLocation.name)
         const nextExpectedDate = normalizeApiDate(detail.expectedDate)
-        if (nextExpectedDate && nextExpectedDate !== expectedDate) {
-          setExpectedDate(nextExpectedDate)
-        }
+        if (nextExpectedDate) setExpectedDate(nextExpectedDate)
       } catch {
         // Keep list-derived values if detail fetch fails.
       }
@@ -389,7 +374,8 @@ export function InboundStep1Page() {
     return () => {
       cancelled = true
     }
-  }, [expectedDate, receivingWarehouseId, receivingWarehouseName, selectedPoOption, supplierKeyword])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPoOption])
 
   const isSupplierLockedByPo = !!selectedPoOption?.supplierName
 
@@ -570,7 +556,8 @@ export function InboundStep1Page() {
               <Calendar
                 value={parseDateValue(expectedDate)}
                 onChange={(e) => {
-                  setExpectedDate(formatDateValue(e.value ?? null) || expectedDate)
+                  const newDate = e.value ? formatDateValue(e.value) : ''
+                  setExpectedDate(newDate)
                   setFieldErrors((prev) => ({ ...prev, expectedDate: undefined }))
                 }}
                 dateFormat="dd/mm/yy"
