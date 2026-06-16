@@ -512,7 +512,7 @@ export function InboundStep4Page() {
       return
     }
 
-    const missingDocs = dbItems.filter((item) => !item.hasDocument || item.documents.length === 0)
+    const missingDocs = dbItems.filter((item) => !item.product.noLotData && (!item.hasDocument || item.documents.length === 0))
     if (missingDocs.length > 0) {
       toast.current?.show({
         severity: 'warn',
@@ -523,7 +523,7 @@ export function InboundStep4Page() {
       return
     }
 
-    const notPassed = dbItems.filter((item) => (qcStatuses[item.id] ?? 'pending') !== 'passed')
+    const notPassed = dbItems.filter((item) => !item.product.noLotData && (qcStatuses[item.id] ?? 'pending') !== 'passed')
     if (notPassed.length > 0) {
       toast.current?.show({
         severity: 'warn',

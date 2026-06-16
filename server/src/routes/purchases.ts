@@ -254,6 +254,7 @@ router.get('/:id', requireAuth, requirePermission('purchases.read'), async (req:
               orderUnitRef: { select: { id: true, unitName: true, unitCodeName: true, conversionToBase: true } },
               inciNames: { where: { isPrimary: true }, select: { inciName: true }, take: 1 },
               manufacturers: { select: { id: true, name: true }, take: 1 },
+              productClassification: { select: { noLotData: true } },
             },
           },
           exportOrderItem: { select: { unitPriceSnapshot: true } },

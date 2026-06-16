@@ -277,7 +277,10 @@ router.get('/receipts/:id', async (req, res) => {
                   unitName: true,
                   conversionToBase: true,
                 }
-              }
+              },
+              productClassification: {
+                select: { noLotData: true },
+              },
             }
           },
           manufacturer: {
@@ -380,6 +383,7 @@ router.get('/receipts/:id', async (req, res) => {
         name: string
         inciNames?: Array<{ inciName: string }> | null
         orderUnitRef: { unitName: string; conversionToBase: unknown } | null
+        productClassification: { noLotData: boolean } | null
       }
       manufacturer: { id: bigint; name: string } | null
       documents: Array<{
@@ -397,6 +401,7 @@ router.get('/receipts/:id', async (req, res) => {
         code: item.product.code,
         name: item.product.name,
         inciName: item.product.inciNames?.[0]?.inciName ?? null,
+        noLotData: Boolean(item.product.productClassification?.noLotData),
         orderUnitRef: item.product.orderUnitRef
           ? {
               unitName: item.product.orderUnitRef.unitName,
@@ -938,6 +943,11 @@ router.post('/receipts/:id/post', requireAuth, async (req: AuthenticatedRequest,
         orderBy: { id: 'asc' },
         include: {
           documents: { select: { id: true } },
+          product: {
+            select: {
+              productClassification: { select: { noLotData: true } },
+            },
+          },
         },
       },
     },
@@ -972,13 +982,13 @@ router.post('/receipts/:id/post', requireAuth, async (req: AuthenticatedRequest,
 
   // Chỉ bắt buộc QC + chứng từ cho phiếu thường, hoặc phiếu điều chỉnh còn dòng hàng
   if (receipt.items.length > 0) {
-    const failedItems = receipt.items.filter((item) => item.qcStatus !== 'passed')
+    const failedItems = receipt.items.filter((item) => !item.product.productClassification?.noLotData && item.qcStatus !== 'passed')
     if (failedItems.length > 0) {
       res.status(400).json({ error: 'Chưa thể posted. Tất cả dòng phải có kết quả QC đạt (passed).' })
       return
     }
 
-    const missingDocs = receipt.items.filter((item) => !item.hasDocument || item.documents.length === 0)
+    const missingDocs = receipt.items.filter((item) => !item.product.productClassification?.noLotData && (!item.hasDocument || item.documents.length === 0))
     if (missingDocs.length > 0) {
       res.status(400).json({ error: 'Chưa thể posted. Một số dòng chưa có chứng từ bắt buộc.' })
       return
@@ -986,7 +996,12 @@ router.post('/receipts/:id/post', requireAuth, async (req: AuthenticatedRequest,
   }
 
   const actorId = await getCurrentUserIdFromRequest(req)
-  const postedAt = new Date()
+  // Use expectedDate (ngày nhận hàng từ Step 1) as the transaction date.
+  if (!receipt.expectedDate) {
+    res.status(400).json({ error: 'Phiếu chưa có ngày nhận hàng (Ngày nhận hàng ở Bước 1). Vui lòng bổ sung trước khi posted.' })
+    return
+  }
+  const postedAt = new Date(`${receipt.expectedDate.toISOString().slice(0, 10)}T00:00:00.000Z`)
   const receivingLocationId = receipt.receivingLocationId
 
   await prisma.$transaction(async (tx) => {

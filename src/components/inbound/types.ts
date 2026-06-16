@@ -28,6 +28,7 @@ export type InboundStep2State = {
   selectedManufacturerId?: string
   selectedManufacturerName?: string
   inciName?: string
+  selectedMaterialNoLotData?: boolean
 }
 
 export type AttachedFileInfo = {

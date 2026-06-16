@@ -44,6 +44,7 @@ type PoMaterialOption = {
   priceUnitConversionToBase: number
   poUnitPrice: number | null
   poQuantity: number | null
+  noLotData: boolean
 }
 
 function buildLotSuggestion(materialCode: string, expectedDate?: string): string {
@@ -154,6 +155,7 @@ export function InboundStep2Page() {
         selectedManufacturerId: selectedManufacturerId || undefined,
         selectedManufacturerName: manufacturerOptions.find((m) => m.id === selectedManufacturerId)?.name,
         inciName: inciName || undefined,
+        selectedMaterialNoLotData: selectedMaterial?.noLotData ?? false,
       },
     }
   }
@@ -336,6 +338,7 @@ export function InboundStep2Page() {
             priceUnitConversionToBase: orderUnitConversionFactor,
             poUnitPrice: poUnitPrice != null && Number.isFinite(poUnitPrice) ? poUnitPrice : null,
             poQuantity: Number.isFinite(poQuantityDisplay) ? poQuantityDisplay : null,
+            noLotData: Boolean(item.product.productClassification?.noLotData),
             label: `${item.product.code} - ${item.product.name}`,
           }
         })
@@ -461,14 +464,17 @@ export function InboundStep2Page() {
 
   function validateBeforeNext(): boolean {
     const errors: Partial<Record<'selectedMaterialId' | 'lotNo' | 'invoiceNumber' | 'invoiceDate' | 'unitPrice' | 'quantity' | 'mfgDate' | 'expDate', string>> = {}
+    const noLotData = selectedMaterial?.noLotData ?? false
 
     if (!lotNo.trim()) errors.lotNo = 'Vui lòng nhập LOT NO.'
     if (!invoiceNumber.trim()) errors.invoiceNumber = 'Vui lòng nhập số hóa đơn.'
     if (!invoiceDate.trim()) errors.invoiceDate = 'Vui lòng chọn ngày hóa đơn.'
     if (unitPrice == null || unitPrice < 0) errors.unitPrice = 'Vui lòng nhập đơn giá hợp lệ (không âm).'
     if (quantity == null || quantity < 0) errors.quantity = 'Vui lòng nhập số lượng thực nhập hợp lệ (không âm).'
-    if (!mfgDate.trim()) errors.mfgDate = 'Vui lòng chọn ngày sản xuất (MFG).'
-    if (!expDate.trim()) errors.expDate = 'Vui lòng chọn hạn sử dụng (EXP).'
+    if (!noLotData) {
+      if (!mfgDate.trim()) errors.mfgDate = 'Vui lòng chọn ngày sản xuất (MFG).'
+      if (!expDate.trim()) errors.expDate = 'Vui lòng chọn hạn sử dụng (EXP).'
+    }
 
     const mfg = parseDateValue(mfgDate)
     const exp = parseDateValue(expDate)

@@ -41,6 +41,7 @@ export type BasicRow = {
   conversionToBase?: number
   isPurchaseUnit?: boolean
   isDefaultDisplay?: boolean
+  noLotData?: boolean
   status: string
 }
 

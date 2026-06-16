@@ -148,6 +148,7 @@ export async function createBasic(tab: BasicTabId, payload: {
   conversionToBase?: number
   isPurchaseUnit?: boolean
   isDefaultDisplay?: boolean
+  noLotData?: boolean
 }) {
   if (tab === 'locations') {
     return http('/api/catalog/locations', {
@@ -159,7 +160,7 @@ export async function createBasic(tab: BasicTabId, payload: {
   if (tab === 'classifications') {
     return http('/api/catalog/classifications', {
       method: 'POST',
-      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note }),
+      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note, noLotData: payload.noLotData ?? false }),
     })
   }
 
@@ -221,6 +222,7 @@ export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<
   conversionToBase: number
   isPurchaseUnit: boolean
   isDefaultDisplay: boolean
+  noLotData: boolean
 }>) {
   if (tab === 'locations') {
     return http(`/api/catalog/locations/${id}`, {
@@ -232,7 +234,7 @@ export async function updateBasic(tab: BasicTabId, id: string, payload: Partial<
   if (tab === 'classifications') {
     return http(`/api/catalog/classifications/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note }),
+      body: JSON.stringify({ code: payload.code, name: payload.name, note: payload.note, noLotData: payload.noLotData }),
     })
   }
 

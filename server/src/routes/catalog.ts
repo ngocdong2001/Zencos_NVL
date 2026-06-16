@@ -209,6 +209,7 @@ const basicCatalogSchema = z.object({
   code: z.string().min(1),
   name: z.string().min(1),
   note: z.string().optional().nullable(),
+  noLotData: z.boolean().optional().nullable(),
 })
 
 router.get('/materials', async (req, res) => {
@@ -1113,7 +1114,7 @@ router.delete('/customers/:id', async (req, res) => {
 
 router.get('/classifications', async (_req, res) => {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
-    SELECT id, code, name, notes, deleted_at
+    SELECT id, code, name, notes, no_lot_data, deleted_at
     FROM product_classifications
     WHERE deleted_at IS NULL
     ORDER BY created_at DESC
@@ -1124,6 +1125,7 @@ router.get('/classifications', async (_req, res) => {
     code: String(row.code ?? ''),
     name: String(row.name ?? ''),
     note: String(row.notes ?? ''),
+    noLotData: Boolean(row.no_lot_data),
     status: toStatusLabel(row.deleted_at),
   }))
 
@@ -1150,9 +1152,9 @@ router.post('/classifications', async (req, res) => {
   try {
     await prisma.$executeRaw(Prisma.sql`
       INSERT INTO product_classifications
-        (code, name, notes, created_at, updated_at)
+        (code, name, notes, no_lot_data, created_at, updated_at)
       VALUES
-        (${data.code}, ${data.name}, ${data.note ?? null}, NOW(3), NOW(3))
+        (${data.code}, ${data.name}, ${data.note ?? null}, ${data.noLotData ?? false}, NOW(3), NOW(3))
     `)
   } catch (error) {
     if (!isDuplicateIndexError(error, 'product_classifications.product_classifications_code_key')) throw error
@@ -1194,6 +1196,7 @@ router.put('/classifications/:id', async (req, res) => {
         code = COALESCE(${data.code ?? null}, code),
         name = COALESCE(${data.name ?? null}, name),
         notes = COALESCE(${data.note ?? null}, notes),
+        no_lot_data = CASE WHEN ${data.noLotData ?? null} IS NOT NULL THEN ${data.noLotData ?? false} ELSE no_lot_data END,
         updated_at = NOW(3)
       WHERE id = ${id} AND deleted_at IS NULL
     `)

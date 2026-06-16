@@ -416,6 +416,7 @@ export function CatalogPage() {
           conversionToBase: row.conversionToBase,
           isPurchaseUnit: row.isPurchaseUnit,
           isDefaultDisplay: row.isDefaultDisplay,
+          noLotData: row.noLotData,
         })
       } else {
         await createBasic(tab, {
@@ -430,6 +431,7 @@ export function CatalogPage() {
           conversionToBase: row.conversionToBase,
           isPurchaseUnit: row.isPurchaseUnit,
           isDefaultDisplay: row.isDefaultDisplay,
+          noLotData: row.noLotData,
         })
       }
       await refreshBasicTab(tab)

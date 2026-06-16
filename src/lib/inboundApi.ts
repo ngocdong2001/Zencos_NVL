@@ -82,6 +82,7 @@ export type InboundReceiptDetailResponse = {
       code: string
       name: string
       inciName?: string | null
+      noLotData?: boolean
       orderUnitRef?: {
         unitName: string
         conversionToBase: number

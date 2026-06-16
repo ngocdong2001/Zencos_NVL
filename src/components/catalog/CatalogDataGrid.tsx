@@ -631,6 +631,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
           conversionToBase: Number(pendingNewBasic.conversionToBase ?? 1),
           isPurchaseUnit: Boolean(pendingNewBasic.isPurchaseUnit),
           isDefaultDisplay: Boolean(pendingNewBasic.isDefaultDisplay),
+          noLotData: Boolean(pendingNewBasic.noLotData),
           status: pendingNewBasic.status?.trim() || 'Active',
         }
         const saved = await onSaveBasic(candidate)
@@ -1242,7 +1243,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
       return <span className="unit-conversion-value">{numberFormatter.format(Number(rowData.conversionToBase ?? 1))}</span>
     }
 
-    function basicBoolBody(rowData: BasicRow, field: 'isPurchaseUnit' | 'isDefaultDisplay') {
+    function basicBoolBody(rowData: BasicRow, field: 'isPurchaseUnit' | 'isDefaultDisplay' | 'noLotData') {
       if (rowData.id === NEW_ID) {
         const checked = Boolean(pendingNewBasic[field])
         return (
@@ -1419,6 +1420,7 @@ export const CatalogDataGrid = forwardRef<CatalogDataGridHandle, Props>(
               {activeTab === 'units' ? <Column field="conversionToBase" header="Quy đổi" bodyClassName="unit-conversion-col" body={basicConversionBody} editor={(options) => basicConversionEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {activeTab === 'units' ? <Column field="isPurchaseUnit" header="ĐV mua" bodyClassName="unit-flag-col" body={(row) => basicBoolBody(row, 'isPurchaseUnit')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               {activeTab === 'units' ? <Column field="isDefaultDisplay" header="Mặc định" bodyClassName="unit-flag-col" body={(row) => basicBoolBody(row, 'isDefaultDisplay')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
+              {activeTab === 'classifications' ? <Column field="noLotData" header="Không Lot Data" bodyClassName="unit-flag-col" body={(row) => basicBoolBody(row, 'noLotData')} editor={(options) => basicBoolEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable /> : null}
               <Column field="status" header="Trạng thái" body={basicStatusBody} editor={(options) => basicStatusEditor(options)} onBeforeCellEditShow={preventEditOnNewRow} onCellEditComplete={handleBasicCellEditComplete} sortable />
               <Column header="Xử lý" body={basicDeleteButton} style={{ width: '88px' }} />
             </DataTable>

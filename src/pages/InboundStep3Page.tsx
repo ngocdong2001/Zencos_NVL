@@ -125,6 +125,8 @@ export function InboundStep3Page() {
     ? selectedConversionToBaseRaw
     : 1
 
+  const noLotData = wizState.step2.selectedMaterialNoLotData ?? false
+
   function buildCurrentWiz(): InboundWizardState {
     return {
       ...wizState,
@@ -462,9 +464,14 @@ export function InboundStep3Page() {
   }
 
   function validateBeforeNext(): string | null {
+    const noLotData = wizState.step2.selectedMaterialNoLotData ?? false
+
     if (files.length === 0) {
+      if (noLotData) return null
       return 'Vui lòng tải lên ít nhất 1 tài liệu trước khi sang bước tiếp theo.'
     }
+
+    if (noLotData) return null
 
     const docTypes = new Set(files.map((file) => file.docType))
     if (!docTypes.has('COA')) return 'Thiếu tài liệu COA. Vui lòng bổ sung trước khi tiếp tục.'
@@ -521,7 +528,11 @@ export function InboundStep3Page() {
             <div className="inbound-step3-card">
               <div className="inbound-step3-card-header">
                 <h3>Tài liệu đính kèm</h3>
-                <p className="inbound-step3-card-subtitle">Yêu cầu ít nhất COA và MSDS cho lô hàng mới</p>
+                <p className="inbound-step3-card-subtitle">
+                  {noLotData
+                    ? 'Nhóm hàng không yêu cầu Lot Data — tài liệu là tùy chọn'
+                    : 'Yêu cầu ít nhất COA và MSDS cho lô hàng mới'}
+                </p>
               </div>
 
               {/* Dropzone */}

@@ -102,6 +102,7 @@ export type PurchaseRequestDetailResponse = {
       } | null
       inciNames?: Array<{ inciName: string }> | null
       manufacturers?: Array<{ id: string; name: string }> | null
+      productClassification?: { noLotData: boolean } | null
     }
   }>
 }
