@@ -5,6 +5,7 @@ import { InputIcon } from 'primereact/inputicon'
 import { InputText } from 'primereact/inputtext'
 import type { PurchaseRequestInboundDrilldownResponse } from '../../lib/purchaseShortageApi'
 import { formatQuantity } from './format'
+import { getInboundStatusMeta } from '../inbound/statusMeta'
 
 type Props = {
   data: PurchaseRequestInboundDrilldownResponse
@@ -20,6 +21,7 @@ type Props = {
 type ReceiptDetailNode = {
   receiptId: string
   receiptRef: string
+  status: PurchaseRequestInboundDrilldownResponse['receipts'][number]['status']
   isSuperseded: boolean
   createdAt: string
   lotNo: string
@@ -51,6 +53,7 @@ export function PurchaseOrderLineSummarySection({
         current.push({
           receiptId: receipt.id,
           receiptRef: receipt.receiptRef,
+          status: receipt.status,
           isSuperseded: !!receipt.adjustedByReceipt,
           createdAt: receipt.createdAt,
           lotNo: item.lotNo,
@@ -220,6 +223,9 @@ export function PurchaseOrderLineSummarySection({
                           >
                             {detail.receiptRef}
                           </button>
+                          <span className={`app-status-badge ${getInboundStatusMeta(detail.status).tone}`}>
+                            {getInboundStatusMeta(detail.status).label}
+                          </span>
                         </div>
                         <div className="po-drill-branch-lot-line">
                           <strong>{detail.lotNo}</strong>
