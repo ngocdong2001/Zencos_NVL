@@ -366,6 +366,7 @@ router.get('/receipts/:id', async (req, res) => {
     items: receipt.items.map((item: {
       id: bigint
       lotNo: string
+      manufacturerLotNo: string | null
       invoiceNumber: string | null
       invoiceDate: Date | null
       manufactureDate: Date | null
@@ -410,6 +411,7 @@ router.get('/receipts/:id', async (req, res) => {
           : null,
       },
       lotNo: item.lotNo,
+      manufacturerLotNo: item.manufacturerLotNo ?? null,
       invoiceNumber: item.invoiceNumber,
       invoiceDate: item.invoiceDate ? item.invoiceDate.toISOString().slice(0, 10) : null,
       manufactureDate: item.manufactureDate ? item.manufactureDate.toISOString().slice(0, 10) : null,
@@ -446,6 +448,7 @@ router.get('/receipts/:id', async (req, res) => {
 type SaveDraftItemBody = {
   productId?: unknown
   lotNo?: unknown
+  manufacturerLotNo?: unknown
   quantityBase?: unknown
   quantityDisplay?: unknown
   unitUsed?: unknown
@@ -492,6 +495,7 @@ async function upsertDraftItem(
 ): Promise<void> {
   const productIdStr = String(item.productId ?? '').trim()
   const lotNo = String(item.lotNo ?? '').trim()
+  const manufacturerLotNo = typeof item.manufacturerLotNo === 'string' && item.manufacturerLotNo.trim() ? item.manufacturerLotNo.trim() : null
   const quantityBase = Number(item.quantityBase)
   if (!productIdStr || !/^\d+$/.test(productIdStr) || !lotNo || !Number.isFinite(quantityBase) || quantityBase < 0) return
 
@@ -546,6 +550,7 @@ async function upsertDraftItem(
         purchaseRequestItemId,
         productId,
         lotNo,
+        manufacturerLotNo,
         quantityBase,
         quantityDisplay,
         unitUsed,
@@ -567,6 +572,7 @@ async function upsertDraftItem(
       purchaseRequestItemId,
       productId,
       lotNo,
+      manufacturerLotNo,
       quantityBase,
       quantityDisplay,
       unitUsed,

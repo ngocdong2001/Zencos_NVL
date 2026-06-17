@@ -180,6 +180,7 @@ export type SaveDraftPayload = {
   item?: {
     productId: string
     lotNo: string
+    manufacturerLotNo?: string
     quantityBase: number
     quantityDisplay: number
     unitUsed: string

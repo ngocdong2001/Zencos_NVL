@@ -74,6 +74,7 @@ export function InboundStep2Page() {
   const [editDraftCode, setEditDraftCode] = useState(step1.draftCode)
 
   const [lotNo, setLotNo] = useState(wizState.step2.lotNo)
+  const [manufacturerLotNo, setManufacturerLotNo] = useState(wizState.step2.manufacturerLotNo ?? '')
   const [unitPrice, setUnitPrice] = useState<number | null>(wizState.step2.unitPrice)
   const [quantity, setQuantity] = useState<number | null>(wizState.step2.quantity)
   const [invoiceNumber, setInvoiceNumber] = useState(wizState.step2.invoiceNumber)
@@ -139,6 +140,7 @@ export function InboundStep2Page() {
       step1: { ...wizState.step1, draftCode: editDraftCode },
       step2: {
         lotNo,
+        manufacturerLotNo: manufacturerLotNo || undefined,
         unitPrice,
         quantity,
         invoiceNumber,
@@ -410,6 +412,7 @@ export function InboundStep2Page() {
           ? {
               productId: selectedMaterial.value,
               lotNo: lotNo.trim(),
+              manufacturerLotNo: manufacturerLotNo.trim() || undefined,
               quantityBase: Number((quantity * selectedConversionToBase).toFixed(4)),
               quantityDisplay: quantity,
               unitUsed: selectedMaterial.unitDisplay || 'kg',
@@ -713,6 +716,15 @@ export function InboundStep2Page() {
                         Gợi ý LOT: {lastAutoLotSuggestion}
                       </button>
                     ) : null}
+                  </label>
+                  <label className="inbound-step2-field">
+                    <span>Số lô nhà sản xuất</span>
+                    <InputText
+                      value={manufacturerLotNo}
+                      onChange={(e) => setManufacturerLotNo(e.target.value)}
+                      placeholder="VD: MFR-LOT-2024-001"
+                      disabled={isPosted}
+                    />
                   </label>
                   <label className="inbound-step2-field">
                     <span>Đơn giá / 1 {priceUnitLabel} (VNĐ) <span className="inbound-field-required">*</span></span>

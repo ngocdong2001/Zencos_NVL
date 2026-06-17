@@ -574,6 +574,7 @@ model InboundReceiptItem {
   purchaseRequestItemId BigInt?                    @map("purchase_request_item_id") @db.UnsignedBigInt
   productId             BigInt                     @map("product_id") @db.UnsignedBigInt
   lotNo                 String                     @map("lot_no") @db.VarChar(100)
+  manufacturerLotNo     String?                    @map("manufacturer_lot_no") @db.VarChar(100)
   invoiceNumber         String?                    @map("invoice_number") @db.VarChar(100)
   invoiceDate           DateTime?                  @map("invoice_date") @db.Date
   manufactureDate       DateTime?                  @map("manufacture_date") @db.Date

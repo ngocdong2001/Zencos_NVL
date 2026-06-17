@@ -12,6 +12,7 @@ export type InboundStep1State = {
 
 export type InboundStep2State = {
   lotNo: string
+  manufacturerLotNo?: string
   unitPrice: number | null
   quantity: number | null
   invoiceNumber: string
