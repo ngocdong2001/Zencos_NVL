@@ -194,6 +194,7 @@ export function InboundStep4Page() {
   const materialCodeDisplay = (dbFirstItem?.product?.code ?? step2.selectedMaterialCode) || '—'
   const inciNameDisplay = (dbFirstItem?.product?.inciName ?? step2.inciName ?? '').trim()
   const lotDisplay = (dbFirstItem?.lotNo ?? step2.lotNo) || '—'
+  const manufacturerLotDisplay = (dbFirstItem?.manufacturerLotNo ?? step2.manufacturerLotNo ?? '').trim() || null
   const expectedDateDisplay = (dbDetail?.expectedDate ?? step1.expectedDate) || '—'
   const attachedFiles = dbDetail
     ? dbDetail.items.flatMap((item) =>
@@ -420,6 +421,7 @@ export function InboundStep4Page() {
         },
         step2: {
           lotNo: firstItem?.lotNo ?? '',
+          manufacturerLotNo: firstItem?.manufacturerLotNo ?? undefined,
           unitPrice: firstItem?.unitPricePerKg ?? null,
           quantity: firstItem ? Number(firstItem.quantityDisplay) : null,
           invoiceNumber: firstItem?.invoiceNumber ?? '',
@@ -725,6 +727,10 @@ export function InboundStep4Page() {
                       <p className="inbound-step4-info-value">{dbFirstItem?.manufacturer?.name ?? step2.selectedManufacturerName}</p>
                     </div>
                   ) : null}
+                  <div>
+                    <p className="inbound-step4-info-label">Số lô nhà sản xuất</p>
+                    <p className="inbound-step4-info-value">{manufacturerLotDisplay || '—'}</p>
+                  </div>
                   <div>
                     <p className="inbound-step4-info-label">Ngày nhận hàng</p>
                     <p className="inbound-step4-info-value">{expectedDateDisplay}</p>

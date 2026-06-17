@@ -89,6 +89,7 @@ export type InboundReceiptDetailResponse = {
       } | null
     }
     lotNo: string
+    manufacturerLotNo: string | null
     invoiceNumber: string | null
     invoiceDate: string | null
     manufactureDate: string | null
