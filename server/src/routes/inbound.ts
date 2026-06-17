@@ -1467,6 +1467,244 @@ router.post('/receipts/:id/void-rereceive', requireAuth, async (req: Authenticat
   })
 })
 
+router.post('/receipts/:id/revert-to-draft', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const idRaw = String(req.params.id ?? '').trim()
+  if (!/^\d+$/.test(idRaw)) {
+    res.status(400).json({ error: 'ID phiếu nhập kho không hợp lệ.' })
+    return
+  }
+
+  const receiptId = BigInt(idRaw)
+  const receipt = await prisma.inboundReceipt.findUnique({
+    where: { id: receiptId },
+    include: {
+      items: {
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          lotNo: true,
+          quantityBase: true,
+          postedBatchId: true,
+          postedTxId: true,
+          purchaseRequestItemId: true,
+        },
+      },
+    },
+  })
+
+  if (!receipt) {
+    res.status(404).json({ error: 'Không tìm thấy phiếu nhập kho.' })
+    return
+  }
+
+  if (receipt.status !== 'posted') {
+    res.status(409).json({ error: 'Chỉ có thể thu hồi phiếu đã posted về trạng thái nháp.' })
+    return
+  }
+
+  if (receipt.sourceReceiptId || receipt.adjustedByReceiptId) {
+    res.status(409).json({ error: 'Phiếu điều chỉnh không hỗ trợ thao tác thu hồi về nháp trực tiếp.' })
+    return
+  }
+
+  if (receipt.items.length === 0) {
+    res.status(400).json({ error: 'Phiếu posted không có dòng dữ liệu để thu hồi.' })
+    return
+  }
+
+  const usedLots: Array<{ lotNo: string; issuedQty: number; currentQty: number }> = []
+  const missingPostedLinks: string[] = []
+  const multiTransactionLots: string[] = []
+
+  for (const item of receipt.items) {
+    if (!item.postedBatchId || !item.postedTxId) {
+      missingPostedLinks.push(item.lotNo)
+      continue
+    }
+
+    const [batch, transactionCount, hasExportAllocation] = await Promise.all([
+      prisma.batch.findUnique({
+        where: { id: item.postedBatchId },
+        select: {
+          id: true,
+          currentQtyBase: true,
+        },
+      }),
+      prisma.inventoryTransaction.count({
+        where: {
+          batchId: item.postedBatchId,
+          id: { not: item.postedTxId },
+          isCancelled: false,
+        },
+      }),
+      prisma.exportOrderItem.count({
+        where: {
+          batchId: item.postedBatchId,
+        },
+      }),
+    ])
+
+    if (!batch) {
+      missingPostedLinks.push(item.lotNo)
+      continue
+    }
+
+    const originalQty = Number(item.quantityBase)
+    const currentQty = Number(batch.currentQtyBase)
+    if (currentQty < originalQty) {
+      usedLots.push({
+        lotNo: item.lotNo,
+        issuedQty: originalQty - currentQty,
+        currentQty,
+      })
+    }
+
+    if (transactionCount > 0 || hasExportAllocation > 0) {
+      multiTransactionLots.push(item.lotNo)
+    }
+  }
+
+  if (missingPostedLinks.length > 0) {
+    const detail = missingPostedLinks.join(', ')
+    res.status(409).json({ error: `Không thể thu hồi do thiếu liên kết posted cho các lô: ${detail}.` })
+    return
+  }
+
+  if (usedLots.length > 0) {
+    const detail = usedLots
+      .map((lot) => `Lô ${lot.lotNo}: đã xuất ${lot.issuedQty.toFixed(3)} g, còn lại ${lot.currentQty.toFixed(3)} g`)
+      .join('; ')
+    res.status(409).json({
+      error: `Không thể thu hồi về nháp. Một số lô đã đưa vào sử dụng: ${detail}.`,
+    })
+    return
+  }
+
+  if (multiTransactionLots.length > 0) {
+    const detail = Array.from(new Set(multiTransactionLots)).join(', ')
+    res.status(409).json({
+      error: `Không thể thu hồi về nháp do một số lô đã có phát sinh nghiệp vụ khác: ${detail}.`,
+    })
+    return
+  }
+
+  const actorId = await getCurrentUserIdFromRequest(req)
+  const touchedPurchaseRequestItemIds = Array.from(
+    new Set(
+      receipt.items
+        .map((item) => item.purchaseRequestItemId)
+        .filter((id): id is bigint => Boolean(id)),
+    ),
+  )
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of receipt.items) {
+      if (!item.postedBatchId || !item.postedTxId) continue
+
+      await tx.inboundReceiptItem.update({
+        where: { id: item.id },
+        data: {
+          postedBatchId: null,
+          postedTxId: null,
+        },
+      })
+
+      await tx.inventoryTransaction.delete({
+        where: { id: item.postedTxId },
+      })
+
+      await tx.batch.delete({
+        where: { id: item.postedBatchId },
+      })
+    }
+
+    const touchedPurchaseRequestIds = new Set<string>()
+
+    if (touchedPurchaseRequestItemIds.length > 0) {
+      const touchedPrItems = await tx.purchaseRequestItem.findMany({
+        where: { id: { in: touchedPurchaseRequestItemIds } },
+        select: { id: true, purchaseRequestId: true },
+      })
+
+      for (const prItem of touchedPrItems) {
+        const aggregate = await tx.inboundReceiptItem.aggregate({
+          where: {
+            purchaseRequestItemId: prItem.id,
+            inboundReceipt: {
+              status: 'posted',
+              adjustedByReceiptId: null,
+            },
+          },
+          _sum: {
+            quantityBase: true,
+          },
+        })
+
+        await tx.purchaseRequestItem.update({
+          where: { id: prItem.id },
+          data: {
+            receivedQtyBase: Number(aggregate._sum.quantityBase ?? 0),
+          },
+        })
+
+        touchedPurchaseRequestIds.add(prItem.purchaseRequestId.toString())
+      }
+
+      for (const purchaseRequestIdRaw of touchedPurchaseRequestIds) {
+        const purchaseRequestId = BigInt(purchaseRequestIdRaw)
+        const prItems = await tx.purchaseRequestItem.findMany({
+          where: { purchaseRequestId },
+          select: {
+            quantityNeededBase: true,
+            receivedQtyBase: true,
+          },
+        })
+
+        const hasAnyReceived = prItems.some((item) => Number(item.receivedQtyBase) > 0)
+        const isFullyReceived = prItems.length > 0
+          && prItems.every((item) => Number(item.receivedQtyBase) >= Number(item.quantityNeededBase))
+
+        await tx.purchaseRequest.update({
+          where: { id: purchaseRequestId },
+          data: {
+            status: isFullyReceived ? 'received' : (hasAnyReceived ? 'partially_received' : 'ordered'),
+            receivedAt: isFullyReceived ? receipt.receivedAt : null,
+          },
+        })
+      }
+    }
+
+    await tx.inboundReceipt.update({
+      where: { id: receipt.id },
+      data: {
+        status: 'draft',
+        postedBy: null,
+        receivedAt: null,
+        currentStep: 4,
+      },
+    })
+
+    await tx.inboundReceiptHistory.create({
+      data: {
+        inboundReceiptId: receipt.id,
+        actionType: 'reverted_to_draft',
+        actionLabel: 'Thu hồi phiếu đã posted về trạng thái nháp',
+        actorId,
+        data: {
+          revertedAt: new Date().toISOString(),
+          itemCount: receipt.items.length,
+        },
+      },
+    })
+  })
+
+  res.json({
+    id: receipt.id.toString(),
+    status: 'draft',
+    currentStep: 4,
+  })
+})
+
 router.get('/receipts/:id/history', requireAuth, async (req: AuthenticatedRequest, res) => {
   const idRaw = String(req.params.id ?? '').trim()
   if (!/^\d+$/.test(idRaw)) {

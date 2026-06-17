@@ -25,6 +25,7 @@ import {
   fetchInboundReceiptDetail,
   fetchInboundReceiptHistory,
   postInboundReceipt,
+  revertInboundReceiptToDraft,
   submitInboundReceiptQc,
   type InboundReceiptDetailResponse,
   type InboundReceiptHistoryRowResponse,
@@ -89,6 +90,7 @@ export function InboundStep4Page() {
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [draftCodeError, setDraftCodeError] = useState<string | null>(null)
   const [adjustBusy, setAdjustBusy] = useState(false)
+  const [revertBusy, setRevertBusy] = useState(false)
   const [poDrilldownVisible, setPoDrilldownVisible] = useState(false)
   const [poDrilldownLoading, setPoDrilldownLoading] = useState(false)
   const [poDrilldownError, setPoDrilldownError] = useState<string | null>(null)
@@ -167,6 +169,7 @@ export function InboundStep4Page() {
   const isPosted = currentStatus === 'posted'
   const isCancelledByAdjustment = Boolean(dbDetail?.adjustedByReceipt)
   const canCreateAdjustment = Boolean(wizState.receiptId) && isPosted && !isCancelledByAdjustment
+  const canRevertToDraft = Boolean(wizState.receiptId) && isPosted && !isCancelledByAdjustment
   const statusMeta = getInboundStatusMeta(currentStatus)
   const quantity = dbFirstItem ? Number(dbFirstItem.quantityDisplay) : (step2.quantity ?? null)
   const quantityBase = dbFirstItem ? Number(dbFirstItem.quantityBase) : null
@@ -472,6 +475,47 @@ export function InboundStep4Page() {
       })
     } finally {
       setAdjustBusy(false)
+    }
+  }
+
+  async function handleRevertToDraft() {
+    if (!canRevertToDraft || !wizState.receiptId || revertBusy) return
+
+    setRevertBusy(true)
+    try {
+      await revertInboundReceiptToDraft(wizState.receiptId)
+      const refreshed = await fetchInboundReceiptDetail(wizState.receiptId)
+      setDbDetail(refreshed)
+      await loadHistory(wizState.receiptId)
+      setConfirmed(false)
+
+      const nextWizState: InboundWizardState = {
+        ...wizState,
+        receiptStatus: 'draft',
+        currentStep: 4,
+        maxReachedStep: 4,
+      }
+
+      navigate(location.pathname, {
+        replace: true,
+        state: nextWizState,
+      })
+
+      toast.current?.show({
+        severity: 'success',
+        summary: 'Đã thu hồi về nháp',
+        detail: 'Phiếu đã được thu hồi về nháp. Bạn có thể chỉnh sửa và posted lại.',
+        life: 3200,
+      })
+    } catch (err) {
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Không thể thu hồi về nháp',
+        detail: err instanceof Error ? err.message : 'Lỗi khi thu hồi phiếu đã posted về trạng thái nháp.',
+        life: 4500,
+      })
+    } finally {
+      setRevertBusy(false)
     }
   }
 
@@ -954,6 +998,28 @@ export function InboundStep4Page() {
             disabled={isPosted || confirmed || posting}
             onClick={handleConfirm}
           />
+          {isPosted ? (
+            <Button
+              type="button"
+              className="btn btn-ghost inbound-step3-draft-btn"
+              icon={revertBusy ? 'pi pi-spin pi-spinner' : 'pi pi-undo'}
+              label={revertBusy ? 'Đang thu hồi...' : 'Thu hồi về nháp'}
+              disabled={!canRevertToDraft || revertBusy || adjustBusy || exporting || posting}
+              onClick={() => {
+                confirmDialog({
+                  message: 'Phiếu sẽ được thu hồi về nháp nếu các lô hàng chưa đưa vào sử dụng. Tiếp tục?',
+                  header: 'Xác nhận thu hồi về nháp',
+                  icon: 'pi pi-exclamation-triangle',
+                  acceptLabel: 'Thu hồi về nháp',
+                  rejectLabel: 'Hủy',
+                  acceptClassName: 'btn btn-primary',
+                  accept: () => {
+                    void handleRevertToDraft()
+                  },
+                })
+              }}
+            />
+          ) : null}
           {isPosted && dbDetail ? (
             <Button
               type="button"

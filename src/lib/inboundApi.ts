@@ -265,3 +265,15 @@ export function createInboundVoidRereceive(id: string): Promise<CreateInboundVoi
     method: 'POST',
   })
 }
+
+export type RevertInboundReceiptToDraftResponse = {
+  id: string
+  status: InboundReceiptStatusApi
+  currentStep: 1 | 2 | 3 | 4
+}
+
+export function revertInboundReceiptToDraft(id: string): Promise<RevertInboundReceiptToDraftResponse> {
+  return http<RevertInboundReceiptToDraftResponse>(`/api/inbound/receipts/${encodeURIComponent(id)}/revert-to-draft`, {
+    method: 'POST',
+  })
+}
