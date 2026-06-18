@@ -40,7 +40,18 @@ type InboundRow = {
   assignee: string
 }
 
+type PersistedInboundListState = {
+  statusFilter: 'all' | InboundStatus
+  page: number
+  pageSize: number
+  sortField: keyof InboundRow | null
+  sortOrder: 1 | -1
+  fromDate: string | null
+  toDate: string | null
+}
+
 const INBOUND_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+const INBOUND_LIST_STATE_STORAGE_KEY = 'inbound:list:view-state:v1'
 
 const INBOUND_STATUS_OPTIONS: Array<{ label: string; value: 'all' | InboundStatus }> = [
   { label: 'Tất cả trạng thái', value: 'all' },
@@ -104,6 +115,61 @@ function getDefaultMonthDateRange(): Date[] {
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   return [firstDay, lastDay]
+}
+
+function formatDateToYmdLocal(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseStoredYmd(value: unknown): Date | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const parsed = parseYmd(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function loadPersistedInboundListState(defaultDateRange: Date[]): PersistedInboundListState {
+  const fallback: PersistedInboundListState = {
+    statusFilter: 'all',
+    page: 1,
+    pageSize: 10,
+    sortField: 'createdAt',
+    sortOrder: -1,
+    fromDate: formatDateToYmdLocal(defaultDateRange[0]),
+    toDate: formatDateToYmdLocal(defaultDateRange[1]),
+  }
+
+  if (typeof window === 'undefined') return fallback
+
+  try {
+    const raw = window.sessionStorage.getItem(INBOUND_LIST_STATE_STORAGE_KEY)
+    if (!raw) return fallback
+
+    const parsed = JSON.parse(raw) as Partial<PersistedInboundListState>
+    const statusFilter = parsed.statusFilter && ['all', 'done', 'waiting_qc', 'processing', 'draft', 'cancelled'].includes(parsed.statusFilter)
+      ? parsed.statusFilter
+      : fallback.statusFilter
+    const page = Number.isInteger(parsed.page) && Number(parsed.page) > 0 ? Number(parsed.page) : fallback.page
+    const pageSize = INBOUND_PAGE_SIZE_OPTIONS.includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : fallback.pageSize
+    const sortOrder = parsed.sortOrder === 1 ? 1 : -1
+    const sortField = parsed.sortField ?? fallback.sortField
+    const fromDate = parseStoredYmd(parsed.fromDate)?.toISOString().slice(0, 10) ?? fallback.fromDate
+    const toDate = parseStoredYmd(parsed.toDate)?.toISOString().slice(0, 10) ?? fallback.toDate
+
+    return {
+      statusFilter,
+      page,
+      pageSize,
+      sortField,
+      sortOrder,
+      fromDate,
+      toDate,
+    }
+  } catch {
+    return fallback
+  }
 }
 
 function mapApiStatusToUiStatus(status: InboundReceiptStatusApi): InboundStatus {
@@ -210,7 +276,10 @@ function mapDetailToWizardState(detail: InboundReceiptDetailResponse): InboundWi
 export function InboundPage() {
   const navigate = useNavigate()
   const { search } = useOutletContext<OutletContext>()
-  const [statusFilter, setStatusFilter] = useState<'all' | InboundStatus>('all')
+  const defaultDateRange = getDefaultMonthDateRange()
+  const persistedViewState = loadPersistedInboundListState(defaultDateRange)
+
+  const [statusFilter, setStatusFilter] = useState<'all' | InboundStatus>(persistedViewState.statusFilter)
   const [rows, setRows] = useState<InboundRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -224,13 +293,28 @@ export function InboundPage() {
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyRows, setHistoryRows] = useState<InboundReceiptHistoryRowResponse[]>([])
   const [historyReceiptCode, setHistoryReceiptCode] = useState<string>('')
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
-  const [sortField, setSortField] = useState<keyof InboundRow | null>('createdAt')
-  const [sortOrder, setSortOrder] = useState<1 | -1>(-1)
-  const defaultDateRange = getDefaultMonthDateRange()
-  const [fromDate, setFromDate] = useState<Date | null>(defaultDateRange[0])
-  const [toDate, setToDate] = useState<Date | null>(defaultDateRange[1])
+  const [page, setPage] = useState(persistedViewState.page)
+  const [pageSize, setPageSize] = useState(persistedViewState.pageSize)
+  const [sortField, setSortField] = useState<keyof InboundRow | null>(persistedViewState.sortField)
+  const [sortOrder, setSortOrder] = useState<1 | -1>(persistedViewState.sortOrder)
+  const [fromDate, setFromDate] = useState<Date | null>(parseStoredYmd(persistedViewState.fromDate) ?? defaultDateRange[0])
+  const [toDate, setToDate] = useState<Date | null>(parseStoredYmd(persistedViewState.toDate) ?? defaultDateRange[1])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const payload: PersistedInboundListState = {
+      statusFilter,
+      page,
+      pageSize,
+      sortField,
+      sortOrder,
+      fromDate: fromDate ? formatDateToYmdLocal(fromDate) : null,
+      toDate: toDate ? formatDateToYmdLocal(toDate) : null,
+    }
+
+    window.sessionStorage.setItem(INBOUND_LIST_STATE_STORAGE_KEY, JSON.stringify(payload))
+  }, [statusFilter, page, pageSize, sortField, sortOrder, fromDate, toDate])
 
   useEffect(() => {
     let cancelled = false
