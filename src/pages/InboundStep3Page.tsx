@@ -165,6 +165,7 @@ export function InboundStep3Page() {
           ? {
               productId: step2.selectedMaterialId,
               lotNo: step2.lotNo.trim(),
+              manufacturerLotNo: step2.manufacturerLotNo?.trim() || undefined,
               quantityBase: Number((step2.quantity * selectedConversionToBase).toFixed(4)),
               quantityDisplay: step2.quantity,
               unitUsed: step2.selectedUnitDisplay || 'kg',
@@ -255,6 +256,7 @@ export function InboundStep3Page() {
           ? {
               productId: step2.selectedMaterialId,
               lotNo: step2.lotNo.trim(),
+              manufacturerLotNo: step2.manufacturerLotNo?.trim() || undefined,
               quantityBase: Number((step2.quantity * selectedConversionToBase).toFixed(4)),
               quantityDisplay: step2.quantity,
               unitUsed: step2.selectedUnitDisplay || 'kg',

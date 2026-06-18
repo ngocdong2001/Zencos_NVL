@@ -18,6 +18,7 @@ import { formatDateValue, formatQuantity, parseDateValue } from '../components/p
 import {
   createDraftReceipt,
   deleteDraftReceipt,
+  fetchInboundReceiptDetail,
   fetchInboundReceiptHistory,
   type InboundReceiptHistoryRowResponse,
   updateDraftReceipt,
@@ -101,6 +102,8 @@ export function InboundStep2Page() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [draftCodeError, setDraftCodeError] = useState<string | null>(null)
+  const skipInitialUnitPriceAutofillRef = useRef(wizState.step2.unitPrice !== null)
+  const skipInitialQuantityAutofillRef = useRef(wizState.step2.quantity !== null)
 
   const mapHistoryRows = (rows: InboundReceiptHistoryRowResponse[]): HistoryTimelineEvent[] => {
     return rows.map((row) => ({
@@ -217,11 +220,15 @@ export function InboundStep2Page() {
   // Auto-fill unitPrice and quantity from PO when selected material changes
   useEffect(() => {
     if (!selectedMaterial) return
-    if (selectedMaterial.poUnitPrice != null && selectedMaterial.poUnitPrice >= 0) {
+    if (skipInitialUnitPriceAutofillRef.current) {
+      skipInitialUnitPriceAutofillRef.current = false
+    } else if (selectedMaterial.poUnitPrice != null && selectedMaterial.poUnitPrice >= 0) {
       setUnitPrice(selectedMaterial.poUnitPrice)
     }
     // Always sync quantity from selected PO line (including 0) to avoid stale value from previous material.
-    if (selectedMaterial.poQuantity != null && selectedMaterial.poQuantity >= 0) {
+    if (skipInitialQuantityAutofillRef.current) {
+      skipInitialQuantityAutofillRef.current = false
+    } else if (selectedMaterial.poQuantity != null && selectedMaterial.poQuantity >= 0) {
       setQuantity(selectedMaterial.poQuantity)
     }
   }, [selectedMaterial?.value, selectedMaterial?.poUnitPrice, selectedMaterial?.poQuantity])
@@ -278,6 +285,42 @@ export function InboundStep2Page() {
     }
 
     void loadHistory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [wizState.receiptId])
+
+  useEffect(() => {
+    if (!wizState.receiptId) return
+
+    let cancelled = false
+
+    const hydrateStep2FromReceipt = async () => {
+      try {
+        const detail = await fetchInboundReceiptDetail(wizState.receiptId as string)
+        if (cancelled) return
+
+        const item = detail.items[0]
+        if (!item) return
+
+        setLotNo((prev) => prev || item.lotNo || '')
+        setManufacturerLotNo((prev) => prev || item.manufacturerLotNo || '')
+        setUnitPrice((prev) => (prev !== null ? prev : item.unitPricePerKg))
+        setQuantity((prev) => (prev !== null ? prev : Number(item.quantityDisplay)))
+        setInvoiceNumber((prev) => prev || item.invoiceNumber || '')
+        setInvoiceDate((prev) => prev || item.invoiceDate || '')
+        setMfgDate((prev) => prev || item.manufactureDate || '')
+        setExpDate((prev) => prev || item.expiryDate || '')
+        setSelectedMaterialId((prev) => prev || item.product.id || '')
+        setSelectedManufacturerId((prev) => prev || item.manufacturer?.id || '')
+        setInciName((prev) => prev || item.product.inciName || '')
+      } catch {
+        // Keep local state as-is if detail hydration fails.
+      }
+    }
+
+    void hydrateStep2FromReceipt()
 
     return () => {
       cancelled = true
