@@ -441,6 +441,19 @@ input {
   color: #78350f;
 }
 
+/* Global cancel button style - red/danger theme */
+.btn-cancel {
+  border-color: #ef9a9a;
+  color: #b91c1c;
+}
+
+.btn-cancel:enabled:hover {
+  background: #fff5f5;
+  border-color: #e57373;
+  color: #991b1b;
+}
+
+/* Legacy alias for inbound module compatibility */
 .inbound-cancel-btn {
   border-color: #ef9a9a;
   color: #b91c1c;
@@ -11853,8 +11866,103 @@ input {
   width: 100%;
 }
 
-.tp-inv-field-calendar .p-inputtext {
+/* Normalize info-card field heights to match the standard 36px app fields */
+.tp-inv-field-dropdown.p-dropdown {
+  height: 36px;
+}
+
+.tp-inv-field-dropdown.p-dropdown .p-dropdown-label {
+  font-size: var(--font-size-body);
+  padding: 7px 10px;
+  line-height: 1.4;
+}
+
+.tp-inv-field-dropdown.p-dropdown .p-dropdown-trigger {
+  width: 2rem;
+}
+
+.tp-inv-field-input.p-inputtext {
+  height: 36px;
+  font-size: var(--font-size-body);
+  padding: 7px 10px;
+}
+
+/* Calendar field wrapper — enforce flex layout to contain button + input */
+.tp-inv-field-calendar.p-calendar {
+  display: flex;
   width: 100%;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  align-items: stretch;
+}
+
+.tp-inv-field-calendar.p-calendar .p-inputtext {
+  flex: 1;
+  width: auto;
+  height: 100%;
+  font-size: var(--font-size-body);
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+}
+
+.tp-inv-field-calendar.p-calendar .p-datepicker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 100%;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: var(--primary);
+  cursor: pointer;
+  color: #fff;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 16px;
+  transition: background-color 0.2s ease;
+}
+
+.tp-inv-field-calendar.p-calendar .p-datepicker-trigger:hover {
+  background: #4558c8;
+}
+
+/* Calendar cells inside tp-inv table — clamp to same 30px as InputText cells */
+.tp-inv-table .p-datatable-tbody > tr > td .p-calendar {
+  width: 100%;
+}
+
+.tp-inv-table .p-datatable-tbody > tr > td .p-calendar .p-inputtext {
+  height: 30px;
+  font-size: var(--font-size-body);
+  padding: 4px 8px;
+  width: 100%;
+}
+
+.tp-inv-table .p-datatable-tbody > tr > td .p-calendar .p-datepicker-trigger {
+  height: 30px;
+  width: 28px;
+}
+
+/* Align table header font to body-sm for readability consistency */
+.tp-inv-table .p-datatable-thead > tr > th {
+  font-size: var(--font-size-body-sm);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #6b7280;
+  background: #f8f9fc;
+  padding: 10px 10px;
+  text-transform: uppercase;
+}
+
+/* Textarea inside tp-inv info cards */
+.tp-inv-field .p-inputtextarea {
+  font-size: var(--font-size-body);
+  min-height: 64px;
+  padding: 8px 10px;
+  resize: none;
 }
 
 .tp-inv-customer-detail {
@@ -11956,21 +12064,37 @@ input {
 /* Table styles */
 .tp-inv-table .p-datatable-table {
   width: 100%;
+  table-layout: fixed;
 }
 
 .tp-inv-table .p-datatable-thead > tr > th {
-  background: #f8f9fc;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  color: #6b7280;
-  text-transform: uppercase;
-  padding: 8px 10px;
+  position: relative;
 }
 
+/* Disable column resize handles */
+.tp-inv-table .p-datatable-thead > tr > th .p-resizable-column {
+  pointer-events: none;
+}
+
+.tp-inv-table .p-datatable-thead > tr > th .p-column-resizer {
+  display: none !important;
+}
+
+/* Ensure table cells don't overflow */
 .tp-inv-table .p-datatable-tbody > tr > td {
-  padding: 6px 10px;
+  overflow: hidden;
+  padding: 8px 10px;
+  font-size: var(--font-size-body);
   vertical-align: middle;
+}
+
+/* Constrain inputs/dropdowns/calendars in table cells to fit column width */
+.tp-inv-table .p-datatable-tbody > tr > td .p-inputtext,
+.tp-inv-table .p-datatable-tbody > tr > td .p-dropdown,
+.tp-inv-table .p-datatable-tbody > tr > td .p-calendar {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .tp-inv-stt {

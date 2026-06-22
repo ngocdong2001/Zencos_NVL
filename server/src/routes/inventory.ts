@@ -5,6 +5,18 @@ import { prisma } from '../lib/prisma.js'
 import { requireAuth, requirePermission, type AuthenticatedRequest } from '../middleware/auth.js'
 
 const router = Router()
+const OWNER_CUSTOMER_TAG_REGEX = /^\[OWNER_CUSTOMER\](\d+)\|([^|]*)\|(.+)$/m
+
+function parseOwnerCustomerFromNotes(notes: string | null | undefined): { id: string; code: string; name: string } | null {
+  if (!notes) return null
+  const match = notes.match(OWNER_CUSTOMER_TAG_REGEX)
+  if (!match) return null
+  return {
+    id: match[1],
+    code: match[2] ?? '',
+    name: match[3] ?? '',
+  }
+}
 
 // ──────────────────────────────────────────────────────────────────────
 // HELPER — resolve warehouse location for a list of batch IDs
@@ -118,6 +130,15 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
       },
       supplier: { select: { id: true, code: true, name: true } },
       manufacturer: { select: { id: true, name: true } },
+      inboundReceiptItemSource: {
+        select: {
+          inboundReceipt: {
+            select: {
+              customer: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      },
     },
     orderBy: [{ productId: 'asc' }, { expiryDate: 'asc' }],
   })
@@ -132,6 +153,13 @@ router.get('/stock', requireAuth, requirePermission('inventory.read'), async (re
     },
     manufacturerName: b.manufacturer?.name ?? null,
     supplierName: b.supplier?.name ?? null,
+    ownerCustomer: b.inboundReceiptItemSource?.inboundReceipt?.customer
+      ? {
+        id: String(b.inboundReceiptItemSource.inboundReceipt.customer.id),
+        code: b.inboundReceiptItemSource.inboundReceipt.customer.code,
+        name: b.inboundReceiptItemSource.inboundReceipt.customer.name,
+      }
+      : parseOwnerCustomerFromNotes(b.notes),
     location: locationMap.get(String(b.id)) ?? null,
   }))
   let result = locationId ? mapped.filter((b) => String(b.location?.id ?? '') === locationId) : mapped
@@ -192,6 +220,15 @@ router.get('/fefo-suggestions', requireAuth, requirePermission('inventory.read')
       },
       supplier: { select: { id: true, code: true, name: true } },
       manufacturer: { select: { id: true, name: true } },
+      inboundReceiptItemSource: {
+        select: {
+          inboundReceipt: {
+            select: {
+              customer: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      },
     },
     orderBy: [{ expiryDate: 'asc' }, { lotNo: 'asc' }],
   })
@@ -217,6 +254,13 @@ router.get('/fefo-suggestions', requireAuth, requirePermission('inventory.read')
       currentQtyBase: adjustedQty,
       manufacturerName: s.manufacturer?.name ?? null,
       supplierName: s.supplier?.name ?? null,
+      ownerCustomer: s.inboundReceiptItemSource?.inboundReceipt?.customer
+        ? {
+          id: String(s.inboundReceiptItemSource.inboundReceipt.customer.id),
+          code: s.inboundReceiptItemSource.inboundReceipt.customer.code,
+          name: s.inboundReceiptItemSource.inboundReceipt.customer.name,
+        }
+        : parseOwnerCustomerFromNotes(s.notes),
       product: {
         id: s.product.id,
         code: s.product.code,

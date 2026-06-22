@@ -11,6 +11,9 @@ export type InboundReceiptRowResponse = {
   currentStep: 1 | 2 | 3 | 4
   sourceReceiptId: string | null
   adjustedByReceiptId: string | null
+  customerId: string | null
+  customerName: string | null
+  customerCode: string | null
   supplierName: string
   supplierCode: string | null
   materialName: string
@@ -56,6 +59,11 @@ export type InboundReceiptDetailResponse = {
   purchaseRequest: {
     id: string
     requestRef: string
+  } | null
+  customer: {
+    id: string
+    code: string
+    name: string
   } | null
   supplier: {
     id: string

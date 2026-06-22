@@ -124,6 +124,7 @@ router.get('/receipts', async (req, res) => {
     where.OR = [
       { receiptRef: { contains: query } },
       { supplier: { name: { contains: query } } },
+      { customer: { name: { contains: query } } },
     ]
   }
 
@@ -134,6 +135,7 @@ router.get('/receipts', async (req, res) => {
       skip: (safePage - 1) * safeLimit,
       take: safeLimit,
       include: {
+        customer: { select: { id: true, code: true, name: true } },
         supplier: { select: { id: true, code: true, name: true } },
         creator: { select: { id: true, fullName: true } },
         poster: { select: { id: true, fullName: true } },
@@ -166,6 +168,7 @@ router.get('/receipts', async (req, res) => {
     receivedAt: Date | null
     createdAt: Date
     updatedAt: Date
+    customer: { id: bigint; code: string; name: string } | null
     supplier: { code: string; name: string } | null
     creator: { fullName: string }
     poster: { fullName: string } | null
@@ -199,6 +202,9 @@ router.get('/receipts', async (req, res) => {
       currentStep: readDraftStep(row.currentStep),
       sourceReceiptId: row.sourceReceiptId ? row.sourceReceiptId.toString() : null,
       adjustedByReceiptId: row.adjustedByReceiptId ? row.adjustedByReceiptId.toString() : null,
+      customerId: row.customer?.id?.toString() ?? null,
+      customerName: row.customer?.name ?? null,
+      customerCode: row.customer?.code ?? null,
       supplierName: row.supplier?.name ?? '---',
       supplierCode: row.supplier?.code ?? null,
       materialName,
@@ -241,6 +247,7 @@ router.get('/receipts/:id', async (req, res) => {
           receivingLocation: { select: { id: true, code: true, name: true } },
         },
       },
+      customer: { select: { id: true, code: true, name: true } },
       supplier: { select: { id: true, code: true, name: true } },
       receivingLocation: { select: { id: true, code: true, name: true } },
       creator: { select: { id: true, fullName: true } },
@@ -344,6 +351,13 @@ router.get('/receipts/:id', async (req, res) => {
         id: effectiveSupplier.id.toString(),
         code: effectiveSupplier.code,
         name: effectiveSupplier.name,
+      }
+      : null,
+    customer: receipt.customer
+      ? {
+        id: receipt.customer.id.toString(),
+        code: receipt.customer.code,
+        name: receipt.customer.name,
       }
       : null,
     receivingLocation: receipt.receivingLocation

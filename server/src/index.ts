@@ -26,6 +26,7 @@ import fgWarehouseInventoryRouter from './routes/fgWarehouseInventory.js'
 import productionRouter from './routes/production.js'
 import productionBomsRouter from './routes/productionBoms.js'
 import tpSalesRouter from './routes/tpSales.js'
+import customerMaterialInboundRouter from './routes/customerMaterialInbound.js'
 
 // Normalize BigInt values in API responses to avoid JSON serialization failures.
 if (!(BigInt.prototype as any).toJSON) {
@@ -67,6 +68,7 @@ app.use('/api/fg-warehouse', fgWarehouseInventoryRouter)
 app.use('/api/production-orders', productionRouter)
 app.use('/api/production-boms', productionBomsRouter)
 app.use('/api/tp-sales', tpSalesRouter)
+app.use('/api/customer-material-inbound', customerMaterialInboundRouter)
 
 // Global error handler — prevents unhandled DB/Prisma errors from crashing the process
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -39,6 +39,8 @@ type AllocationRow = {
   manufacturerName: string | null
   locationCode: string | null
   locationName: string | null
+  ownerCustomerName: string | null
+  ownerCustomerCode: string | null
 }
 
 type MaterialLine = {
@@ -362,6 +364,8 @@ export function OutboundPage() {
                 manufacturerName: null,
                 locationCode: null,
                 locationName: null,
+                ownerCustomerName: null,
+                ownerCustomerCode: null,
               }))
 
             editLines.push({
@@ -566,6 +570,8 @@ export function OutboundPage() {
         manufacturerName: lot.manufacturerName ?? null,
         locationCode: lot.location?.code ?? null,
         locationName: lot.location?.name ?? null,
+        ownerCustomerName: lot.ownerCustomer?.name ?? null,
+        ownerCustomerCode: lot.ownerCustomer?.code ?? null,
       })
       remain -= exportQty
     }
@@ -595,6 +601,8 @@ export function OutboundPage() {
             manufacturerName: lot.manufacturerName ?? null,
             locationCode: lot.location?.code ?? null,
             locationName: lot.location?.name ?? null,
+            ownerCustomerName: lot.ownerCustomer?.name ?? null,
+            ownerCustomerCode: lot.ownerCustomer?.code ?? null,
           },
         ],
       }
@@ -1147,6 +1155,7 @@ export function OutboundPage() {
                             <i className="pi pi-clock" aria-hidden /> HSD: {formatDateVi(row.expiryDate)}
                           </span>
                           {row.manufacturerName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-building" aria-hidden /> {row.manufacturerName}</span> : null}
+                          {row.ownerCustomerName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-user" aria-hidden /> Chủ sở hữu: {row.ownerCustomerName}{row.ownerCustomerCode ? ` (${row.ownerCustomerCode})` : ''}</span> : null}
                           {row.locationName ? <span style={{ fontSize: 12, color: '#6b7280' }}><i className="pi pi-map-marker" aria-hidden /> {row.locationName}</span> : null}
                         </div>
 
@@ -1228,6 +1237,7 @@ export function OutboundPage() {
                     <span className="outbound-fefo-expiry"><i className="pi pi-clock" aria-hidden />HSD: {formatDateVi(lot.expiryDate)}</span>
                     <small>Tồn: {formatQuantity(toNumeric(lot.currentQtyBase))} {activeLineMaterial?.unit ?? ''}</small>
                     {lot.manufacturerName ? <small><i className="pi pi-building" aria-hidden /> {lot.manufacturerName}</small> : null}
+                    {lot.ownerCustomer?.name ? <small><i className="pi pi-user" aria-hidden /> Chủ sở hữu: {lot.ownerCustomer.name}{lot.ownerCustomer.code ? ` (${lot.ownerCustomer.code})` : ''}</small> : null}
                     {lot.location ? <small><i className="pi pi-map-marker" aria-hidden /> {lot.location.name}</small> : null}
                   </div>
                 </div>

@@ -268,6 +268,7 @@ model Customer {
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
+  inboundReceipts InboundReceipt[]
   exportOrders   ExportOrder[]
   tpExportOrders TpExportOrder[] @relation("TpExportOrderCustomer")
 
@@ -532,6 +533,7 @@ model InboundReceipt {
   purchaseRequestId  BigInt?               @map("purchase_request_id") @db.UnsignedBigInt
   sourceReceiptId    BigInt?               @map("source_receipt_id") @db.UnsignedBigInt
   adjustedByReceiptId BigInt?              @map("adjusted_by_receipt_id") @db.UnsignedBigInt
+  customerId         BigInt?               @map("customer_id") @db.UnsignedBigInt
   supplierId         BigInt?               @map("supplier_id") @db.UnsignedBigInt
   receivingLocationId BigInt?              @map("receiving_location_id") @db.UnsignedBigInt
   status             InboundReceiptStatus  @default(draft)
@@ -546,6 +548,7 @@ model InboundReceipt {
   createdAt          DateTime              @default(now()) @map("created_at")
   updatedAt          DateTime              @updatedAt @map("updated_at")
   purchaseRequest    PurchaseRequest?      @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  customer           Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier           Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   receivingLocation  CatalogLocation?      @relation("InboundReceiptReceivingLocation", fields: [receivingLocationId], references: [id], onDelete: SetNull)
   creator            User                  @relation("InboundReceiptCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
@@ -563,6 +566,7 @@ model InboundReceipt {
   @@index([adjustedByReceiptId])
   @@unique([sourceReceiptId])
   @@unique([adjustedByReceiptId])
+  @@index([customerId])
   @@index([supplierId])
   @@index([receivingLocationId])
   @@map("inbound_receipts")

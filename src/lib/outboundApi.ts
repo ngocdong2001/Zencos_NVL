@@ -10,6 +10,11 @@ export type InventoryStockBatch = {
   currentQtyBase: number
   manufacturerName: string | null
   supplierName: string | null
+  ownerCustomer?: {
+    id: string
+    code: string
+    name: string
+  } | null
   product: {
     id: string
     code: string

@@ -6,6 +6,8 @@ import { InboundStep1Page } from '../pages/InboundStep1Page'
 import { InboundStep2Page } from '../pages/InboundStep2Page'
 import { InboundStep3Page } from '../pages/InboundStep3Page'
 import { InboundStep4Page } from '../pages/InboundStep4Page'
+import { CustomerMaterialInboundListPage } from '../pages/CustomerMaterialInboundListPage'
+import { CustomerMaterialInboundPage } from '../pages/CustomerMaterialInboundPage'
 import { OpeningStockPage } from '../pages/OpeningStockPage'
 import { OutboundListPage } from '../pages/OutboundListPage'
 import { OutboundPage } from '../pages/OutboundPage'
@@ -57,11 +59,14 @@ export const appRoutes: RouteConfig[] = [
   // Group 2: Logistics & Production (divider before this group)
   { path: '/purchase',                  label: 'Yêu cầu mua hàng',             icon: 'pi pi-shopping-cart',component: PurchaseOrderPage,        permission: 'purchase:view',     divider: true },
   { path: '/inbound',                   label: 'Nhập kho NVL',                icon: 'pi pi-download',     component: InboundPage,              permission: 'inbound:view' },
+  { path: '/customer-material-inbound', label: 'Nhận NVL của khách',          icon: 'pi pi-inbox',        component: CustomerMaterialInboundListPage, permission: 'inbound:write' },
+  { path: '/customer-material-inbound/new', label: 'Tạo phiếu nhận NVL từ khách', icon: 'pi pi-plus',    component: CustomerMaterialInboundPage, permission: 'inbound:write', showInNav: false },
+  { path: '/customer-material-inbound/:receiptId', label: 'Chi tiết phiếu nhận NVL từ khách', icon: 'pi pi-file', component: CustomerMaterialInboundPage, permission: 'inbound:write', showInNav: false },
   { path: '/inbound/new',               label: 'Tạo phiếu nhập mới',           icon: 'pi pi-plus',         component: InboundStep1Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step2',         label: 'Chi tiết Lô hàng',             icon: 'pi pi-list',         component: InboundStep2Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step3',         label: 'Số lượng & Chứng từ',          icon: 'pi pi-paperclip',    component: InboundStep3Page,         permission: 'inbound:write',     showInNav: false },
   { path: '/inbound/new/step4',         label: 'Xác nhận & Hoàn tất',          icon: 'pi pi-check-circle', component: InboundStep4Page,         permission: 'inbound:write',     showInNav: false },
-  { path: '/outbound',                  label: 'Xuất kho NVL',                 icon: 'pi pi-upload',       component: OutboundListPage,         permission: 'outbound:view' },
+  { path: '/outbound',                  label: 'Xuất kho NVL',                 icon: 'pi pi-upload',       component: OutboundListPage,         permission: 'outbound:view', showInNav: false },
   { path: '/outbound/new',              label: 'Tạo lệnh xuất mới',            icon: 'pi pi-plus',         component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
   { path: '/outbound/:orderId/edit',    label: 'Chỉnh sửa lệnh xuất',          icon: 'pi pi-pencil',       component: OutboundPage,             permission: 'outbound:write',    showInNav: false },
   { path: '/production',                label: 'Phiếu sản xuất',              icon: 'pi pi-cog',          component: ProductionListPage,       permission: 'production:view' },

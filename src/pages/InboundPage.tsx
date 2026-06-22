@@ -28,6 +28,9 @@ type InboundRow = {
   code: string
   sourceReceiptId: string | null
   adjustedByReceiptId: string | null
+  customerId: string | null
+  customerName: string
+  customerCode: string | null
   receivedDate: string
   createdAt: string
   supplier: string
@@ -42,6 +45,7 @@ type InboundRow = {
 
 type PersistedInboundListState = {
   statusFilter: 'all' | InboundStatus
+  customerFilter: 'all' | string
   page: number
   pageSize: number
   sortField: keyof InboundRow | null
@@ -133,6 +137,7 @@ function parseStoredYmd(value: unknown): Date | null {
 function loadPersistedInboundListState(defaultDateRange: Date[]): PersistedInboundListState {
   const fallback: PersistedInboundListState = {
     statusFilter: 'all',
+    customerFilter: 'all',
     page: 1,
     pageSize: 10,
     sortField: 'createdAt',
@@ -151,6 +156,9 @@ function loadPersistedInboundListState(defaultDateRange: Date[]): PersistedInbou
     const statusFilter = parsed.statusFilter && ['all', 'done', 'waiting_qc', 'processing', 'draft', 'cancelled'].includes(parsed.statusFilter)
       ? parsed.statusFilter
       : fallback.statusFilter
+    const customerFilter = typeof parsed.customerFilter === 'string' && parsed.customerFilter.trim().length > 0
+      ? parsed.customerFilter
+      : fallback.customerFilter
     const page = Number.isInteger(parsed.page) && Number(parsed.page) > 0 ? Number(parsed.page) : fallback.page
     const pageSize = INBOUND_PAGE_SIZE_OPTIONS.includes(Number(parsed.pageSize)) ? Number(parsed.pageSize) : fallback.pageSize
     const sortOrder = parsed.sortOrder === 1 ? 1 : -1
@@ -160,6 +168,7 @@ function loadPersistedInboundListState(defaultDateRange: Date[]): PersistedInbou
 
     return {
       statusFilter,
+      customerFilter,
       page,
       pageSize,
       sortField,
@@ -189,6 +198,9 @@ function mapInboundRowFromApi(row: InboundReceiptRowResponse): InboundRow {
     code: row.receiptRef,
     sourceReceiptId: row.sourceReceiptId,
     adjustedByReceiptId: row.adjustedByReceiptId,
+    customerId: row.customerId,
+    customerName: row.customerName?.trim() ? row.customerName : '---',
+    customerCode: row.customerCode?.trim() ? row.customerCode : null,
     receivedDate,
     createdAt: row.createdAt,
     supplier: row.supplierName,
@@ -280,6 +292,7 @@ export function InboundPage() {
   const persistedViewState = loadPersistedInboundListState(defaultDateRange)
 
   const [statusFilter, setStatusFilter] = useState<'all' | InboundStatus>(persistedViewState.statusFilter)
+  const [customerFilter, setCustomerFilter] = useState<'all' | string>(persistedViewState.customerFilter)
   const [rows, setRows] = useState<InboundRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -305,6 +318,7 @@ export function InboundPage() {
 
     const payload: PersistedInboundListState = {
       statusFilter,
+      customerFilter,
       page,
       pageSize,
       sortField,
@@ -314,7 +328,7 @@ export function InboundPage() {
     }
 
     window.sessionStorage.setItem(INBOUND_LIST_STATE_STORAGE_KEY, JSON.stringify(payload))
-  }, [statusFilter, page, pageSize, sortField, sortOrder, fromDate, toDate])
+  }, [statusFilter, customerFilter, page, pageSize, sortField, sortOrder, fromDate, toDate])
 
   useEffect(() => {
     let cancelled = false
@@ -349,6 +363,7 @@ export function InboundPage() {
 
     return rows.filter((row) => {
       if (statusFilter !== 'all' && row.status !== statusFilter) return false
+      if (customerFilter !== 'all' && row.customerId !== customerFilter) return false
 
       const rowDate = parseYmd(row.receivedDate)
       if (from && rowDate < from) return false
@@ -357,6 +372,8 @@ export function InboundPage() {
       const searchable = normalizeLookup(
         [
           row.code,
+          row.customerName,
+          row.customerCode ?? '',
           row.supplier,
           row.materialName,
           row.lotNo,
@@ -371,7 +388,18 @@ export function InboundPage() {
       if (globalQuery && !searchable.includes(globalQuery)) return false
       return true
     })
-  }, [fromDate, rows, search, statusFilter, toDate])
+  }, [customerFilter, fromDate, rows, search, statusFilter, toDate])
+
+  const customerFilterOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string }>()
+    for (const row of rows) {
+      if (!row.customerId) continue
+      const suffix = row.customerCode ? ` (${row.customerCode})` : ''
+      map.set(row.customerId, { value: row.customerId, label: `${row.customerName}${suffix}` })
+    }
+
+    return [{ value: 'all', label: 'Tất cả khách hàng nguồn' }, ...Array.from(map.values())]
+  }, [rows])
 
   const stats = useMemo(() => {
     const now = new Date()
@@ -639,7 +667,25 @@ export function InboundPage() {
               options={INBOUND_STATUS_OPTIONS}
               optionLabel="label"
               optionValue="value"
-              onChange={(event) => setStatusFilter(event.value as 'all' | InboundStatus)}
+              onChange={(event) => {
+                setStatusFilter(event.value as 'all' | InboundStatus)
+                setPage(1)
+              }}
+            />
+            <i className="pi pi-angle-down" aria-hidden />
+          </label>
+
+          <label className="app-filter-control">
+            <i className="pi pi-users" aria-hidden />
+            <Dropdown
+              value={customerFilter}
+              options={customerFilterOptions}
+              optionLabel="label"
+              optionValue="value"
+              onChange={(event) => {
+                setCustomerFilter(String(event.value ?? 'all'))
+                setPage(1)
+              }}
             />
             <i className="pi pi-angle-down" aria-hidden />
           </label>
@@ -733,6 +779,18 @@ export function InboundPage() {
               sortable
               style={{ width: '8.5rem' }}
               body={(row: InboundRow) => formatDisplayDate(row.receivedDate)}
+            />
+            <Column
+              field="customerName"
+              header="Khách hàng nguồn"
+              sortable
+              style={{ width: '12rem' }}
+              body={(row: InboundRow) => (
+                <span>
+                  {row.customerName}
+                  {row.customerCode ? <small style={{ color: 'var(--text-color-secondary)', marginLeft: 4 }}>({row.customerCode})</small> : null}
+                </span>
+              )}
             />
             <Column field="supplier" header="Nhà cung cấp" sortable style={{ width: '10rem' }} />
             <Column
