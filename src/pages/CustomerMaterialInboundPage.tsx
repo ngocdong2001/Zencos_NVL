@@ -17,6 +17,22 @@ import { createCustomerMaterialInboundReceipt, fetchCustomerMaterialInboundRecei
 
 type SelectOption = { label: string; value: string }
 
+type ReceiptStatus = 'draft' | 'pending_qc' | 'posted' | 'cancelled'
+
+const STATUS_LABELS: Record<ReceiptStatus, string> = {
+  draft: 'Nháp',
+  pending_qc: 'Chờ QC',
+  posted: 'Hoàn thành',
+  cancelled: 'Đã hủy',
+}
+
+const STATUS_CSS: Record<ReceiptStatus, string> = {
+  draft: 'draft',
+  pending_qc: 'waiting_qc',
+  posted: 'done',
+  cancelled: 'cancelled',
+}
+
 type ReceiptLine = {
   key: string
   materialId: string
@@ -77,7 +93,7 @@ export function CustomerMaterialInboundPage() {
 
   /* ── order metadata ── */
   const [receiptRef, setReceiptRef] = useState(() => buildCustomerInboundRef())
-  const [receiptStatus, setReceiptStatus] = useState<'draft' | 'pending_qc' | 'posted' | 'cancelled' | null>(null)
+  const [receiptStatus, setReceiptStatus] = useState<ReceiptStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [showRevertDialog, setShowRevertDialog] = useState(false)
@@ -520,7 +536,7 @@ export function CustomerMaterialInboundPage() {
             tooltipOptions={{ position: 'right' }}
           />
           <div className="tp-inv-title-block">
-            <h1 className="tp-inv-title">{isEditMode ? 'Chi tiết phếu nhận NVL của khách' : 'Nhận NVL của khách'}</h1>
+            <h1 className="tp-inv-title">{isEditMode ? 'Chi tiết phiếu nhận NVL của khách' : 'Nhận NVL của khách'}</h1>
             <span className="tp-inv-ref-tag tp-inv-ref-editable">
               <InputText
                 value={receiptRef}
@@ -531,8 +547,8 @@ export function CustomerMaterialInboundPage() {
               />
             </span>
             {receiptStatus && (
-              <span className={`app-status-badge ${receiptStatus === 'posted' ? 'success' : 'warning'}`}>
-                {receiptStatus === 'posted' ? 'Đã hoàn thành' : 'Lưu nháp'}
+              <span className={`app-status-badge ${STATUS_CSS[receiptStatus]}`}>
+                {STATUS_LABELS[receiptStatus]}
               </span>
             )}
           </div>
