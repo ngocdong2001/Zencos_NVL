@@ -694,7 +694,11 @@ export function ProductionStep1Page() {
               lockExistingLines={nvlExported && !isLocked}
               showMaterialCodeDropdown
               locations={locations.map(l => ({ label: `[${l.code}] ${l.name}`, value: l.id }))}
-              asOfDate={processedAt ? `${processedAt.getFullYear()}-${String(processedAt.getMonth() + 1).padStart(2, '0')}-${String(processedAt.getDate()).padStart(2, '0')}` : undefined}
+              asOfDate={processedAt ? (() => {
+                // Compute VN date (UTC+7) from the stored UTC timestamp, independent of browser timezone
+                const vnDate = new Date(processedAt.getTime() + 7 * 3600000)
+                return `${vnDate.getUTCFullYear()}-${String(vnDate.getUTCMonth() + 1).padStart(2, '0')}-${String(vnDate.getUTCDate()).padStart(2, '0')}`
+              })() : undefined}
             />
           </div>
         )}

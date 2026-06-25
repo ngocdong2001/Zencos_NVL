@@ -121,11 +121,13 @@ export function ProductionListPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<ProductionStatus | 'all'>('all')
-  const [dateRange, setDateRange] = useState<[Date | null, Date | null] | null>(() => {
+  const [fromDate, setFromDate] = useState<Date | null>(() => {
     const now = new Date()
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    return [firstDay, lastDay]
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
+  const [toDate, setToDate] = useState<Date | null>(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth() + 1, 0)
   })
   const [highlightId, setHighlightId] = useState<string | null>(highlightedId)
   const [showFlowModal, setShowFlowModal] = useState(false)
@@ -183,8 +185,8 @@ export function ProductionListPage() {
   const handleExport = async () => {
     setExportLoading(true)
     try {
-      const dateFrom = dateRange?.[0] ? dateRange[0].toISOString().split('T')[0] : undefined
-      const dateTo   = dateRange?.[1] ? dateRange[1].toISOString().split('T')[0] : undefined
+      const dateFrom = fromDate ? fromDate.toISOString().split('T')[0] : undefined
+      const dateTo   = toDate ? toDate.toISOString().split('T')[0] : undefined
 
       // Fetch data from server
       const data = await fetchProductionOrdersForExport({
@@ -276,21 +278,21 @@ export function ProductionListPage() {
     }
   }
 
-  useEffect(() => { setPage(1) }, [pageSize, statusFilter, search, dateRange])
+  useEffect(() => { setPage(1) }, [pageSize, statusFilter, search, fromDate, toDate])
 
   const filteredRows = useMemo(() => {
     const q = normalizeLookup(search)
-    const dateFrom = dateRange?.[0] ? new Date(dateRange[0]).setHours(0, 0, 0, 0) : null
-    const dateTo = dateRange?.[1] ? new Date(dateRange[1]).setHours(23, 59, 59, 999) : null
+    const dateFromMs = fromDate ? new Date(fromDate).setHours(0, 0, 0, 0) : null
+    const dateToMs = toDate ? new Date(toDate).setHours(23, 59, 59, 999) : null
     
     return rows.filter((row) => {
       if (statusFilter !== 'all' && row.status !== statusFilter) return false
       
       // Date range filter
-      if (dateFrom || dateTo) {
+      if (dateFromMs || dateToMs) {
         const rowDate = new Date(row.issuedDate).getTime()
-        if (dateFrom && rowDate < dateFrom) return false
-        if (dateTo && rowDate > dateTo) return false
+        if (dateFromMs && rowDate < dateFromMs) return false
+        if (dateToMs && rowDate > dateToMs) return false
       }
       
       if (!q) return true
@@ -299,7 +301,7 @@ export function ProductionListPage() {
       )
       return searchable.includes(q)
     })
-  }, [rows, search, statusFilter, dateRange])
+  }, [rows, search, statusFilter, fromDate, toDate])
 
   const stats = useMemo(() => ({
     total: rows.length,
@@ -384,26 +386,38 @@ export function ProductionListPage() {
           <label className="app-filter-control">
             <i className="pi pi-calendar" aria-hidden />
             <Calendar
-              value={dateRange ?? null}
-              onChange={(e) => setDateRange(e.value as [Date | null, Date | null] | null)}
-              selectionMode="range"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.value as Date | null)}
+              selectionMode="single"
               readOnlyInput
-              placeholder="Từ ngày - Đến ngày"
+              placeholder="Từ ngày"
               dateFormat="dd/mm/yy"
               showButtonBar
             />
-            {dateRange?.[0] && (
-              <button
-                type="button"
-                className="app-filter-clear-btn"
-                onClick={() => setDateRange(null)}
-                title="Xóa bộ lọc ngày"
-                aria-label="Xóa bộ lọc ngày"
-              >
-                <i className="pi pi-times" />
-              </button>
-            )}
           </label>
+          <label className="app-filter-control">
+            <i className="pi pi-calendar" aria-hidden />
+            <Calendar
+              value={toDate}
+              onChange={(e) => setToDate(e.value as Date | null)}
+              selectionMode="single"
+              readOnlyInput
+              placeholder="Đến ngày"
+              dateFormat="dd/mm/yy"
+              showButtonBar
+            />
+          </label>
+          {(fromDate || toDate) && (
+            <button
+              type="button"
+              className="app-filter-clear-btn"
+              onClick={() => { setFromDate(null); setToDate(null) }}
+              title="Xóa bộ lọc ngày"
+              aria-label="Xóa bộ lọc ngày"
+            >
+              <i className="pi pi-times" />
+            </button>
+          )}
         </div>
 
         {error && (

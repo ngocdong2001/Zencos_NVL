@@ -111,7 +111,8 @@ function getLineDerived(line: MaterialLine) {
   const totalStockQty = lots.reduce((s, l) => s + toNumeric(l.currentQtyBase), 0)
   const allocatedQty = line.allocationRows.reduce((s, r) => s + r.exportQty, 0)
   const shortageQty = Math.max(line.requestedQtyValue - totalStockQty, 0)
-  const hasShortage = shortageQty > 0 && line.requestedQtyValue > 0
+  // Do not show shortage while stock is still loading — avoids false "Thiếu" during initial fetch
+  const hasShortage = shortageQty > 0 && line.requestedQtyValue > 0 && !line.stockLoading
   const remainingQty = Math.max(line.requestedQtyValue - allocatedQty, 0)
   const suggestedLots = line.fefoSuggestions.filter(
     (lot) => !line.allocationRows.some((r) => r.batchId === lot.id),
@@ -610,8 +611,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                           />
                         </div>
                         <div className="ob-drill-stock-info">
-                          <small>Tồn kho</small>
-                          <strong>{formatQuantity(d.totalStockQty)} {lineMat.unit}</strong>
+                          <small>Tồn kho{line.stockLoading ? ' …' : ''}</small>
+                          {line.stockLoading
+                            ? <strong style={{ color: '#94a3b8', fontStyle: 'italic' }}><i className="pi pi-spin pi-spinner" style={{ fontSize: 11, marginRight: 4 }} />Đang tải</strong>
+                            : <strong>{formatQuantity(d.totalStockQty)} {lineMat.unit}</strong>
+                          }
                         </div>
                         {line.requestedQtyValue > 0 && (
                           <div className="ob-drill-progress-inline">
