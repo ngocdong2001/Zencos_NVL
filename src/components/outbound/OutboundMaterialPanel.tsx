@@ -53,6 +53,7 @@ export type MaterialLine = {
   stockRows: InventoryStockBatch[]
   fefoSuggestions: InventoryStockBatch[]
   stockLoading: boolean
+  stockFetchError: string | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,6 +74,7 @@ function createEmptyLine(): MaterialLine {
     stockRows: [],
     fefoSuggestions: [],
     stockLoading: false,
+    stockFetchError: null,
   }
 }
 
@@ -180,10 +182,12 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
           fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
         ])
           .then(([stock, fefo]) => {
-            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
+            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null } : l))
           })
-          .catch(() => {
-            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false } : l))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error('[OutboundPanel] stock fetch failed:', msg)
+            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false, stockFetchError: msg } : l))
           })
       })
     }
@@ -326,9 +330,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         fetchInventoryStock(newMaterialId, lineLocId, asOfDate),
         fetchFefoSuggestions(newMaterialId, 6, lineLocId, asOfDate),
       ])
-      updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
-    } catch {
-      updateLine(idx, (l) => ({ ...l, stockLoading: false }))
+      updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null }))
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? (err as Error).message : String(err)
+      console.error('[OutboundPanel] stock fetch (material change) failed:', msg)
+      updateLine(idx, (l) => ({ ...l, stockLoading: false, stockFetchError: msg }))
     }
   }
 
@@ -349,9 +355,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         fetchInventoryStock(line.materialId, newLocationId, asOfDate),
         fetchFefoSuggestions(line.materialId, 6, newLocationId, asOfDate),
       ])
-      updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
-    } catch {
-      updateLine(idx, (l) => ({ ...l, stockLoading: false }))
+      updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null }))
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? (err as Error).message : String(err)
+      console.error('[OutboundPanel] stock fetch (location change) failed:', msg)
+      updateLine(idx, (l) => ({ ...l, stockLoading: false, stockFetchError: msg }))
     }
   }
 
@@ -617,7 +625,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                             ? <strong style={{ color: '#94a3b8', fontStyle: 'italic' }}><i className="pi pi-spin pi-spinner" style={{ fontSize: 11, marginRight: 4 }} />Đang tải</strong>
                             : d.stockLoaded
                               ? <strong>{formatQuantity(d.totalStockQty)} {lineMat.unit}</strong>
-                              : <strong style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              : <strong style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                   —
                                   {line.materialId && line.locationId && (
                                     <button
@@ -628,6 +636,12 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                                     >
                                       <i className="pi pi-refresh" style={{ fontSize: 11 }} />
                                     </button>
+                                  )}
+                                  {line.stockFetchError && (
+                                    <span style={{ fontSize: 10, color: '#dc2626', fontWeight: 400, maxWidth: 180, whiteSpace: 'normal', lineHeight: 1.3 }}
+                                      title={line.stockFetchError}>
+                                      {line.stockFetchError.length > 60 ? line.stockFetchError.slice(0, 57) + '…' : line.stockFetchError}
+                                    </span>
                                   )}
                                 </strong>
                           }

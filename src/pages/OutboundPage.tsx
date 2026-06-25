@@ -54,6 +54,7 @@ type MaterialLine = {
   stockRows: InventoryStockBatch[]
   fefoSuggestions: InventoryStockBatch[]
   stockLoading: boolean
+  stockFetchError: string | null
 }
 
 function createEmptyLine(): MaterialLine {
@@ -68,6 +69,7 @@ function createEmptyLine(): MaterialLine {
     stockRows: [],
     fefoSuggestions: [],
     stockLoading: false,
+    stockFetchError: null,
   }
 }
 
@@ -379,6 +381,7 @@ export function OutboundPage() {
               stockRows: [],
               fefoSuggestions: [],
               stockLoading: true,
+              stockFetchError: null,
             })
           }
 
@@ -427,6 +430,7 @@ export function OutboundPage() {
               stockRows: restoredStock,
               fefoSuggestions: restoredFefo,
               stockLoading: false,
+              stockFetchError: null,
               allocationRows: line.allocationRows.map((row) => ({
                 ...row,
                 availableQty: stockMap.get(row.batchId) ?? row.exportQty,

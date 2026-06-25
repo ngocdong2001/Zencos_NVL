@@ -188,6 +188,7 @@ export function ProductionStep1Page() {
               stockRows: [],
               fefoSuggestions: [],
               stockLoading: false,
+              stockFetchError: null,
             })
           }
           setInitialPanelLines(restored)
@@ -222,6 +223,7 @@ export function ProductionStep1Page() {
       stockRows: [],
       fefoSuggestions: [],
       stockLoading: false,
+      stockFetchError: null,
     }))
     setInitialPanelLines(rescaled)
     currentLinesRef.current = rescaled
@@ -331,6 +333,7 @@ export function ProductionStep1Page() {
         stockRows: [],
         fefoSuggestions: [],
         stockLoading: false,
+        stockFetchError: null,
       }))
       setInitialPanelLines(newLines)
       currentLinesRef.current = newLines
