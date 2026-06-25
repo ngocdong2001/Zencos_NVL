@@ -13,6 +13,7 @@ import {
   fetchProductOutputs,
   upsertProductionOrderLines,
   updateProductionOrderStatus,
+  deleteProductionOrder,
   advanceProductionStep,
   type ProductOutput,
   type ProductionOrderDetail,
@@ -359,18 +360,25 @@ export function ProductionStep2Page() {
 
   function handleCancel() {
     if (!orderId) return
+    const isDraft = order?.status === 'draft'
     showDangerConfirm({
-      header: 'Hủy phiếu sản xuất',
-      message: `Bạn có chắc muốn hủy phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`,
-      acceptLabel: 'Xác nhận hủy',
+      header: isDraft ? 'Xóa phiếu sản xuất' : 'Hủy phiếu sản xuất',
+      message: isDraft
+        ? `Bạn có chắc muốn xóa phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`
+        : `Bạn có chắc muốn hủy phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`,
+      acceptLabel: isDraft ? 'Xác nhận xóa' : 'Xác nhận hủy',
       rejectLabel: 'Quay lại',
       onAccept: async () => {
         setCancelling(true)
         try {
-          await updateProductionOrderStatus(orderId, 'cancelled')
+          if (isDraft) {
+            await deleteProductionOrder(orderId)
+          } else {
+            await updateProductionOrderStatus(orderId, 'cancelled')
+          }
           navigate('/production')
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Không thể hủy phiếu')
+          setError(err instanceof Error ? err.message : isDraft ? 'Không thể xóa phiếu' : 'Không thể hủy phiếu')
         } finally {
           setCancelling(false)
         }

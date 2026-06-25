@@ -202,6 +202,12 @@ export async function updateProductionOrderStatus(
   })
 }
 
+export async function deleteProductionOrder(id: string): Promise<void> {
+  await http<void>(`/api/production-orders/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function advanceProductionStep(id: string): Promise<ProductionOrderDetail> {
   return http<ProductionOrderDetail>(`/api/production-orders/${id}/step`, {
     method: 'PATCH',

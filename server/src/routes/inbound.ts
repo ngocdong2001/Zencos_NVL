@@ -1516,14 +1516,56 @@ router.post('/receipts/:id/revert-to-draft', requireAuth, async (req: Authentica
     return
   }
 
-  if (receipt.sourceReceiptId || receipt.adjustedByReceiptId) {
-    res.status(409).json({ error: 'Phiếu điều chỉnh không hỗ trợ thao tác thu hồi về nháp trực tiếp.' })
+  if (receipt.adjustedByReceiptId) {
+    res.status(409).json({ error: 'Phiếu đã bị điều chỉnh bởi phiếu khác, không thể thu hồi về nháp.' })
     return
   }
 
-  if (receipt.items.length === 0) {
+  if (receipt.items.length === 0 && !receipt.sourceReceiptId) {
     res.status(400).json({ error: 'Phiếu posted không có dòng dữ liệu để thu hồi.' })
     return
+  }
+
+  // Load source receipt when reverting an adjustment receipt
+  let sourceReceiptForRevert: {
+    id: bigint
+    receiptRef: string
+    purchaseRequestId: bigint | null
+    items: Array<{
+      id: bigint
+      lotNo: string
+      quantityBase: { toNumber(): number }
+      postedBatchId: bigint | null
+      postedTxId: bigint | null
+      purchaseRequestItemId: bigint | null
+    }>
+  } | null = null
+
+  if (receipt.sourceReceiptId) {
+    sourceReceiptForRevert = await prisma.inboundReceipt.findUnique({
+      where: { id: receipt.sourceReceiptId },
+      select: {
+        id: true,
+        receiptRef: true,
+        purchaseRequestId: true,
+        items: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            lotNo: true,
+            quantityBase: true,
+            postedBatchId: true,
+            postedTxId: true,
+            purchaseRequestItemId: true,
+          },
+        },
+      },
+    })
+
+    if (!sourceReceiptForRevert) {
+      res.status(409).json({ error: 'Không tìm thấy phiếu gốc để khôi phục.' })
+      return
+    }
   }
 
   const usedLots: Array<{ lotNo: string; issuedQty: number; currentQty: number }> = []
@@ -1604,11 +1646,14 @@ router.post('/receipts/:id/revert-to-draft', requireAuth, async (req: Authentica
 
   const actorId = await getCurrentUserIdFromRequest(req)
   const touchedPurchaseRequestItemIds = Array.from(
-    new Set(
-      receipt.items
+    new Set([
+      ...receipt.items
         .map((item) => item.purchaseRequestItemId)
         .filter((id): id is bigint => Boolean(id)),
-    ),
+      ...(sourceReceiptForRevert?.items ?? [])
+        .map((item) => item.purchaseRequestItemId)
+        .filter((id): id is bigint => Boolean(id)),
+    ]),
   )
 
   await prisma.$transaction(async (tx) => {
@@ -1629,6 +1674,57 @@ router.post('/receipts/:id/revert-to-draft', requireAuth, async (req: Authentica
 
       await tx.batch.delete({
         where: { id: item.postedBatchId },
+      })
+    }
+
+    // Restore source receipt batches when reverting a posted adjustment receipt
+    if (sourceReceiptForRevert) {
+      for (const sourceItem of sourceReceiptForRevert.items) {
+        if (!sourceItem.postedBatchId || !sourceItem.postedTxId) continue
+
+        // Delete void transactions created against the source batch during adjustment posting
+        const voidTxs = await tx.inventoryTransaction.findMany({
+          where: {
+            batchId: sourceItem.postedBatchId,
+            id: { not: sourceItem.postedTxId },
+            isCancelled: false,
+          },
+          select: { id: true },
+        })
+
+        for (const voidTx of voidTxs) {
+          await tx.inventoryTransaction.delete({ where: { id: voidTx.id } })
+        }
+
+        // Restore source batch quantity and status
+        await tx.batch.update({
+          where: { id: sourceItem.postedBatchId },
+          data: {
+            currentQtyBase: { increment: sourceItem.quantityBase.toNumber() },
+            status: 'available',
+          },
+        })
+      }
+
+      // Unlink the source receipt from this adjustment
+      await tx.inboundReceipt.update({
+        where: { id: sourceReceiptForRevert.id },
+        data: { adjustedByReceiptId: null },
+      })
+
+      // History on source receipt
+      await tx.inboundReceiptHistory.create({
+        data: {
+          inboundReceiptId: sourceReceiptForRevert.id,
+          actionType: 'adjustment_reverted',
+          actionLabel: `Phục hồi phiếu gốc do phiếu điều chỉnh ${receipt.receiptRef} thu hồi về nháp`,
+          actorId,
+          data: {
+            adjustmentReceiptId: receipt.id.toString(),
+            adjustmentReceiptRef: receipt.receiptRef,
+            revertedAt: new Date().toISOString(),
+          },
+        },
       })
     }
 
@@ -1702,11 +1798,17 @@ router.post('/receipts/:id/revert-to-draft', requireAuth, async (req: Authentica
       data: {
         inboundReceiptId: receipt.id,
         actionType: 'reverted_to_draft',
-        actionLabel: 'Thu hồi phiếu đã posted về trạng thái nháp',
+        actionLabel: sourceReceiptForRevert
+          ? `Thu hồi phiếu điều chỉnh về nháp (phiếu gốc: ${sourceReceiptForRevert.receiptRef})`
+          : 'Thu hồi phiếu đã posted về trạng thái nháp',
         actorId,
         data: {
           revertedAt: new Date().toISOString(),
           itemCount: receipt.items.length,
+          ...(sourceReceiptForRevert && {
+            sourceReceiptId: sourceReceiptForRevert.id.toString(),
+            sourceReceiptRef: sourceReceiptForRevert.receiptRef,
+          }),
         },
       },
     })

@@ -11,6 +11,7 @@ import { ProductionFlowModal } from '../components/production/ProductionFlowModa
 import { fetchProductionOrders,
   fetchProductionOrdersForExport,
   updateProductionOrderStatus,
+  deleteProductionOrder,
   type ProductionOrderStatus,
   type ProductionOrderListItem,
   type ProductOutputType,
@@ -153,18 +154,25 @@ export function ProductionListPage() {
   useEffect(() => { void refresh() }, [location.key])
 
   const handleCancelOrder = (row: ProductionOrderRow) => {
+    const isDraft = row.status === 'draft'
     showDangerConfirm({
-      header: 'Hủy phiếu sản xuất',
-      message: `Bạn có chắc muốn hủy phiếu ${row.orderRef}?${row.status === 'completed' ? ' Phiếu đã hoàn thành — NVL xuất kho sẽ được hoàn trả tồn kho tự động.' : ''} Hành động này không thể hoàn tác.`,
-      acceptLabel: 'Xác nhận hủy',
+      header: isDraft ? 'Xóa phiếu sản xuất' : 'Hủy phiếu sản xuất',
+      message: isDraft
+        ? `Bạn có chắc muốn xóa phiếu ${row.orderRef}? Hành động này không thể hoàn tác.`
+        : `Bạn có chắc muốn hủy phiếu ${row.orderRef}?${row.status === 'completed' ? ' Phiếu đã hoàn thành — NVL xuất kho sẽ được hoàn trả tồn kho tự động.' : ''} Hành động này không thể hoàn tác.`,
+      acceptLabel: isDraft ? 'Xác nhận xóa' : 'Xác nhận hủy',
       rejectLabel: 'Quay lại',
       onAccept: async () => {
         setCancellingId(row.id)
         try {
-          await updateProductionOrderStatus(row.id, 'cancelled')
+          if (isDraft) {
+            await deleteProductionOrder(row.id)
+          } else {
+            await updateProductionOrderStatus(row.id, 'cancelled')
+          }
           await refresh()
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Không thể hủy phiếu.')
+          setError(err instanceof Error ? err.message : isDraft ? 'Không thể xóa phiếu.' : 'Không thể hủy phiếu.')
         } finally {
           setCancellingId(null)
         }

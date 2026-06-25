@@ -687,6 +687,80 @@ const returnNvlSchema = z.object({
   })).min(1, 'Cần ít nhất 1 dòng hoàn nhập'),
 })
 
+// ─── DELETE DRAFT ORDER ───────────────────────────────────────────────────────
+
+router.delete('/:id', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
+  const orderId = BigInt(req.params.id)
+  const userId = BigInt(req.auth!.sub)
+  
+  const existingOrder = await prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    select: { id: true, status: true, orderRef: true, nvlExportedAt: true },
+  })
+
+  if (!existingOrder) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
+
+  // Only allow deletion if status is 'draft'
+  if (existingOrder.status !== 'draft') {
+    return res.status(400).json({ 
+      message: 'Chỉ có thể xóa phiếu ở trạng thái bản nháp. Phiếu đã xử lý chỉ có thể hủy (cancel).' 
+    })
+  }
+
+  // If NVL was exported, restore inventory before deleting
+  if (existingOrder.nvlExportedAt) {
+    const nvlTxns = await prisma.inventoryTransaction.findMany({
+      where: { productionOrderId: orderId, isCancelled: false, type: 'export' },
+      select: { id: true, batchId: true, quantityBase: true, warehouseLocationId: true },
+    })
+
+    if (nvlTxns.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        const now = new Date()
+
+        // Reverse NVL: restore batch qty + create reversal txn + mark original cancelled
+        for (const txn of nvlTxns) {
+          const qty = typeof txn.quantityBase === 'object'
+            ? (txn.quantityBase as unknown as { toNumber(): number }).toNumber()
+            : Number(txn.quantityBase)
+
+          // Restore batch qty
+          await tx.batch.update({
+            where: { id: txn.batchId },
+            data:  { currentQtyBase: { increment: qty } },
+          })
+          // Create reversal transaction (audit trail)
+          await tx.inventoryTransaction.create({
+            data: {
+              batchId:             txn.batchId,
+              userId,
+              productionOrderId:   orderId,
+              warehouseLocationId: txn.warehouseLocationId,
+              type:                'import',
+              quantityBase:        qty,
+              isCancelled:         false,
+              notes:               `Hoàn kho NVL – xóa phiếu draft ${existingOrder.orderRef ?? orderId.toString()}`,
+              transactionDate:     now,
+            },
+          })
+          // Mark original transaction as cancelled (keep for audit trail)
+          await tx.inventoryTransaction.update({
+            where: { id: txn.id },
+            data:  { isCancelled: true },
+          })
+        }
+      })
+    }
+  }
+
+  // Delete the order (cascade will delete lines and logs)
+  await prisma.productionOrder.delete({
+    where: { id: orderId },
+  })
+
+  return res.status(204).send()
+})
+
 router.post('/:id/return-nvl', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
   const orderId = BigInt(req.params.id)
   const userId  = BigInt(req.auth!.sub)

@@ -3730,6 +3730,27 @@ input {
   align-items: start;
 }
 
+.ob-drill-mat-row--three {
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1200px) {
+  .ob-drill-mat-row--three {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+
+  .ob-drill-mat-row--three > .ob-drill-mat-select:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .ob-drill-mat-row,
+  .ob-drill-mat-row--three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ob-drill-mat-meta {
   display: flex;
   align-items: center;

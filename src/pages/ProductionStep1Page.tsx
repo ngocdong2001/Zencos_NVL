@@ -8,7 +8,7 @@ import { InputNumber } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
 import { ProductionStepBar } from '../components/production/ProductionStepBar'
 import { OutboundMaterialPanel, type MaterialLine, type AllocationRow } from '../components/outbound/OutboundMaterialPanel'
-import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderHeader, updateProductionOrderStatus, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
+import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderHeader, updateProductionOrderStatus, deleteProductionOrder, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
 import { exportNvlRequestDoc } from '../lib/productionNvlRequestExport'
 import { fetchBasics } from '../lib/catalogApi'
 import type { BasicRow } from '../components/catalog/types'
@@ -145,6 +145,7 @@ export function ProductionStep1Page() {
         if (data.plannedQty != null) setPlannedQty(data.plannedQty)
 
         // Reconstruct panel lines from saved step-1 out lines
+        // Group by product to combine multiple lots into one MaterialLine, but preserve per-lot locationId in allocationRows
         const step1Lines = data.lines.filter(l => l.step === 1 && l.direction === 'out')
         if (step1Lines.length > 0) {
           const grouped = new Map<string, typeof step1Lines>()
@@ -156,21 +157,22 @@ export function ProductionStep1Page() {
           const restored: MaterialLine[] = []
           for (const [, groupLines] of grouped) {
             const first = groupLines[0]
-            // Skip draft-only placeholder rows (actualQty=0) — they only exist to persist intent
+            // Build allocation rows from all lines with actualQty > 0, preserving each lot's locationId
             const allocationRows: AllocationRow[] = groupLines
               .filter(l => l.actualQty > 0)
               .map(l => ({
-              batchId: '',
-              lotNo: l.lotNo ?? '',
-              expiryDate: l.expiryDate,
-              availableQty: l.actualQty,
-              exportQty: l.actualQty,
-              inputValue: formatQuantity(l.actualQty),
-              manufacturerName: null,
-              locationCode: null,
-              locationName: null,
-              exportDate: l.exportDate ? new Date(l.exportDate) : null,
-            }))
+                batchId: safeRandomId(),
+                lotNo: l.lotNo ?? '',
+                expiryDate: l.expiryDate,
+                availableQty: l.actualQty,
+                exportQty: l.actualQty,
+                inputValue: formatQuantity(l.actualQty),
+                manufacturerName: null,
+                locationId: l.locationId ?? null,
+                locationCode: l.location?.code ?? null,
+                locationName: l.location?.name ?? null,
+                exportDate: l.exportDate ? new Date(l.exportDate) : null,
+              }))
             restored.push({
               key: safeRandomId(),
               materialId: first.productId ?? '',
@@ -255,7 +257,7 @@ export function ProductionStep1Page() {
               wasteQty: 0,
               unit: line.materialUnit || 'g',
               direction: 'out' as const,
-              locationId: line.locationId || null,
+              locationId: r.locationId || line.locationId || null,
             }))
           } else {
             // Draft-only: persist material intent + locationId + plannedQty with actualQty=0
@@ -365,19 +367,26 @@ export function ProductionStep1Page() {
 
   function handleCancel() {
     if (!orderId) return
+    const isDraft = order?.status === 'draft'
     showDangerConfirm({
-      header: 'Hủy phiếu sản xuất',
-      message: `Bạn có chắc muốn hủy phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`,
-      acceptLabel: 'Xác nhận hủy',
+      header: isDraft ? 'Xóa phiếu sản xuất' : 'Hủy phiếu sản xuất',
+      message: isDraft 
+        ? `Bạn có chắc muốn xóa phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`
+        : `Bạn có chắc muốn hủy phiếu ${order?.orderRef ?? orderId}? Hành động này không thể hoàn tác.`,
+      acceptLabel: isDraft ? 'Xác nhận xóa' : 'Xác nhận hủy',
       rejectLabel: 'Quay lại',
       onAccept: async () => {
         setCancelling(true)
         try {
-          await updateProductionOrderStatus(orderId, 'cancelled')
-          void loadHistory(orderId)
+          if (isDraft) {
+            await deleteProductionOrder(orderId)
+          } else {
+            await updateProductionOrderStatus(orderId, 'cancelled')
+            void loadHistory(orderId)
+          }
           navigate('/production')
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Không thể hủy phiếu')
+          setError(err instanceof Error ? err.message : isDraft ? 'Không thể xóa phiếu' : 'Không thể hủy phiếu')
         } finally {
           setCancelling(false)
         }
@@ -409,7 +418,7 @@ export function ProductionStep1Page() {
           wasteQty: 0,
           unit: line.materialUnit || 'g',
           direction: 'out' as const,
-          locationId: line.locationId || null,
+          locationId: r.locationId || line.locationId || null,
         }))
     )
     if (payloads.length === 0) {
@@ -683,6 +692,7 @@ export function ProductionStep1Page() {
               onLinesChange={(lines) => { currentLinesRef.current = lines }}
               disabled={isLocked}
               lockExistingLines={nvlExported && !isLocked}
+              showMaterialCodeDropdown
               locations={locations.map(l => ({ label: `[${l.code}] ${l.name}`, value: l.id }))}
               asOfDate={processedAt ? `${processedAt.getFullYear()}-${String(processedAt.getMonth() + 1).padStart(2, '0')}-${String(processedAt.getDate()).padStart(2, '0')}` : undefined}
             />

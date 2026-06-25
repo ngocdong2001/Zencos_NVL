@@ -32,6 +32,7 @@ export type AllocationRow = {
   exportQty: number
   inputValue: string
   manufacturerName: string | null
+  locationId: string | null
   locationCode: string | null
   locationName: string | null
   exportDate: Date | null
@@ -125,6 +126,8 @@ type Props = {
   disabled?: boolean
   /** Lock existing lines (from initialLines) but still allow adding new lines */
   lockExistingLines?: boolean
+  /** Show a separate material-code dropdown next to the material-name dropdown */
+  showMaterialCodeDropdown?: boolean
   /** Called whenever the lines array changes */
   onLinesChange?: (lines: MaterialLine[]) => void
   /** Pre-populate lines (e.g. from saved data) – applied once on mount */
@@ -139,12 +142,13 @@ type Props = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, onLinesChange, initialLines, locationId, locations, asOfDate }: Props) {
+export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, showMaterialCodeDropdown = false, onLinesChange, initialLines, locationId, locations, asOfDate }: Props) {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
   const linesRef = useRef<MaterialLine[]>([])
 
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
+  const [materialCodeOptions, setMaterialCodeOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
   const [lines, setLines] = useState<MaterialLine[]>(() => initialLines && initialLines.length > 0 ? initialLines : [createEmptyLine()])
   const [activeLineIdx, setActiveLineIdx] = useState(0)
@@ -163,10 +167,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       // Refresh locked keys when initial lines are set (e.g. after async load)
       lockedLineKeysRef.current = new Set(initialLines.map(l => l.key))
 
-      // Load stock for each pre-populated line that has a materialId but no stock data yet
+      // Load stock for each pre-populated line that has a materialId AND locationId but no stock data yet
       initialLines.forEach((line) => {
         if (!line.materialId || line.stockRows.length > 0) return
         const lineLocId = line.locationId ?? locationId
+        if (!lineLocId) return // MUST have location before loading stock
         setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
         Promise.all([
           fetchInventoryStock(line.materialId, lineLocId, asOfDate),
@@ -200,6 +205,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       if (!line.materialId) return
       // Only reload lines that haven't set their own per-line location
       if (line.locationId) return
+      // MUST have a fallback location to reload
+      if (!locationId) return
       setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: true } : l))
       void Promise.all([
         fetchInventoryStock(line.materialId, locationId, asOfDate),
@@ -219,7 +226,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       .then((rows) => {
         if (cancelled) return
         setMaterials(rows)
-        setMaterialOptions(rows.map((r) => ({ value: r.id, label: `${r.materialName} (${r.code})` })))
+        setMaterialOptions(rows.map((r) => ({ value: r.id, label: r.materialName })))
+        setMaterialCodeOptions(rows.map((r) => ({ value: r.id, label: r.code })))
       })
       .catch(() => {
         if (!cancelled) setPanelError('Không thể tải danh sách nguyên liệu.')
@@ -307,10 +315,10 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       shortageAcknowledged: false,
       stockRows: [],
       fefoSuggestions: [],
-      stockLoading: Boolean(newMaterialId),
+      stockLoading: Boolean(newMaterialId && lineLocId),
     }))
     setActiveLineIdx(idx)
-    if (!newMaterialId) return
+    if (!newMaterialId || !lineLocId) return // MUST have location before loading stock
     try {
       const [stock, fefo] = await Promise.all([
         fetchInventoryStock(newMaterialId, lineLocId, asOfDate),
@@ -331,13 +339,13 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       locationId: newLocationId ?? undefined,
       stockRows: [],
       fefoSuggestions: [],
-      stockLoading: Boolean(l.materialId),
+      stockLoading: Boolean(l.materialId && newLocationId),
     }))
-    if (!line.materialId) return
+    if (!line.materialId || !newLocationId) return // MUST have location before loading stock
     try {
       const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(line.materialId, newLocationId ?? undefined, asOfDate),
-        fetchFefoSuggestions(line.materialId, 6, newLocationId ?? undefined, asOfDate),
+        fetchInventoryStock(line.materialId, newLocationId, asOfDate),
+        fetchFefoSuggestions(line.materialId, 6, newLocationId, asOfDate),
       ])
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false }))
     } catch {
@@ -392,6 +400,11 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       setPanelError('Vui lòng nhập số lượng yêu cầu trước khi phân bổ FEFO.')
       return
     }
+    const lineLocId = line.locationId ?? locationId
+    if (!lineLocId) {
+      setPanelError('Vui lòng chọn kho xuất trước khi phân bổ FEFO.')
+      return
+    }
     const d = getLineDerived(line)
     let remain = line.requestedQtyValue
     const nextRows: AllocationRow[] = []
@@ -408,6 +421,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         exportQty,
         inputValue: formatQuantity(exportQty),
         manufacturerName: lot.manufacturerName ?? null,
+        locationId: lot.location?.id ?? null,
         locationCode: lot.location?.code ?? null,
         locationName: lot.location?.name ?? null,
         exportDate: null,
@@ -438,6 +452,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
             exportQty: defaultQty,
             inputValue: defaultQty > 0 ? formatQuantity(defaultQty) : '',
             manufacturerName: lot.manufacturerName ?? null,
+            locationId: lot.location?.id ?? null,
             locationCode: lot.location?.code ?? null,
             locationName: lot.location?.name ?? null,
             exportDate: null,
@@ -529,7 +544,22 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                   </div>
 
                   <div className="po-drill-node-main">
-                    <div className="ob-drill-mat-row">
+                    <div className={`ob-drill-mat-row${showMaterialCodeDropdown ? ' ob-drill-mat-row--three' : ''}`}>
+                      {showMaterialCodeDropdown && (
+                        <div className="ob-drill-mat-select">
+                          <Dropdown
+                            value={line.materialId}
+                            options={materialCodeOptions}
+                            onChange={(e) => { void handleLineMaterialChange(idx, String(e.value ?? '')) }}
+                            placeholder="Chọn mã..."
+                            className="ob-drill-dropdown"
+                            filter
+                            showClear
+                            disabled={loading || isLineDisabled(line.key)}
+                          />
+                        </div>
+                      )}
+
                       <div className="ob-drill-mat-select">
                         <Dropdown
                           value={line.materialId}
@@ -556,8 +586,8 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                             disabled={isLineDisabled(line.key)}
                           />
                           {!line.locationId && line.materialId && (
-                            <small style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2, fontSize: 10 }}>
-                              <i className="pi pi-exclamation-triangle" />Đang dùng kho mặc định
+                            <small style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2, fontSize: 10, fontWeight: 600 }}>
+                              <i className="pi pi-times-circle" />Phải chọn kho để xem tồn
                             </small>
                           )}
                         </div>
