@@ -163,46 +163,45 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
 
   // Apply initialLines if provided after mount (e.g. async load)
   const initialLinesRef = useRef(initialLines)
+  const hasInitializedRef = useRef(false)
   useEffect(() => {
+    if (!initialLines || initialLines.length === 0) return
+    // Skip only if ALREADY initialized AND still the same reference (prevents re-running on unrelated re-renders)
+    // hasInitializedRef starts false so we always run on first mount, even if sameRef=true
     const sameRef = initialLinesRef.current === initialLines
-    console.log('[OutboundPanel] initialLines effect triggered', {
-      hasLines: !!initialLines,
-      count: initialLines?.length ?? 0,
-      sameRef,
-      asOfDate,
-    })
-    if (initialLines && initialLines.length > 0 && !sameRef) {
-      initialLinesRef.current = initialLines
-      setLines(initialLines)
-      setActiveLineIdx(0)
-      // Refresh locked keys when initial lines are set (e.g. after async load)
-      lockedLineKeysRef.current = new Set(initialLines.map(l => l.key))
+    if (sameRef && hasInitializedRef.current) return
 
-      // Load stock for each pre-populated line that has a materialId AND locationId but no stock data yet
-      initialLines.forEach((line) => {
-        if (!line.materialId || line.stockRows.length > 0) return
-        const lineLocId = line.locationId ?? locationId
-        if (!lineLocId) {
-          console.log('[OutboundPanel] skip stock fetch — no locationId for line', line.materialId)
-          return
-        }
-        console.log('[OutboundPanel] fetching stock for', line.materialId, 'loc', lineLocId, 'asOfDate', asOfDate)
-        setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
-        Promise.all([
-          fetchInventoryStock(line.materialId, lineLocId, asOfDate),
-          fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
-        ])
-          .then(([stock, fefo]) => {
-            console.log('[OutboundPanel] stock result for', line.materialId, '→', stock.length, 'rows')
-            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null } : l))
-          })
-          .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err)
-            console.error('[OutboundPanel] stock fetch failed for', line.materialId, ':', msg)
-            setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false, stockFetchError: msg } : l))
-          })
-      })
-    }
+    hasInitializedRef.current = true
+    initialLinesRef.current = initialLines
+    setLines(initialLines)
+    setActiveLineIdx(0)
+    // Refresh locked keys when initial lines are set (e.g. after async load)
+    lockedLineKeysRef.current = new Set(initialLines.map(l => l.key))
+
+    // Load stock for each pre-populated line that has a materialId AND locationId but no stock data yet
+    initialLines.forEach((line) => {
+      if (!line.materialId || line.stockRows.length > 0) return
+      const lineLocId = line.locationId ?? locationId
+      if (!lineLocId) {
+        console.log('[OutboundPanel] skip stock fetch — no locationId for line', line.materialId)
+        return
+      }
+      console.log('[OutboundPanel] fetching stock for', line.materialId, 'loc', lineLocId, 'asOfDate', asOfDate)
+      setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
+      Promise.all([
+        fetchInventoryStock(line.materialId, lineLocId, asOfDate),
+        fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
+      ])
+        .then(([stock, fefo]) => {
+          console.log('[OutboundPanel] stock result for', line.materialId, '→', stock.length, 'rows')
+          setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null } : l))
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error('[OutboundPanel] stock fetch failed for', line.materialId, ':', msg)
+          setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false, stockFetchError: msg } : l))
+        })
+    })
   }, [initialLines])
 
   // Keep ref in sync with latest lines (used by location/date-change reload effect)
