@@ -427,6 +427,89 @@ router.post('/:id/confirm-nvl-export', requireAuth, requirePermission('productio
   return res.json(serializeBigInt(updated))
 })
 
+// ─── RETRACT NVL EXPORT (Step 1) ──────────────────────────────────────────────
+// POST /api/production-orders/:id/retract-nvl-export
+// Reverses NVL export by restoring batch quantities and cancelling transactions.
+
+router.post('/:id/retract-nvl-export', requireAuth, requirePermission('production:write'), async (req: AuthenticatedRequest, res) => {
+  const orderId = BigInt(req.params.id)
+  const userId  = BigInt(req.auth!.sub)
+
+  const existing = await prisma.productionOrder.findUnique({
+    where:  { id: orderId },
+    select: { id: true, status: true, nvlExportedAt: true, orderRef: true },
+  })
+  if (!existing) return res.status(404).json({ message: 'Không tìm thấy lệnh sản xuất.' })
+  if (!existing.nvlExportedAt) return res.status(400).json({ message: 'NVL chưa được xuất kho, không thể thu hồi.' })
+  if (existing.status === 'cancelled') return res.status(400).json({ message: 'Phiếu đã hủy.' })
+
+  // Find all active export transactions for this order
+  const txns = await prisma.inventoryTransaction.findMany({
+    where: { productionOrderId: orderId, isCancelled: false, type: 'export' },
+    select: { id: true, batchId: true, quantityBase: true },
+  })
+
+  if (txns.length === 0) {
+    // No active transactions to reverse, just clear the timestamp
+    const updated = await prisma.productionOrder.update({
+      where: { id: orderId },
+      data: {
+        nvlExportedAt: null,
+        logs: {
+          create: {
+            userId,
+            userName: req.auth!.email,
+            action: 'Thu hồi xuất kho NVL – không có giao dịch để hoàn trả',
+            logType: 'process',
+            step: 1,
+          },
+        },
+      },
+      include: orderInclude,
+    })
+    return res.json(serializeBigInt(updated))
+  }
+
+  // Execute reversal in a single transaction
+  await prisma.$transaction(async (tx) => {
+    for (const txn of txns) {
+      // Restore batch qty
+      await tx.batch.update({
+        where: { id: txn.batchId },
+        data: { currentQtyBase: { increment: txn.quantityBase } },
+      })
+      // Mark transaction as cancelled (keeps audit trail)
+      await tx.inventoryTransaction.update({
+        where: { id: txn.id },
+        data: { isCancelled: true },
+      })
+    }
+
+    // Clear nvlExportedAt and log (step 1 lines remain unlocked for re-editing)
+    await tx.productionOrder.update({
+      where: { id: orderId },
+      data: {
+        nvlExportedAt: null,
+        logs: {
+          create: {
+            userId,
+            userName: req.auth!.email,
+            action: `Thu hồi xuất kho NVL – ${txns.length} lô hàng đã hoàn trả kho, dòng xuất đã mở khóa`,
+            logType: 'process',
+            step: 1,
+          },
+        },
+      },
+    })
+  })
+
+  const updated = await prisma.productionOrder.findUnique({
+    where: { id: orderId },
+    include: orderInclude,
+  })
+  return res.json(serializeBigInt(updated))
+})
+
 // ─── UPDATE STATUS ────────────────────────────────────────────────────────────
 
 const patchStatusSchema = z.object({

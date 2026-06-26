@@ -59,6 +59,7 @@ export type ItemTransaction = {
   notes: string
   refNo: string
   entityName: string
+  isCancelled: boolean
 }
 
 export type MonthlyStats = {

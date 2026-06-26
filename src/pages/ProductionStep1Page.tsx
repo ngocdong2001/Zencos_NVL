@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from 'primereact/button'
 import { Calendar } from 'primereact/calendar'
+import { Column } from 'primereact/column'
+import { DataTable } from 'primereact/datatable'
 import { Dialog } from 'primereact/dialog'
 import { Dropdown } from 'primereact/dropdown'
 import { InputNumber } from 'primereact/inputnumber'
 import { InputText } from 'primereact/inputtext'
+import { InputTextarea } from 'primereact/inputtextarea'
 import { ProductionStepBar } from '../components/production/ProductionStepBar'
-import { OutboundMaterialPanel, type MaterialLine, type AllocationRow } from '../components/outbound/OutboundMaterialPanel'
-import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderHeader, updateProductionOrderStatus, deleteProductionOrder, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
+import { ProductionMaterialPanel, type MaterialLine, type AllocationRow } from '../components/outbound/ProductionMaterialPanel'
+import { fetchProductionOrderDetail, createProductionOrder, updateProductionOrderHeader, updateProductionOrderStatus, deleteProductionOrder, upsertProductionOrderLines, fetchProductOutputs, advanceProductionStep, confirmNvlExport, retractNvlExport, fetchProductionOrderLogs, type ProductionOrderDetail, type ProductOutput, type ProductionOrderLog } from '../lib/productionApi'
 import { exportNvlRequestDoc } from '../lib/productionNvlRequestExport'
 import { fetchBasics } from '../lib/catalogApi'
 import type { BasicRow } from '../components/catalog/types'
-import { fetchProductionBoms, fetchProductionBom } from '../lib/productionBomApi'
+import { createProductionBom, fetchNextBomCode, fetchProductionBoms, fetchProductionBom } from '../lib/productionBomApi'
 import { showDangerConfirm } from '../lib/confirm'
 import { formatQuantity } from '../components/purchaseOrder/format'
 import { safeRandomId } from '../lib/uuid'
@@ -20,6 +23,58 @@ import { type HistoryTimelineEvent } from '../components/shared/HistoryTimeline'
 import { ProductionFlowModal } from '../components/production/ProductionFlowModal'
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+type AutoBomPreviewLineType = 'nvl' | 'btp' | 'tp'
+
+type AutoBomPreviewRow = {
+  key: string
+  materialId: string
+  materialCode: string
+  materialName: string
+  materialUnit: string
+  sourceQty: number
+  qtyPerBase: number
+  previewLineType: AutoBomPreviewLineType
+}
+
+const autoBomLineTypeLabel: Record<AutoBomPreviewLineType, string> = {
+  nvl: 'NVL',
+  btp: 'BTP',
+  tp: 'TP',
+}
+
+const buttonBaseStyle = {
+  height: 36,
+  minHeight: 36,
+  display: 'inline-flex',
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  whiteSpace: 'nowrap' as const,
+  lineHeight: '1',
+}
+
+const buttonSecondaryStyle = {
+  ...buttonBaseStyle,
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const buttonBlueOutlinedStyle = {
+  ...buttonBaseStyle,
+  fontSize: 12,
+  fontWeight: 700,
+  borderColor: '#5269e0',
+  color: '#5269e0',
+}
+
+const buttonPrimaryStyle = {
+  ...buttonBaseStyle,
+  background: '#5269e0',
+  border: 'none',
+  fontWeight: 700,
+  fontSize: 13,
+  padding: '0 20px',
+}
 
 export function ProductionStep1Page() {
   const navigate = useNavigate()
@@ -33,8 +88,10 @@ export function ProductionStep1Page() {
   const [draftSuccess, setDraftSuccess] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [voiding, setVoiding] = useState(false)
+  const [retracting, setRetracting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [retractSuccess, setRetractSuccess] = useState(false)
   const [nvlExported, setNvlExported] = useState(false)
 
   // Export dialog
@@ -44,7 +101,7 @@ export function ProductionStep1Page() {
   const [selectedClassCode, setSelectedClassCode] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
 
-  // Track current lines from OutboundMaterialPanel
+  // Track current lines from ProductionMaterialPanel
   const currentLinesRef = useRef<MaterialLine[]>([])
   const [initialPanelLines, setInitialPanelLines] = useState<MaterialLine[] | undefined>(undefined)
 
@@ -66,6 +123,16 @@ export function ProductionStep1Page() {
 
   // Flow diagram modal
   const [showFlowModal, setShowFlowModal] = useState(false)
+
+  // Auto BOM dialog
+  const [showAutoBomDialog, setShowAutoBomDialog] = useState(false)
+  const [autoBomSaving, setAutoBomSaving] = useState(false)
+  const [autoBomCode, setAutoBomCode] = useState('')
+  const [autoBomName, setAutoBomName] = useState('')
+  const [autoBomBaseQty, setAutoBomBaseQty] = useState<number>(1)
+  const [autoBomNotes, setAutoBomNotes] = useState('')
+  const [autoBomRows, setAutoBomRows] = useState<AutoBomPreviewRow[]>([])
+  const [autoBomSuccess, setAutoBomSuccess] = useState<{ id: string; bomCode: string | null; bomName: string } | null>(null)
 
   const loadHistory = async (id: string) => {
     setHistoryLoading(true)
@@ -175,6 +242,7 @@ export function ProductionStep1Page() {
               }))
             restored.push({
               key: safeRandomId(),
+              materialType: 'nvl',  // ← NEW: Default to NVL for backward compatibility
               materialId: first.productId ?? '',
               materialCode: first.productCode ?? '',
               materialName: first.productName ?? '',
@@ -211,6 +279,7 @@ export function ProductionStep1Page() {
     const qty = plannedQty > 0 ? plannedQty : 1
     const rescaled: MaterialLine[] = bomNvlLinesRef.current.map(l => ({
       key: safeRandomId(),
+      materialType: 'nvl',  // ← NEW
       materialId: l.productId,
       materialCode: l.productCode,
       materialName: l.productName,
@@ -321,6 +390,7 @@ export function ProductionStep1Page() {
       const qty = plannedQty > 0 ? plannedQty : 1
       const newLines: MaterialLine[] = nvlLines.map(l => ({
         key: safeRandomId(),
+        materialType: 'nvl',  // ← NEW
         materialId: l.productId ?? '',
         materialCode: l.productCode ?? '',
         materialName: l.productName ?? '',
@@ -341,6 +411,140 @@ export function ProductionStep1Page() {
       setError(err instanceof Error ? err.message : 'Không thể tải định mức sản xuất.')
     } finally {
       setBomApplying(false)
+    }
+  }
+
+  function resolveAutoBomPreviewLineType(line: MaterialLine): AutoBomPreviewLineType {
+    if (line.materialType === 'nvl') return 'nvl'
+    const output = productOutputs.find((p) => p.id === line.materialId)
+    if (output?.outputType === 'finished') return 'tp'
+    if (output?.outputType === 'semi_finished') return 'btp'
+    if (line.materialCode.toUpperCase().startsWith('TP-')) return 'tp'
+    return 'btp'
+  }
+
+  async function handleOpenAutoBomDialog() {
+    const sourceLines = currentLinesRef.current.filter(
+      (line) => line.materialId && line.requestedQtyValue > 0,
+    )
+    if (sourceLines.length === 0) {
+      setError('Chưa có dữ liệu xuất ở bước 1 để tạo định mức tự động.')
+      return
+    }
+
+    const baseQty = plannedQty > 0 ? plannedQty : 1
+    const rows: AutoBomPreviewRow[] = sourceLines.map((line) => ({
+      key: line.key,
+      materialId: line.materialId,
+      materialCode: line.materialCode,
+      materialName: line.materialName,
+      materialUnit: line.materialUnit,
+      sourceQty: line.requestedQtyValue,
+      qtyPerBase: line.requestedQtyValue / baseQty,
+      previewLineType: resolveAutoBomPreviewLineType(line),
+    }))
+
+    setAutoBomRows(rows)
+    setAutoBomBaseQty(baseQty)
+    setAutoBomName(`Định mức tự động${order?.orderRef ? ` - ${order.orderRef}` : ''}`)
+    setAutoBomNotes(order?.notes ?? '')
+    setAutoBomCode('')
+    setShowAutoBomDialog(true)
+
+    try {
+      const nextCode = await fetchNextBomCode()
+      setAutoBomCode(nextCode)
+    } catch {
+      setAutoBomCode('')
+    }
+  }
+
+  function updateAutoBomRowQtyPerBase(key: string, qtyPerBase: number | null) {
+    setAutoBomRows((prev) => prev.map((row) => (
+      row.key === key
+        ? { ...row, qtyPerBase: qtyPerBase ?? 0 }
+        : row
+    )))
+  }
+
+  async function handleCreateAutoBom() {
+    const bomName = autoBomName.trim()
+    const resolvedOutputProductId = order?.outputProductId ?? outputProductId ?? null
+    if (!bomName) {
+      setError('Vui lòng nhập tên định mức trước khi lưu.')
+      return
+    }
+    if (!resolvedOutputProductId) {
+      setError('Vui lòng chọn Sản phẩm đầu ra trước khi lưu định mức tự động.')
+      return
+    }
+    if (!(autoBomBaseQty > 0)) {
+      setError('Số lượng / mẻ phải lớn hơn 0.')
+      return
+    }
+    if (autoBomRows.length === 0) {
+      setError('Không có dòng vật tư để tạo định mức.')
+      return
+    }
+    if (autoBomRows.some((row) => !(row.qtyPerBase > 0))) {
+      setError('Tất cả dòng trong định mức phải có số lượng / mẻ lớn hơn 0.')
+      return
+    }
+
+    setAutoBomSaving(true)
+    setError(null)
+    setAutoBomSuccess(null)
+    try {
+      const created = await createProductionBom({
+        bomCode: autoBomCode.trim() || undefined,
+        bomName,
+        outputProductId: Number(resolvedOutputProductId),
+        baseQty: autoBomBaseQty,
+        notes: autoBomNotes.trim() || null,
+        lines: autoBomRows.map((row, idx) => {
+          const parsedProductId = Number(row.materialId)
+          return {
+            sortOrder: idx,
+            lineType: row.previewLineType === 'nvl' ? 'nvl' : 'btp',
+            productId: Number.isFinite(parsedProductId) && parsedProductId > 0 ? parsedProductId : null,
+            productCode: row.materialCode,
+            productName: row.materialName,
+            qtyPerBase: row.qtyPerBase,
+            wasteQty: 0,
+            unit: row.materialUnit,
+            notes: row.previewLineType === 'tp' ? 'Auto map TP sang nhóm BTP/TP trong định mức.' : null,
+          }
+        }),
+      })
+
+      if (orderId) {
+        const updated = await updateProductionOrderHeader(orderId, {
+          productionBomId: created.id,
+        })
+        setOrder(updated)
+        setSelectedBomId(created.id)
+      }
+
+      setBoms((prev) => {
+        if (prev.some((b) => b.id === created.id)) return prev
+        return [
+          {
+            id: created.id,
+            bomCode: created.bomCode,
+            bomName: created.bomName,
+            baseQty: created.baseQty,
+            outputProductId: created.outputProductId,
+          },
+          ...prev,
+        ]
+      })
+
+      setAutoBomSuccess({ id: created.id, bomCode: created.bomCode, bomName: created.bomName })
+      setShowAutoBomDialog(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tạo định mức tự động.')
+    } finally {
+      setAutoBomSaving(false)
     }
   }
 
@@ -472,9 +676,89 @@ export function ProductionStep1Page() {
     })
   }
 
+  async function handleRetractNvl() {
+    if (!orderId) return
+    showDangerConfirm({
+      header: 'Thu hồi NVL đã xuất',
+      message: `Thu hồi NVL đã xuất cho lệnh ${order?.orderRef ?? orderId}? Bạn sẽ có thể chỉnh sửa và xuất lại. Hành động này sẽ hoàn trả tồn kho.`,
+      acceptLabel: 'Xác nhận thu hồi',
+      rejectLabel: 'Quay lại',
+      onAccept: async () => {
+        setRetracting(true)
+        setError(null)
+        setRetractSuccess(false)
+        try {
+          const updated = await retractNvlExport(orderId)
+          setOrder(updated)
+          setNvlExported(false)
+          // Reconstruct panel lines from step 1 lines (now unlocked for re-editing)
+          const step1Lines = updated.lines.filter(l => l.step === 1 && l.direction === 'out')
+          if (step1Lines.length > 0) {
+            const grouped = new Map<string, typeof step1Lines>()
+            for (const l of step1Lines) {
+              const key = l.productId ?? l.productCode
+              if (!grouped.has(key)) grouped.set(key, [])
+              grouped.get(key)!.push(l)
+            }
+            const restored: MaterialLine[] = []
+            for (const [, groupLines] of grouped) {
+              const first = groupLines[0]
+              const allocationRows: AllocationRow[] = groupLines
+                .filter(l => l.actualQty > 0)
+                .map(l => ({
+                  batchId: safeRandomId(),
+                  lotNo: l.lotNo ?? '',
+                  expiryDate: l.expiryDate,
+                  availableQty: l.actualQty,
+                  exportQty: l.actualQty,
+                  inputValue: formatQuantity(l.actualQty),
+                  manufacturerName: null,
+                  locationId: l.locationId ?? null,
+                  locationCode: l.location?.code ?? null,
+                  locationName: l.location?.name ?? null,
+                  exportDate: l.exportDate ? new Date(l.exportDate) : null,
+                }))
+              restored.push({
+                key: safeRandomId(),
+                materialType: 'nvl',
+                materialId: first.productId ?? '',
+                materialCode: first.productCode ?? '',
+                materialName: first.productName ?? '',
+                materialUnit: first.unit ?? '',
+                locationId: first.locationId ?? undefined,
+                requestedQtyValue: first.plannedQty,
+                requestedQtyInput: formatQuantity(first.plannedQty),
+                requestedQtyFocused: false,
+                allocationRows,
+                shortageAcknowledged: false,
+                stockRows: [],
+                fefoSuggestions: [],
+                stockLoading: false,
+                stockFetchError: null,
+              })
+            }
+            setInitialPanelLines(restored)
+            currentLinesRef.current = restored
+          }
+          setRetractSuccess(true)
+          setTimeout(() => setRetractSuccess(false), 3000)
+          void loadHistory(orderId)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Thu hồi NVL thất bại')
+        } finally {
+          setRetracting(false)
+        }
+      },
+    })
+  }
+
   const displayOrderRef = order?.orderRef ?? orderRef ?? '---'
   const displayCreator = order?.creator?.fullName ?? '---'
   const isLocked = order?.status === 'completed' || order?.status === 'cancelled'
+  const autoBomOutputProduct = order?.outputProduct ?? (outputProductId
+    ? productOutputs.find((p) => p.id === outputProductId) ?? null
+    : null)
+  const autoBomOutputUnitLabel = autoBomOutputProduct?.unit?.trim() || 'đơn vị SP đầu ra'
 
   if (loading) {
     return (
@@ -514,6 +798,22 @@ export function ProductionStep1Page() {
         <div className="catalog-inline-notice error" style={{ margin: '8px 24px 0' }}>
           <span>{error}</span>
           <button type="button" className="catalog-inline-notice-close" onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
+      {autoBomSuccess && (
+        <div className="catalog-inline-notice success" style={{ margin: '8px 24px 0', borderColor: '#86efac', background: '#f0fdf4', color: '#166534' }}>
+          <span>
+            Đã tạo định mức mới: <strong>{autoBomSuccess.bomCode ?? '(chưa có mã)'} - {autoBomSuccess.bomName}</strong>
+          </span>
+          <Button
+            label="Mở định mức"
+            icon="pi pi-external-link"
+            className="p-button-text"
+            style={{ ...buttonBaseStyle, color: '#166534', padding: '0 6px', marginLeft: 8 }}
+            onClick={() => navigate(`/production-bom/${autoBomSuccess.id}`)}
+          />
+          <button type="button" className="catalog-inline-notice-close" onClick={() => setAutoBomSuccess(null)}>×</button>
         </div>
       )}
 
@@ -687,10 +987,10 @@ export function ProductionStep1Page() {
                 <span className="prod-step-badge prod-step-badge--active">
                   <i className="pi pi-arrow-right" /> Bước 1
                 </span>
-                <span className="prod-card__title">Chi tiết nguyên vật liệu xuất kho</span>
+                <span className="prod-card__title">Chi tiết vật liệu xuất kho (NVL, BTP, TP)</span>
               </div>
             </div>
-            <OutboundMaterialPanel
+            <ProductionMaterialPanel
               initialLines={initialPanelLines}
               onLinesChange={(lines) => { currentLinesRef.current = lines }}
               disabled={isLocked}
@@ -754,9 +1054,9 @@ export function ProductionStep1Page() {
       {/* Footer */}
       <div className="prod-footer-bar">
         <div className="prod-footer-bar__left">
-          <Button label="Quay lại" icon="pi pi-arrow-left" className="p-button-text p-button-secondary" style={{ fontSize: 12, fontWeight: 700 }} onClick={() => navigate('/production')} />
+          <Button label="Quay lại" icon="pi pi-arrow-left" className="p-button-text p-button-secondary" style={buttonSecondaryStyle} onClick={() => navigate('/production')} />
               {orderId && !isLocked && (
-            <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={{ fontSize: 12, fontWeight: 700 }} onClick={handleCancel} />
+            <Button label="HỦY PHIẾU" icon="pi pi-times-circle" loading={cancelling} className="p-button-text p-button-danger" style={buttonSecondaryStyle} onClick={handleCancel} />
           )}
           {orderId && order?.status === 'completed' && (
             <Button
@@ -764,7 +1064,7 @@ export function ProductionStep1Page() {
               icon="pi pi-ban"
               loading={voiding}
               className="p-button-text p-button-danger"
-              style={{ fontSize: 12, fontWeight: 700 }}
+              style={buttonSecondaryStyle}
               onClick={() => {
                 showDangerConfirm({
                   header: 'Vô hiệu phiếu sản xuất',
@@ -798,7 +1098,12 @@ export function ProductionStep1Page() {
               <i className="pi pi-check-circle" />{nvlExported ? 'Đã xuất thêm NVL thành công' : 'Đã xuất kho NVL thành công'}
             </span>
           )}
-          {!saveSuccess && nvlExported && (
+          {retractSuccess && (
+            <span style={{ fontSize: 12, color: '#ea580c', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <i className="pi pi-check-circle" />Thu hồi NVL thành công
+            </span>
+          )}
+          {!saveSuccess && !retractSuccess && nvlExported && (
             <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
               <i className="pi pi-check-circle" />NVL đã xuất kho
             </span>
@@ -807,7 +1112,7 @@ export function ProductionStep1Page() {
             label="Xem lưu đồ NVL"
             icon="pi pi-sitemap"
             className="p-button-outlined p-button-secondary"
-            style={{ fontSize: 12, fontWeight: 700 }}
+            style={buttonSecondaryStyle}
             disabled={!orderId}
             onClick={() => setShowFlowModal(true)}
           />
@@ -818,17 +1123,25 @@ export function ProductionStep1Page() {
                 icon="pi pi-pencil"
                 loading={savingDraft}
                 disabled={isLocked}
-                className="p-button-outlined p-button-secondary"
-                style={{ fontSize: 12, fontWeight: 700 }}
+                className="p-button-outlined"
+                style={buttonBlueOutlinedStyle}
                 onClick={handleSaveDraft}
+              />
+              <Button
+                label="Tạo định mức tự động"
+                icon="pi pi-bolt"
+                className="p-button-outlined p-button-secondary"
+                style={buttonSecondaryStyle}
+                disabled={isLocked}
+                onClick={() => { void handleOpenAutoBomDialog() }}
               />
               <Button
                 label={nvlExported ? 'Xuất thêm NVL' : 'Lưu xuất NVL'}
                 icon={nvlExported ? 'pi pi-plus' : 'pi pi-save'}
                 loading={savingLines}
                 disabled={isLocked}
-                className="p-button-outlined p-button-success"
-                style={{ fontSize: 12, fontWeight: 700 }}
+                className="p-button-outlined"
+                style={buttonBlueOutlinedStyle}
                 onClick={handleSaveLines}
               />
               <Button
@@ -836,7 +1149,7 @@ export function ProductionStep1Page() {
                 icon="pi pi-file-word"
                 disabled={!order}
                 className="p-button-outlined p-button-secondary"
-                style={{ fontSize: 12, fontWeight: 700 }}
+                style={buttonSecondaryStyle}
                 onClick={async () => {
                   if (!order) return
                   setSelectedClassCode(new Set())
@@ -852,13 +1165,23 @@ export function ProductionStep1Page() {
                   }
                 }}
               />
+              {nvlExported && !isLocked && (
+                <Button
+                  label="Thu hồi NVL"
+                  icon="pi pi-undo"
+                  loading={retracting}
+                  className="p-button-outlined p-button-warning"
+                  style={buttonSecondaryStyle}
+                  onClick={handleRetractNvl}
+                />
+              )}
               <Button
                 label="Tiếp theo: Nhập BTP"
                 icon="pi pi-arrow-right"
                 iconPos="right"
                 disabled={isLocked}
                 className="p-button-primary"
-                style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
+                style={buttonPrimaryStyle}
                 onClick={async () => {
                   if (orderId && order && order.currentStep < 2) {
                     try { await advanceProductionStep(orderId) } catch { /* ignore */ }
@@ -874,7 +1197,7 @@ export function ProductionStep1Page() {
               iconPos="right"
               loading={saving}
               className="p-button-primary"
-              style={{ background: '#5269e0', border: 'none', fontWeight: 700, fontSize: 13, padding: '8px 20px' }}
+              style={buttonPrimaryStyle}
               onClick={handleCreate}
             />
           )}
@@ -882,6 +1205,152 @@ export function ProductionStep1Page() {
       </div>
 
       {/* ── Export classification dialog ─────────────────────────────── */}
+      <Dialog
+        header="Tạo định mức tự động từ Bước 1"
+        visible={showAutoBomDialog}
+        style={{ width: 'min(1100px, 96vw)' }}
+        onHide={() => { if (!autoBomSaving) setShowAutoBomDialog(false) }}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+              Quy mô mẻ dùng để quy đổi các dòng vật tư theo 1 đơn vị sản phẩm đầu ra.
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Button
+                label="Hủy"
+                icon="pi pi-times"
+                className="p-button-outlined p-button-secondary"
+                disabled={autoBomSaving}
+                style={buttonSecondaryStyle}
+                onClick={() => setShowAutoBomDialog(false)}
+              />
+              <Button
+                label={autoBomSaving ? 'Đang lưu...' : 'Lưu định mức'}
+                icon="pi pi-save"
+                loading={autoBomSaving}
+                disabled={!autoBomOutputProduct}
+                className="p-button-primary"
+                style={buttonPrimaryStyle}
+                onClick={() => { void handleCreateAutoBom() }}
+              />
+            </div>
+          </div>
+        }
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>TÊN ĐỊNH MỨC</label>
+            <InputText
+              value={autoBomName}
+              onChange={(e) => setAutoBomName(e.target.value)}
+              placeholder="Nhập tên định mức"
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>MÃ ĐỊNH MỨC</label>
+            <InputText
+              value={autoBomCode}
+              onChange={(e) => setAutoBomCode(e.target.value)}
+              placeholder="Để trống để tự sinh"
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>QUY MÔ MẺ</label>
+            <InputNumber
+              value={autoBomBaseQty}
+              onValueChange={(e) => setAutoBomBaseQty(e.value ?? 1)}
+              min={0.001}
+              maxFractionDigits={3}
+              locale="vi-VN"
+              style={{ width: '100%' }}
+              inputStyle={{ width: '100%' }}
+            />
+            <div style={{ marginTop: 4, fontSize: 11, color: '#64748b' }}>
+              Dùng làm mẫu số để tính số lượng vật tư cho 1 {autoBomOutputUnitLabel}.
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, border: `1px solid ${autoBomOutputProduct ? '#bfdbfe' : '#fecaca'}`, background: autoBomOutputProduct ? '#eff6ff' : '#fef2f2' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: '#334155' }}>SẢN PHẨM ĐẦU RA</div>
+          {autoBomOutputProduct ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+              <span style={{ fontWeight: 700, color: '#1d4ed8' }}>{autoBomOutputProduct.code}</span>
+              <span style={{ color: '#334155' }}>{autoBomOutputProduct.name}</span>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 12,
+                background: autoBomOutputProduct.outputType === 'finished' ? '#dcfce7' : '#fef9c3',
+                color: autoBomOutputProduct.outputType === 'finished' ? '#15803d' : '#a16207',
+              }}>
+                {autoBomOutputProduct.outputType === 'finished' ? 'Thành phẩm' : 'Bán thành phẩm'}
+              </span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#b91c1c' }}>
+              Chưa chọn sản phẩm đầu ra. Định mức sẽ lưu không gắn sản phẩm đầu ra.
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>GHI CHÚ</label>
+          <InputTextarea
+            value={autoBomNotes}
+            onChange={(e) => setAutoBomNotes(e.target.value)}
+            rows={2}
+            autoResize
+            style={{ width: '100%' }}
+            placeholder="Ghi chú cho định mức mới"
+          />
+        </div>
+
+        <DataTable
+          value={autoBomRows}
+          dataKey="key"
+          responsiveLayout="scroll"
+          size="small"
+          emptyMessage="Không có dòng NVL/BTP/TP để tạo định mức"
+        >
+          <Column
+            header="Nhóm"
+            body={(row: AutoBomPreviewRow) => (
+              <span style={{ fontWeight: 700, color: row.previewLineType === 'nvl' ? '#2563eb' : row.previewLineType === 'btp' ? '#0f766e' : '#9333ea' }}>
+                {autoBomLineTypeLabel[row.previewLineType]}
+              </span>
+            )}
+            style={{ width: 90 }}
+          />
+          <Column field="materialCode" header="Mã" style={{ width: 140 }} />
+          <Column field="materialName" header="Tên NVL/BTP/TP" />
+          <Column field="materialUnit" header="ĐVT" style={{ width: 90 }} />
+          <Column
+            header="SL kế hoạch"
+            body={(row: AutoBomPreviewRow) => formatQuantity(row.sourceQty)}
+            style={{ width: 130, textAlign: 'right' }}
+          />
+          <Column
+            header={`SL / ${autoBomOutputUnitLabel}`}
+            body={(row: AutoBomPreviewRow) => (
+              <InputNumber
+                value={row.qtyPerBase}
+                onValueChange={(e) => updateAutoBomRowQtyPerBase(row.key, e.value ?? null)}
+                min={0}
+                maxFractionDigits={3}
+                locale="vi-VN"
+                style={{ width: '100%' }}
+                inputStyle={{ width: '100%' }}
+              />
+            )}
+            style={{ width: 160 }}
+          />
+        </DataTable>
+      </Dialog>
+
       <Dialog
         header="Xuất Phiếu Yêu Cầu NVL"
         visible={showExportDialog}
@@ -892,8 +1361,9 @@ export function ProductionStep1Page() {
             <Button
               label="Hủy"
               icon="pi pi-times"
-              className="p-button-text"
+              className="p-button-outlined p-button-secondary"
               disabled={exporting}
+              style={buttonSecondaryStyle}
               onClick={() => setShowExportDialog(false)}
             />
             <Button
@@ -901,6 +1371,8 @@ export function ProductionStep1Page() {
               icon="pi pi-file-word"
               loading={exporting}
               disabled={selectedClassCode.size === 0}
+              className="p-button-primary"
+              style={buttonPrimaryStyle}
               onClick={async () => {
                 if (!order || selectedClassCode.size === 0) return
                 const codes = [...selectedClassCode]

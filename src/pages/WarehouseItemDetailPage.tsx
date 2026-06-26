@@ -248,6 +248,8 @@ export function WarehouseItemDetailPage() {
     }
 
     return detail.transactions.filter((tx) => {
+      // Skip cancelled transactions
+      if (tx.isCancelled) return false
       const notes = tx.notes ?? ''
       const auto = notes.match(/Opening stock auto-post from item #(\d+)/i)
       if (auto && pairedItems.has(auto[1])) return false

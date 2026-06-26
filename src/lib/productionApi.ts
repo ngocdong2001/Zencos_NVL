@@ -226,6 +226,12 @@ export async function confirmNvlExport(id: string): Promise<ProductionOrderDetai
   })
 }
 
+export async function retractNvlExport(id: string): Promise<ProductionOrderDetail> {
+  return http<ProductionOrderDetail>(`/api/production-orders/${id}/retract-nvl-export`, {
+    method: 'POST',
+  })
+}
+
 // ─── Lines ────────────────────────────────────────────────────────────────────
 
 export async function fetchProductionOrderLines(

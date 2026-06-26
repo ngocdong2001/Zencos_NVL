@@ -520,6 +520,7 @@ router.get('/items/:id', async (req: Request, res: Response) => {
       notes:           tx.notes ?? '',
       refNo,
       entityName,
+      isCancelled:     tx.isCancelled,
     }
   })
 

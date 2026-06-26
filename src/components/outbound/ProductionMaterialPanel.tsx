@@ -1,7 +1,8 @@
 /**
- * OutboundMaterialPanel
- * Reusable FEFO-based material export panel.
- * Extracted from OutboundPage – used in both OutboundPage and ProductionStep1Page.
+ * ProductionMaterialPanel
+ * Enhanced FEFO-based material panel for Production forms.
+ * Supports both NVL (raw materials) and BTP/TP (semi-finished/finished products).
+ * Allows mixing both types on the same form.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from 'primereact/button'
@@ -17,12 +18,15 @@ import {
   fetchInventoryStock,
   type InventoryStockBatch,
 } from '../../lib/outboundApi'
+import { fetchTpStock, type TpStockLot } from '../../lib/tpOutboundApi'
+import { fetchProductOutputs, type ProductOutput } from '../../lib/productionApi'
 import { safeRandomId } from '../../lib/uuid'
 import { formatQuantity, parseDecimalInput, toEditableNumberString } from '../purchaseOrder/format'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SelectOption = { label: string; value: string }
+type MaterialType = 'nvl' | 'btp_tp'
 
 export type AllocationRow = {
   batchId: string
@@ -40,6 +44,7 @@ export type AllocationRow = {
 
 export type MaterialLine = {
   key: string
+  materialType: MaterialType  // ← NEW: Track whether NVL or BTP/TP
   materialId: string
   materialCode: string
   materialName: string
@@ -58,9 +63,10 @@ export type MaterialLine = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createEmptyLine(): MaterialLine {
+function createEmptyLine(materialType: MaterialType = 'nvl'): MaterialLine {
   return {
     key: safeRandomId(),
+    materialType,
     materialId: '',
     materialCode: '',
     materialName: '',
@@ -114,13 +120,39 @@ function getLineDerived(line: MaterialLine) {
   const stockLoaded = line.stockRows.length > 0
   const allocatedQty = line.allocationRows.reduce((s, r) => s + r.exportQty, 0)
   const shortageQty = Math.max(line.requestedQtyValue - totalStockQty, 0)
-  // Only show shortage when stock data is actually loaded — prevents false "Thiếu" before/after fetch
   const hasShortage = shortageQty > 0 && line.requestedQtyValue > 0 && !line.stockLoading && stockLoaded
   const remainingQty = Math.max(line.requestedQtyValue - allocatedQty, 0)
   const suggestedLots = line.fefoSuggestions.filter(
     (lot) => !line.allocationRows.some((r) => r.batchId === lot.id),
   )
   return { lots, totalStockQty, stockLoaded, allocatedQty, shortageQty, hasShortage, remainingQty, suggestedLots }
+}
+
+// ─── Data Adapters ────────────────────────────────────────────────────────────
+
+/**
+ * Convert TpStockLot (finished product stock) to InventoryStockBatch format
+ * for consistent display across NVL and BTP/TP
+ */
+function adaptTpStockToInventoryFormat(tpLot: TpStockLot): InventoryStockBatch {
+  return {
+    id: `${tpLot.outputProductId}:${tpLot.batchLotNo ?? 'no-lot'}:${tpLot.warehouseLocationId ?? 'no-loc'}`,
+    lotNo: tpLot.batchLotNo ?? '(Không có lô)',
+    invoiceNumber: null,
+    expiryDate: tpLot.batchExpiryDate,
+    currentQtyBase: tpLot.availableQty,
+    manufacturerName: null,
+    supplierName: null,
+    product: {
+      id: tpLot.product?.id ?? tpLot.outputProductId,
+      code: tpLot.product?.code ?? '---',
+      name: tpLot.product?.name ?? '(Chưa xác định)',
+      inciName: null,
+    },
+    location: tpLot.warehouseLocationId
+      ? { id: tpLot.warehouseLocationId, code: '---', name: '(Kho thành phẩm)' }
+      : null,
+  }
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -146,7 +178,7 @@ type Props = {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function OutboundMaterialPanel({ disabled = false, lockExistingLines = false, showMaterialCodeDropdown = false, onLinesChange, initialLines, locationId, locations, asOfDate }: Props) {
+export function ProductionMaterialPanel({ disabled = false, lockExistingLines = false, showMaterialCodeDropdown = false, onLinesChange, initialLines, locationId, locations, asOfDate }: Props) {
   const fefoWrapRef = useRef<HTMLDivElement>(null)
   const fefoPanelRef = useRef<HTMLElement>(null)
   const linesRef = useRef<MaterialLine[]>([])
@@ -154,20 +186,42 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
   const [materialOptions, setMaterialOptions] = useState<SelectOption[]>([])
   const [materialCodeOptions, setMaterialCodeOptions] = useState<SelectOption[]>([])
   const [materials, setMaterials] = useState<MaterialRow[]>([])
-  const [lines, setLines] = useState<MaterialLine[]>(() => initialLines && initialLines.length > 0 ? initialLines : [createEmptyLine()])
+  const [productOutputs, setProductOutputs] = useState<ProductOutput[]>([])
+  
+  const [lines, setLines] = useState<MaterialLine[]>(() => initialLines && initialLines.length > 0 ? initialLines : [createEmptyLine('nvl')])
   const [activeLineIdx, setActiveLineIdx] = useState(0)
-  // Track which line keys were present at initial load — those are locked when lockExistingLines=true
   const lockedLineKeysRef = useRef<Set<string>>(new Set(initialLines?.map(l => l.key) ?? []))
   const [loading, setLoading] = useState(false)
   const [panelError, setPanelError] = useState<string | null>(null)
 
-  // Apply initialLines if provided after mount (e.g. async load)
   const initialLinesRef = useRef(initialLines)
   const hasInitializedRef = useRef(false)
+
+  // Load both materials and product outputs on mount
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    Promise.all([
+      fetchMaterials(),
+      fetchProductOutputs(),
+    ])
+      .then(([matRows, prodRows]) => {
+        if (cancelled) return
+        setMaterials(matRows)
+        setMaterialOptions(matRows.map((r) => ({ value: r.id, label: r.materialName })))
+        setMaterialCodeOptions(matRows.map((r) => ({ value: r.id, label: r.code })))
+        setProductOutputs(prodRows)
+      })
+      .catch(() => {
+        if (!cancelled) setPanelError('Không thể tải danh sách vật liệu.')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Apply initialLines if provided after mount
   useEffect(() => {
     if (!initialLines || initialLines.length === 0) return
-    // Skip only if ALREADY initialized AND still the same reference (prevents re-running on unrelated re-renders)
-    // hasInitializedRef starts false so we always run on first mount, even if sameRef=true
     const sameRef = initialLinesRef.current === initialLines
     if (sameRef && hasInitializedRef.current) return
 
@@ -175,39 +229,40 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     initialLinesRef.current = initialLines
     setLines(initialLines)
     setActiveLineIdx(0)
-    // Refresh locked keys when initial lines are set (e.g. after async load)
     lockedLineKeysRef.current = new Set(initialLines.map(l => l.key))
 
-    // Load stock for each pre-populated line that has a materialId AND locationId but no stock data yet
+    // Load stock for each pre-populated line
     initialLines.forEach((line) => {
       if (!line.materialId || line.stockRows.length > 0) return
       const lineLocId = line.locationId ?? locationId
-      if (!lineLocId) {
-        // console.log('[OutboundPanel] skip stock fetch — no locationId for line', line.materialId)
-        return
-      }
-      // console.log('[OutboundPanel] fetching stock for', line.materialId, 'loc', lineLocId, 'asOfDate', asOfDate)
+      if (!lineLocId) return
+
       setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: true } : l))
-      Promise.all([
-        fetchInventoryStock(line.materialId, lineLocId, asOfDate),
-        fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
-      ])
+      
+      const stockPromises = line.materialType === 'nvl'
+        ? Promise.all([
+            fetchInventoryStock(line.materialId, lineLocId, asOfDate),
+            fetchFefoSuggestions(line.materialId, 6, lineLocId, asOfDate),
+          ])
+        : fetchTpStock(line.materialId).then((tpLots) => {
+            const adapted = tpLots.map(adaptTpStockToInventoryFormat)
+            return [adapted, adapted] as const
+          })
+
+      stockPromises
         .then(([stock, fefo]) => {
-          // console.log('[OutboundPanel] stock result for', line.materialId, '→', stock.length, 'rows')
           setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null } : l))
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err)
-          // console.error('[OutboundPanel] stock fetch failed for', line.materialId, ':', msg)
           setLines((prev) => prev.map((l) => l.key === line.key ? { ...l, stockLoading: false, stockFetchError: msg } : l))
         })
     })
   }, [initialLines])
 
-  // Keep ref in sync with latest lines (used by location/date-change reload effect)
   useEffect(() => { linesRef.current = lines }, [lines])
 
-  // Reload stock when global locationId or asOfDate changes (for lines without per-line location)
+  // Reload stock when global locationId or asOfDate changes
   const prevLocationIdRef = useRef<string | undefined>(undefined)
   const prevAsOfDateRef = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -220,40 +275,32 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     const currentLines = linesRef.current
     currentLines.forEach((line, idx) => {
       if (!line.materialId) return
-      // Only reload lines that haven't set their own per-line location
       if (line.locationId) return
-      // MUST have a fallback location to reload
       if (!locationId) return
       setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: true } : l))
-      void Promise.all([
-        fetchInventoryStock(line.materialId, locationId, asOfDate),
-        fetchFefoSuggestions(line.materialId, 6, locationId, asOfDate),
-      ]).then(([stock, fefo]) => {
-        setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
-      }).catch(() => {
-        setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: false } : l))
-      })
+      
+      const stockPromises = line.materialType === 'nvl'
+        ? Promise.all([
+            fetchInventoryStock(line.materialId, locationId, asOfDate),
+            fetchFefoSuggestions(line.materialId, 6, locationId, asOfDate),
+          ])
+        : fetchTpStock(line.materialId).then((tpLots) => {
+            const adapted = tpLots.map(adaptTpStockToInventoryFormat)
+            return [adapted, adapted] as const
+          })
+
+      stockPromises
+        .then(([stock, fefo]) => {
+          setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false } : l))
+        })
+        .catch(() => {
+          setLines((prev) => prev.map((l, i) => i === idx ? { ...l, stockLoading: false } : l))
+        })
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, asOfDate])
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetchMaterials()
-      .then((rows) => {
-        if (cancelled) return
-        setMaterials(rows)
-        setMaterialOptions(rows.map((r) => ({ value: r.id, label: r.materialName })))
-        setMaterialCodeOptions(rows.map((r) => ({ value: r.id, label: r.code })))
-      })
-      .catch(() => {
-        if (!cancelled) setPanelError('Không thể tải danh sách nguyên liệu.')
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
 
-  // ── JS-based sticky for FEFO panel ──
+  // JS-based sticky for FEFO panel
   useEffect(() => {
     const wrap = fefoWrapRef.current
     const panel = fefoPanelRef.current
@@ -275,15 +322,23 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     }
   }, [])
 
-  // ── Notify parent when lines change ──
+  // Notify parent when lines change
   useEffect(() => {
     onLinesChange?.(lines)
   }, [lines, onLinesChange])
 
-  // ── Derived ──
+  // Derived
   const activeLine = lines[activeLineIdx] ?? lines[0] ?? null
   const activeLineMaterial = useMemo(
-    () => (activeLine ? materials.find((m) => m.id === activeLine.materialId) ?? null : null),
+    () => {
+      if (!activeLine) return null
+      if (activeLine.materialType === 'nvl') {
+        return materials.find((m) => m.id === activeLine.materialId) ?? null
+      } else {
+        // For BTP/TP, treat product info as material for display
+        return { id: activeLine.materialId, code: activeLine.materialCode, materialName: activeLine.materialName, unit: activeLine.materialUnit } as any
+      }
+    },
     [activeLine, materials],
   )
   const activeLineDerived = useMemo(
@@ -292,7 +347,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
   )
   const anyStockLoading = lines.some((l) => l.stockLoading)
 
-  // ── Line management ──
+  // Line management
   const updateLine = (idx: number, updater: (line: MaterialLine) => MaterialLine) => {
     if (disabled) return
     setLines((prev) => prev.map((l, i) => (i === idx ? updater(l) : l)))
@@ -300,7 +355,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
 
   const addLine = () => {
     if (disabled) return
-    setLines((prev) => [...prev, createEmptyLine()])
+    setLines((prev) => [...prev, createEmptyLine('nvl')])
     setActiveLineIdx(lines.length)
   }
 
@@ -315,15 +370,33 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     })
   }
 
+  const handleLineMaterialTypeChange = (idx: number, newType: MaterialType) => {
+    if (disabled) return
+    updateLine(idx, (l) => ({
+      ...createEmptyLine(newType),
+      key: l.key,
+    }))
+    setActiveLineIdx(idx)
+  }
+
   const handleLineMaterialChange = async (idx: number, newMaterialId: string) => {
     if (disabled) return
-    const mat = materials.find((m) => m.id === newMaterialId)
-    const lineLocId = lines[idx]?.locationId ?? locationId
+    const line = lines[idx]
+    if (!line) return
+
+    let mat: any = null
+    if (line.materialType === 'nvl') {
+      mat = materials.find((m) => m.id === newMaterialId)
+    } else {
+      mat = productOutputs.find((p) => p.id === newMaterialId)
+    }
+
+    const lineLocId = line.locationId ?? locationId
     updateLine(idx, (l) => ({
       ...l,
       materialId: newMaterialId,
       materialCode: mat?.code ?? '',
-      materialName: mat?.materialName ?? '',
+      materialName: line.materialType === 'nvl' ? (mat?.materialName ?? '') : (mat?.name ?? ''),
       materialUnit: mat?.unit ?? '',
       requestedQtyValue: 0,
       requestedQtyInput: '',
@@ -335,16 +408,26 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       stockLoading: Boolean(newMaterialId && lineLocId),
     }))
     setActiveLineIdx(idx)
-    if (!newMaterialId || !lineLocId) return // MUST have location before loading stock
+
+    if (!newMaterialId || !lineLocId) return
+
     try {
-      const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(newMaterialId, lineLocId, asOfDate),
-        fetchFefoSuggestions(newMaterialId, 6, lineLocId, asOfDate),
-      ])
+      let stockPromises: Promise<[InventoryStockBatch[], InventoryStockBatch[]]>
+      if (line.materialType === 'nvl') {
+        stockPromises = Promise.all([
+          fetchInventoryStock(newMaterialId, lineLocId, asOfDate),
+          fetchFefoSuggestions(newMaterialId, 6, lineLocId, asOfDate),
+        ])
+      } else {
+        stockPromises = fetchTpStock(newMaterialId).then((tpLots) => {
+          const adapted = tpLots.map(adaptTpStockToInventoryFormat)
+          return [adapted, adapted]
+        })
+      }
+      const [stock, fefo] = await stockPromises
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null }))
     } catch (err: unknown) {
-      const msg = err instanceof Error ? (err as Error).message : String(err)
-      // console.error('[OutboundPanel] stock fetch (material change) failed:', msg)
+      const msg = err instanceof Error ? err.message : String(err)
       updateLine(idx, (l) => ({ ...l, stockLoading: false, stockFetchError: msg }))
     }
   }
@@ -360,16 +443,24 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       fefoSuggestions: [],
       stockLoading: Boolean(l.materialId && newLocationId),
     }))
-    if (!line.materialId || !newLocationId) return // MUST have location before loading stock
+    if (!line.materialId || !newLocationId) return
     try {
-      const [stock, fefo] = await Promise.all([
-        fetchInventoryStock(line.materialId, newLocationId, asOfDate),
-        fetchFefoSuggestions(line.materialId, 6, newLocationId, asOfDate),
-      ])
+      let stockPromises: Promise<[InventoryStockBatch[], InventoryStockBatch[]]>
+      if (line.materialType === 'nvl') {
+        stockPromises = Promise.all([
+          fetchInventoryStock(line.materialId, newLocationId, asOfDate),
+          fetchFefoSuggestions(line.materialId, 6, newLocationId, asOfDate),
+        ])
+      } else {
+        stockPromises = fetchTpStock(line.materialId).then((tpLots) => {
+          const adapted = tpLots.map(adaptTpStockToInventoryFormat)
+          return [adapted, adapted]
+        })
+      }
+      const [stock, fefo] = await stockPromises
       updateLine(idx, (l) => ({ ...l, stockRows: stock, fefoSuggestions: fefo, stockLoading: false, stockFetchError: null }))
     } catch (err: unknown) {
-      const msg = err instanceof Error ? (err as Error).message : String(err)
-      // console.error('[OutboundPanel] stock fetch (location change) failed:', msg)
+      const msg = err instanceof Error ? err.message : String(err)
       updateLine(idx, (l) => ({ ...l, stockLoading: false, stockFetchError: msg }))
     }
   }
@@ -522,10 +613,16 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
     }))
   }
 
-  // ── Render ──
-  // Per-line disabled state: full disabled, OR lockExistingLines for locked keys
+  // Render
   const isLineDisabled = (lineKey: string) =>
     disabled || (lockExistingLines && lockedLineKeysRef.current.has(lineKey))
+
+  // Get material options based on type
+  const getNvlMaterialOptions = () => materialOptions
+  const getBtpTpOptions = () => productOutputs.map(p => ({ 
+    value: p.id, 
+    label: `[${p.outputType === 'finished' ? 'TP' : 'BTP'}] ${p.code} — ${p.name}` 
+  }))
 
   return (
     <div>
@@ -545,7 +642,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
         {/* ── Drill-down flow: one node per material line ── */}
         <div className="ob-drill-flow">
           {lines.map((line, idx) => {
-            const lineMat = materials.find((m) => m.id === line.materialId)
+            const lineMat = activeLineMaterial
             const d = getLineDerived(line)
             const isActive = idx === activeLineIdx
             const isExpanded = Boolean(line.materialId)
@@ -565,8 +662,26 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                   </div>
 
                   <div className="po-drill-node-main">
+                    {/* Material Type Selector */}
+                    <div style={{ marginBottom: 12 }}>
+                      <small style={{ display: 'block', marginBottom: 4, fontSize: 11, color: '#64748b', fontWeight: 600 }}>LOẠI VẬT LIỆU</small>
+                      <Dropdown
+                        value={line.materialType}
+                        options={[
+                          { label: 'Nguyên vật liệu (NVL)', value: 'nvl' },
+                          { label: 'Bán thành phẩm / Thành phẩm (BTP/TP)', value: 'btp_tp' },
+                        ]}
+                        onChange={(e) => handleLineMaterialTypeChange(idx, e.value as MaterialType)}
+                        placeholder="Chọn loại..."
+                        className="ob-drill-dropdown"
+                        disabled={isLineDisabled(line.key)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+
+                    {/* Material Selection Row */}
                     <div className={`ob-drill-mat-row${showMaterialCodeDropdown ? ' ob-drill-mat-row--three' : ''}`}>
-                      {showMaterialCodeDropdown && (
+                      {showMaterialCodeDropdown && line.materialType === 'nvl' && (
                         <div className="ob-drill-mat-select">
                           <Dropdown
                             value={line.materialId}
@@ -584,9 +699,9 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
                       <div className="ob-drill-mat-select">
                         <Dropdown
                           value={line.materialId}
-                          options={materialOptions}
+                          options={line.materialType === 'nvl' ? getNvlMaterialOptions() : getBtpTpOptions()}
                           onChange={(e) => { void handleLineMaterialChange(idx, String(e.value ?? '')) }}
-                          placeholder="Chọn nguyên liệu..."
+                          placeholder={line.materialType === 'nvl' ? 'Chọn nguyên liệu...' : 'Chọn BTP/TP...'}
                           className="ob-drill-dropdown"
                           filter
                           showClear
@@ -737,7 +852,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
 
                     {line.allocationRows.map((row) => {
                       const expTag = calculateExpTag(row.expiryDate)
-                      const lineMaterial = materials.find((m) => m.id === line.materialId)
+                      const lineMaterial = lineMat
                       return (
                         <div key={row.batchId} className="po-drill-branch-item">
                           <div className="ob-drill-branch-lot-row">
@@ -818,7 +933,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
               )}
               <Tag value="Ưu tiên Exp Date" severity="warning" rounded />
               <p className="outbound-fefo-desc">
-                Danh sách lô có hạn dùng gần nhất cho nguyên liệu đang chọn.
+                Danh sách lô có hạn dùng gần nhất cho {activeLine?.materialType === 'nvl' ? 'nguyên liệu' : 'BTP/TP'} đang chọn.
               </p>
             </header>
 
@@ -857,7 +972,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
               })}
 
               {(!activeLineDerived || activeLineDerived.suggestedLots.length === 0) && (
-                <p className="outbound-empty">Chưa có lô gợi ý. Hãy chọn nguyên liệu.</p>
+                <p className="outbound-empty">Chưa có lô gợi ý. Hãy chọn vật liệu.</p>
               )}
             </div>
 
@@ -881,7 +996,7 @@ export function OutboundMaterialPanel({ disabled = false, lockExistingLines = fa
       {/* ── Add line button ── */}
       <div className="outbound-bottom-actions" style={{ paddingBottom: 0 }}>
         <Button
-          label="Thêm nguyên liệu"
+          label="Thêm vật liệu"
           icon="pi pi-plus"
           outlined
           className="outbound-add-line-btn"
